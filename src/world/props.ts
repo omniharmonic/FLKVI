@@ -127,15 +127,37 @@ function kitBikeRack(): Part[] {
   return [{ geo: mergeGeometries(loops.map((l) => { const c = l.clone(); c.rotateY(Math.PI / 2); return c; })), mat: 'galv' }];
 }
 function kitBollard(): Part[] { return [{ geo: mergeGeometries([cyl(0.1, 0.11, 0.95, 12), sph(0.1, 1, 0.5, 1, 0, 0.95)]), mat: 'dark' }]; }
+// Wooden distribution pole: 11 m, crossarm (local X, across the street line) 0.45 m below the top,
+// three pin insulators, two diagonal braces. Local +Z runs along the wire line.
+const POLE_H = 11, ARM_Y = POLE_H - 0.45;
 function kitUtilityPole(): Part[] {
-  const pole = cyl(0.13, 0.18, 11.5, 10);
-  const cross = box(2.4, 0.1, 0.1, 0, 10.6, 0);
+  const pole = cyl(0.12, 0.17, POLE_H, 10);
+  const cross = box(2.44, 0.1, 0.09, 0, ARM_Y, 0);
+  const braces: THREE.BufferGeometry[] = [];
+  for (const s of [-1, 1]) { const b = new THREE.BoxGeometry(0.05, 0.85, 0.04); b.rotateZ(s * 0.95); b.translate(s * 0.34, ARM_Y - 0.25, 0.07); braces.push(b); }
   const ins: THREE.BufferGeometry[] = [];
-  for (const x of [-1.05, 0, 1.05]) ins.push(cyl(0.035, 0.045, 0.18, 6, 10.7, x));
-  const xf = cyl(0.25, 0.25, 0.8, 12, 8.9, 0, 0.35);
-  return [{ geo: mergeGeometries([pole, cross]), mat: 'wood' }, { geo: mergeGeometries([...ins]), mat: 'concrete' }, { geo: xf, mat: 'alu' }];
+  for (const x of [-1.05, 0.28, 1.05]) ins.push(cyl(0.035, 0.05, 0.2, 6, ARM_Y + 0.1, x));
+  return [{ geo: mergeGeometries([pole, cross]), mat: 'wood' }, { geo: mergeGeometries(braces), mat: 'galv' }, { geo: mergeGeometries(ins), mat: 'concrete' }];
 }
-export const WIRE_ATTACH = [[-1.05, 10.88], [0, 10.88], [1.05, 10.88], [0.25, 7.2]];
+/** Conductor attachment points (local x, y) on the crossarm insulators. */
+export const WIRE_ATTACH = [[-1.05, ARM_Y + 0.3], [0.28, ARM_Y + 0.3], [1.05, ARM_Y + 0.3]];
+function kitPoleTransformer(): Part[] {
+  // pole-mount can transformer on the -Z face, below the crossarm
+  const can = cyl(0.28, 0.28, 1.0, 14, ARM_Y - 2.4, 0, -0.42);
+  const lid = sph(0.28, 1, 0.3, 1, 0, ARM_Y - 1.4, -0.42, 12);
+  const bracket = box(0.1, 0.5, 0.2, 0, ARM_Y - 2.1, -0.16);
+  const bush = cyl(0.04, 0.05, 0.22, 6, ARM_Y - 1.36, 0, -0.42);
+  return [{ geo: mergeGeometries([can, lid]), mat: 'galv' }, { geo: mergeGeometries([bracket, bush]), mat: 'dark' }];
+}
+/** Residential street-light arm bolted to the pole (local +X toward the street). */
+function kitPoleLamp(): Part[] {
+  const arm = new THREE.CylinderGeometry(0.035, 0.045, 1.9, 6); arm.rotateZ(Math.PI / 2 - 0.15); arm.translate(0.95, POLE_LAMP_Y, 0);
+  const head = sph(1, 0.34, 0.11, 0.18, 1.95, POLE_LAMP_Y + 0.14, 0, 10);
+  const lens = sph(1, 0.24, 0.04, 0.13, 2.0, POLE_LAMP_Y + 0.06, 0, 8);
+  return [{ geo: arm, mat: 'galv' }, { geo: head, mat: 'galv' }, { geo: lens, mat: 'lamp' }];
+}
+const POLE_LAMP_Y = 7.6;
+const POLE_LAMP_OFFSET = new THREE.Vector3(2.0, POLE_LAMP_Y + 0.02, 0);
 function kitMailbox(): Part[] {
   const body = box(0.46, 0.75, 0.5, 0, 0.35, 0);
   const top = new THREE.CylinderGeometry(0.23, 0.23, 0.5, 16, 1, false, 0, Math.PI); top.rotateX(Math.PI / 2); top.rotateZ(Math.PI / 2); top.translate(0, 1.1, 0);
@@ -229,6 +251,8 @@ export class PropSystem {
       bikeRack: new KitInstances('bikeRack', kitBikeRack()),
       bollard: new KitInstances('bollard', kitBollard()),
       utility: new KitInstances('utility', kitUtilityPole()),
+      utilityXf: new KitInstances('utilityXf', kitPoleTransformer()),
+      utilityLamp: new KitInstances('utilityLamp', kitPoleLamp()),
       mailbox: new KitInstances('mailbox', kitMailbox()),
       news: new KitInstances('news', kitNewsBox()),
       meter: new KitInstances('meter', kitMeter()),
@@ -238,7 +262,10 @@ export class PropSystem {
     const lights: { p: Vec2; dir: Vec2 }[] = [];
     const stopProps: RecipeProp[] = [];
     const R0 = rng(1234);
-    const faceRoad = (p: Vec2, rot: number) => { const d = this.towardRoad(p, 18); return d ? this.yawFace(d[0], d[1]) : rot; };
+    // recipe rot is a compass heading (0 = faces -Z, clockwise) → kit yaw (local +Z toward (sin, cos)): yaw = π − rot
+    const rotYaw = (rot: number) => Math.PI - rot;
+    const rotDir = (rot: number): Vec2 => [Math.sin(rot), -Math.cos(rot)];
+    const faceRoad = (p: Vec2, rot: number) => { const d = this.towardRoad(p, 18); return d ? this.yawFace(d[0], d[1]) : rotYaw(rot); };
 
     const sp = R.spawn.p;
     for (const pr of R.props) {
@@ -246,13 +273,13 @@ export class PropSystem {
       if (pr.type !== 'fence' && pr.type !== 'hedge' && Math.hypot(x - sp[0], z - sp[1]) < 3) continue;
       const y = this.groundAt(x, z);
       switch (pr.type) {
-        case 'streetlight': { const d = this.towardRoad(pr.p, 25) ?? [Math.cos(pr.rot), Math.sin(pr.rot)]; lights.push({ p: pr.p, dir: d }); break; }
+        case 'streetlight': { const d = this.towardRoad(pr.p, 25) ?? rotDir(pr.rot); lights.push({ p: pr.p, dir: d }); break; }
         case 'stop-sign': stopProps.push(pr); break;
         case 'hydrant': kits.hydrant.add(this.mat(x, y, z, R0() * 6.28)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.18, h: 0.8 }); break;
         case 'bench': { const yaw = faceRoad(pr.p, pr.rot); kits.bench.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 0.9, hy: 0.4, hz: 0.3, rot: yaw }); break; }
         case 'trash-can': kits.trash.add(this.mat(x, y, z, R0() * 6.28)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.32, h: 1 }); break;
         case 'bus-stop': { const yaw = faceRoad(pr.p, pr.rot); kits.busStop.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 2.0, hy: 1.3, hz: 0.1, rot: yaw }); break; }
-        case 'bike-rack': { const d = this.towardRoad(pr.p, 18); const yaw = d ? this.yawFace(d[0], d[1]) + Math.PI / 2 : pr.rot; kits.bikeRack.add(this.mat(x, y, z, yaw)); break; }
+        case 'bike-rack': { const d = this.towardRoad(pr.p, 18); const yaw = d ? this.yawFace(d[0], d[1]) + Math.PI / 2 : rotYaw(pr.rot); kits.bikeRack.add(this.mat(x, y, z, yaw)); break; }
         case 'bollard': kits.bollard.add(this.mat(x, y, z, 0)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.12, h: 1 }); break;
         case 'utility-pole': poles.push(new THREE.Vector3(x, y, z)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.17, h: 11 }); break;
         case 'mailbox': kits.mailbox.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;
@@ -366,14 +393,8 @@ export class PropSystem {
       this.colliders.push({ kind: 'cyl', x: p[0], y, z: p[1], r: 0.05, h: 2.4 });
       stopPts.push(p);
     };
-    for (const sp of stopProps) {
-      const h = this.roads.nearestChain(sp.p, 25);
-      if (!h) { placeStop(sp.p, [Math.sin(sp.rot), Math.cos(sp.rot)]); continue; }
-      const q = sampleAt(h.c.pts, h.c.L, h.s);
-      // face the traffic approaching the nearer chain end
-      const toEnd = h.s > h.c.len / 2;
-      placeStop(sp.p, toEnd ? [-q.dx, -q.dz] : [q.dx, q.dz]);
-    }
+    // compiler stop signs carry the exact approach heading (sign faces oncoming traffic on its leg)
+    for (const sp of stopProps) placeStop(sp.p, rotDir(sp.rot));
     for (const J of this.roads.junctions.values()) {
       if (!J.stop || J.signal || J.arms.length < 3) continue;
       for (const A of J.arms) {
@@ -386,11 +407,13 @@ export class PropSystem {
       }
     }
 
+    // utility poles are oriented from their wire runs (and may carry a lamp arm) → place before building kits
+    this.buildWires(poles, kits);
     for (const k of Object.values(kits)) k.build(this.group, M);
     // perf: city-wide instanced furniture draws only the instances near the camera (small props
     // vanish below a pixel long before 150 m; lamps/signals stay out to ~450 m for the night skyline)
     for (const k of Object.values(kits)) {
-      const dist = /^(streetlight|signalPole|mastArm|signalHead|utility)$/.test(k.name) ? 450 : k.name === 'busStop' ? 240 : 160;
+      const dist = /^(streetlight|signalPole|mastArm|signalHead|utility|utilityXf|utilityLamp)$/.test(k.name) ? 450 : k.name === 'busStop' ? 240 : 160;
       for (const im of k.meshes) {
         const n = im.count, src = im.instanceMatrix.array as Float32Array;
         const all = src.slice(0, n * 16), xs = new Float32Array(n), zs = new Float32Array(n);
@@ -402,7 +425,6 @@ export class PropSystem {
     this.buildManholes(manholes);
     this.buildHedges(hedges);
     this.buildFences(fences);
-    this.buildWires(poles, kits.utility);
     this.buildNightLights();
   }
 
@@ -486,50 +508,106 @@ export class PropSystem {
     if (posts.length) { const m = new THREE.Mesh(mergeGeometries(posts), this.M.galv); m.name = 'fence_posts'; m.castShadow = true; this.group.add(m); }
   }
 
-  private buildWires(poles: THREE.Vector3[], kit: KitInstances) {
+  /**
+   * Utility poles + overhead conductors. Each pole is assigned to its street run (nearest road chain + side);
+   * wires only join consecutive poles of the same run, ≤ MAX_SPAN apart, with no building footprint under the
+   * span. Poles away from any street link to their nearest clear neighbour. Crossarms sit across the run.
+   */
+  private buildWires(poles: THREE.Vector3[], kits: Record<string, KitInstances>) {
     if (!poles.length) return;
-    // link each pole to its nearest neighbours (≤ 2, within 75 m) forming chains
-    const links = new Set<string>();
-    const pairs: [number, number][] = [];
-    poles.forEach((p, i) => {
-      const cand = poles.map((q, j) => ({ j, d: j === i ? Infinity : Math.hypot(q.x - p.x, q.z - p.z) })).filter((c) => c.d < 75).sort((a, b) => a.d - b.d).slice(0, 2);
-      for (const c of cand) { const k = i < c.j ? `${i}_${c.j}` : `${c.j}_${i}`; if (!links.has(k)) { links.add(k); pairs.push([i, c.j]); } }
+    const MAX_SPAN = 45, FREE_SPAN = 38;
+    const RES = /^(residential|unclassified|living_street)$/;
+    const info = poles.map((p) => {
+      const h = this.roads.nearestChain([p.x, p.z], 30);
+      if (!h) return { key: '', s: 0, t: null as Vec2 | null, toRoad: null as Vec2 | null, resid: false };
+      const q = sampleAt(h.c.pts, h.c.L, h.s);
+      const dx = q.x - p.x, dz = q.z - p.z, l = Math.hypot(dx, dz) || 1;
+      return { key: `${h.c.idx}:${Math.sign(h.off) || 1}`, s: h.s, t: [q.dx, q.dz] as Vec2, toRoad: [dx / l, dz / l] as Vec2, resid: RES.test(h.c.cls) };
     });
-    // crossarm orientation perpendicular to average link direction
-    const dirs = poles.map(() => new THREE.Vector2());
+    // span must stay clear of buildings (wires at ~10.8 m: any footprint under them reads as clipping)
+    const clear = (a: THREE.Vector3, b: THREE.Vector3) => {
+      const L = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(L / 1.5);
+      for (let k = 1; k < n; k++) { const t = k / n; if (this.inBuilding(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)) return false; }
+      return true;
+    };
+    const span = (a: number, b: number) => Math.hypot(poles[a].x - poles[b].x, poles[a].z - poles[b].z);
+    const pairs: [number, number][] = [];
+    const degree = new Array(poles.length).fill(0);
+    const runs = new Map<string, number[]>();
+    info.forEach((f, i) => { if (f.key) (runs.get(f.key) ?? runs.set(f.key, []).get(f.key)!).push(i); });
+    for (const ids of runs.values()) {
+      ids.sort((a, b) => info[a].s - info[b].s);
+      for (let k = 0; k + 1 < ids.length; k++) {
+        const a = ids[k], b = ids[k + 1], d = span(a, b);
+        if (d < 4 || d > MAX_SPAN || !clear(poles[a], poles[b])) continue;
+        pairs.push([a, b]); degree[a]++; degree[b]++;
+      }
+    }
+    // off-street poles (alleys/back lots without a mapped road): nearest clear neighbour, ≤ 2 links
+    const linked = new Set(pairs.map(([a, b]) => `${a}_${b}`));
+    info.forEach((f, i) => {
+      if (f.key) return;
+      const cand = poles.map((_, j) => ({ j, d: j === i ? Infinity : span(i, j) })).filter((c) => c.d > 4 && c.d < FREE_SPAN).sort((a, b) => a.d - b.d);
+      for (const c of cand) {
+        if (degree[i] >= 2) break;
+        if (degree[c.j] >= 2) continue;
+        const k = i < c.j ? `${i}_${c.j}` : `${c.j}_${i}`;
+        if (linked.has(k) || !clear(poles[i], poles[c.j])) continue;
+        linked.add(k); pairs.push([i, c.j]); degree[i]++; degree[c.j]++;
+      }
+    });
+    // crossarm orientation: local +Z along the wire line (street tangent), consistently signed per run
+    const dirs = poles.map((_, i) => new THREE.Vector2(...(info[i].t ?? [0, 0])).multiplyScalar(0.01));
     for (const [a, b] of pairs) {
       const d = new THREE.Vector2(poles[b].x - poles[a].x, poles[b].z - poles[a].z).normalize();
-      if (dirs[a].dot(d) < 0) dirs[a].sub(d); else dirs[a].add(d);
-      if (dirs[b].dot(d) < 0) dirs[b].sub(d); else dirs[b].add(d);
+      for (const i of [a, b]) { if (dirs[i].dot(d) < 0) dirs[i].sub(d); else dirs[i].add(d); }
     }
-    const yaws = dirs.map((d) => (d.lengthSq() < 1e-6 ? 0 : Math.atan2(d.x, d.y))); // local +Z along the line → crossarm (local X) perpendicular
-    poles.forEach((p, i) => kit.add(this.mat(p.x, p.y, p.z, yaws[i])));
+    const yaws = dirs.map((d) => (d.lengthSq() < 1e-8 ? 0 : Math.atan2(d.x, d.y)));
+    const H = (i: number) => { let h = (i * 2654435761) >>> 0; h ^= h >>> 15; return (h % 1000) / 1000; };
+    poles.forEach((p, i) => {
+      kits.utility.add(this.mat(p.x, p.y, p.z, yaws[i]));
+      // pole-top transformer on roughly one pole in four that carries wires
+      if (degree[i] > 0 && H(i) < 0.27) kits.utilityXf.add(this.mat(p.x, p.y, p.z, yaws[i]));
+      // residential: cobra-head arm bolted to some poles where no dedicated streetlight is close
+      const f = info[i];
+      if (f.resid && f.toRoad && H(i + 7919) < 0.5) {
+        let lit = false;
+        this.lampGrid.query(p.x, p.z, 22, (k) => { if (Math.hypot(this.lamps[k].x - p.x, this.lamps[k].z - p.z) < 22) lit = true; });
+        if (!lit) {
+          const m = this.mat(p.x, p.y, p.z, Math.atan2(-f.toRoad[1], f.toRoad[0]));
+          kits.utilityLamp.add(m);
+          const lp = POLE_LAMP_OFFSET.clone().applyMatrix4(m);
+          this.lampGrid.add(lp.x, lp.z, this.lamps.length);
+          this.lamps.push(lp);
+        }
+      }
+    });
     const pts: number[] = [];
     const att = (i: number, k: number) => {
-      const p = poles[i], [ax, ay] = WIRE_ATTACH[k];
-      const yaw = yaws[i];
+      const p = poles[i], [ax, ay] = WIRE_ATTACH[k], yaw = yaws[i];
       return new THREE.Vector3(p.x + Math.cos(yaw) * ax, p.y + ay, p.z - Math.sin(yaw) * ax);
     };
     for (const [a, b] of pairs) {
-      for (let k = 0; k < WIRE_ATTACH.length; k++) {
-        let A = att(a, k), Bv = att(b, k);
-        // avoid crossing: pair outer conductors by side
-        if (k === 0 || k === 2) {
-          const alt = att(b, 2 - k);
-          if (alt.distanceTo(A) < Bv.distanceTo(A)) Bv = alt;
-        }
-        const span = A.distanceTo(Bv), sag = span * 0.028 + 0.15;
-        const N = 12;
+      // pair conductors by lateral order so they never cross, even if the two crossarms face opposite ways
+      const A = [0, 1, 2].map((k) => att(a, k)), B = [0, 1, 2].map((k) => att(b, k));
+      const straight = A[0].distanceTo(B[0]) + A[2].distanceTo(B[2]) <= A[0].distanceTo(B[2]) + A[2].distanceTo(B[0]);
+      const mapK = straight ? [0, 1, 2] : [2, 1, 0];
+      for (let k = 0; k < 3; k++) {
+        const P0 = A[k], P1 = B[mapK[k]];
+        const L = P0.distanceTo(P1), sag = L * 0.015 + 0.04; // ~1.5 % of span
+        const N = Math.max(4, Math.ceil(L / 4));
         for (let s = 0; s < N; s++) {
           const t0 = s / N, t1 = (s + 1) / N;
-          const p0 = A.clone().lerp(Bv, t0), p1 = A.clone().lerp(Bv, t1);
+          const p0 = P0.clone().lerp(P1, t0), p1 = P0.clone().lerp(P1, t1);
           p0.y -= sag * 4 * t0 * (1 - t0); p1.y -= sag * 4 * t1 * (1 - t1);
           pts.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z);
         }
       }
     }
+    if (!pts.length) return;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    g.computeBoundingSphere();
     const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0.85 }));
     lines.name = 'wires';
     this.group.add(lines);
