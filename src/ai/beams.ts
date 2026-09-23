@@ -36,7 +36,7 @@ void main() {
   #include <logdepthbuf_fragment>
   float t = 1.0 - vUv.y;               // 0 at the lamp, 1 at the ground
   float edge = pow(abs(dot(normalize(vN), normalize(vV))), 2.6); // soft silhouette, bright core
-  float along = smoothstep(0.0, 0.04, t) * mix(1.0, 0.28, pow(t, falloff));
+  float along = smoothstep(0.0, 0.12, t) * mix(1.0, 0.28, pow(t, falloff));
   float a = intensity * edge * along;
   gl_FragColor = vec4(color * a, a);
 }`;

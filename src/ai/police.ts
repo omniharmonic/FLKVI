@@ -127,7 +127,7 @@ class Unit {
 interface Roadblock { node: number; cars: Car[]; officers: Officer[]; born: number }
 
 // officer flashlights (shared geometry/materials; only visible at night)
-const FLASH_BEAM_MAT = makeBeamMaterial('#fff3d6', 0.22, 0.6);
+const FLASH_BEAM_MAT = makeBeamMaterial('#fff3d6', 0.14, 0.6);
 const FLASH_POOL_MAT = makePoolMaterial('#fff0d0', 0.35);
 const flashlights = new WeakMap<Character, THREE.Group>();
 function flashlightFor(ch: Character): THREE.Group {
@@ -920,8 +920,15 @@ export class PoliceSystem {
         const recent = g.elapsed - o.seenT < 4 || g.elapsed - this.lastAnySeen < 2;
         const lk = recent ? [P.x, P.z] : this.heat.lastKnown ?? [P.x, P.z];
         tx = lk[0]; tz = lk[1];
-        const d = Math.hypot(tx - o.x, tz - o.z);
-        speed = d > 1.2 ? T.officerRunSpeed : 0;
+        let d = Math.hypot(tx - o.x, tz - o.z);
+        if (recent && d < 4) {
+          // close in to an arm's-length slot around the suspect (don't pile onto one spot)
+          const k = this.officers.indexOf(o);
+          const a = headingOf(o.x - P.x, o.z - P.z) + ((k % 3) - 1) * 0.25;
+          tx = P.x + Math.sin(a) * 1.15; tz = P.z - Math.cos(a) * 1.15;
+          d = Math.hypot(tx - o.x, tz - o.z);
+        }
+        speed = d > 0.35 ? (d > 3 ? T.officerRunSpeed : 2.4) : 0;
         if (recent && g.elapsed - o.seenT < 0.3 && d < 30) this.shout(o);
         if (!recent && d < 3) { o.state = o.unit?.mode === 'search' ? 'look' : 'return'; o.gx = o.x; o.gz = o.z; }
         if (P.inVehicle && o.unit) o.state = 'return';
@@ -1002,6 +1009,12 @@ export class PoliceSystem {
       this.moveOfficer(o, want, speed, dt);
     } else if (P.ok && (o.state === 'chase' || o.state === 'surround' || o.state === 'guard')) {
       want = headingOf(P.x - o.x, P.z - o.z);
+    }
+    // personal space between officers
+    for (const q of this.officers) {
+      if (q === o) continue;
+      const dx = o.x - q.x, dz = o.z - q.z, d2 = dx * dx + dz * dz;
+      if (d2 < 0.64 && d2 > 1e-6) { const d = Math.sqrt(d2), push = (0.8 - d) * 0.5; o.x += (dx / d) * push; o.z += (dz / d) * push; }
     }
     const dh = angleDiff(want, o.h);
     o.h += Math.sign(dh) * Math.min(Math.abs(dh), 8 * dt);

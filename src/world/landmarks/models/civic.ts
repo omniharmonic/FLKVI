@@ -14,12 +14,12 @@ const glass = () => flatMat('#1d2327', 0.12, 0.6, null, { envMapIntensity: 1.2 }
 // window strips between pilasters and a five-story central tower block with stepped Art Deco top.
 export function boulderCourthouse(ctx: LandmarkCtx) {
   const kit = new Kit({
-    stone: stoneMat('sandstone', { tint: '#e9d4b2', uvScale: 0.8 }, { strength: 0.6, falloff: 12 }),
+    stone: stoneMat('sandstone', { tint: '#fff0d8', uvScale: 0.8 }, { strength: 0.6, falloff: 12 }),
     base: stoneMat('stone', { tint: '#b3a58f' }, { strength: 0.5 }),
     glass: glass(),
     spandrel: flatMat('#4a4038', 0.6, 0.3),
-    lit: lampMat('#2a2c2c', '#ffcf8a', 0, 0.55, ctx.lamps, 0.2),
-    clock: lampMat('#efe8d6', '#fff2d0', 0, 1.6, ctx.lamps, 0.5),
+    lit: lampMat('#2a2c2c', '#ffcf8a', 0, 0.33, ctx.lamps, 0.12, 0.7),
+    clock: lampMat('#efe8d6', '#fff2d0', 0, 0.8, ctx.lamps, 0.5),
     metal: flatMat('#2c2a27', 0.45, 0.8),
   });
   const poly = ctx.polys[0];
@@ -85,7 +85,7 @@ export function savannahCityHall(ctx: LandmarkCtx) {
     base: stoneMat('stone', { tint: '#b9b2a4', uvScale: 0.5 }, { strength: 0.6 }),
     gold: flatMat('#e7b454', 0.26, 1, { color: '#ffd9a0', strength: 0.55, falloff: 30, top: 0.6 }, { envMapIntensity: 1.4 }),
     copper: flatMat('#6f9c86', 0.55, 0.5),
-    lit: lampMat('#23282b', '#ffd49a', 0, 0.6, ctx.lamps, 0.15),
+    lit: lampMat('#23282b', '#ffd49a', 0, 0.36, ctx.lamps, 0.12, 0.7),
     dark: flatMat('#2a2724', 0.7, 0.1),
   });
   const W = Math.min(ctx.W, 34), D = Math.min(ctx.D, 34);
@@ -152,7 +152,7 @@ export function phoenixCityHall(ctx: LandmarkCtx) {
     wall: stoneMat('stucco', { tint: '#e3c9a6', uvScale: 0.8 }, { strength: 0.55, falloff: 14 }),
     trim: stoneMat('sandstone', { tint: '#d9b48a' }, { strength: 0.5 }),
     tile: stoneMat('roof-clay-tile', { tint: '#c2714e' }, null),
-    lit: lampMat('#262a2c', '#ffcf90', 0, 0.55, ctx.lamps, 0.15),
+    lit: lampMat('#262a2c', '#ffcf90', 0, 0.33, ctx.lamps, 0.12, 0.7),
     dark: flatMat('#35302a', 0.6, 0.2),
   });
   const hs = ctx.heights ?? [];
@@ -210,7 +210,7 @@ export function texasCapitol(ctx: LandmarkCtx) {
     granite: stoneMat('stone', { tint: '#d8a790', uvScale: 0.25 }, { strength: 0.35, falloff: 40, top: 0.5 }),
     dome: flatMat('#e5d9c3', 0.6, 0.1, { color: '#fff1dc', strength: 1.1, falloff: 200, top: 1 }),
     roof: flatMat('#6f7a74', 0.7, 0.3),
-    lit: lampMat('#2d2f30', '#ffd9a0', 0, 0.5, ctx.lamps, 0.2),
+    lit: lampMat('#2d2f30', '#ffd9a0', 0, 0.3, ctx.lamps, 0.12, 0.7),
   });
   const g = (x: number, z: number) => Math.min(0, ctx.ground(x, z));
   const y0 = Math.min(g(0, 0), g(-80, 0), g(80, 0)) - 2;

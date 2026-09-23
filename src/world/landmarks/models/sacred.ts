@@ -33,8 +33,8 @@ export function stLouisCathedral(ctx: LandmarkCtx) {
     trim: stoneMat('plaster', { tint: '#fbfaf6' }, { color: '#fff3e0', strength: 0.75, falloff: 22, top: 0.45 }),
     slate: stoneMat('roof-slate', { tint: '#7c8288' }, { color: '#dfe6ff', strength: 0.35, falloff: 60, top: 0.7 }),
     door: flatMat('#3b2a1f', 0.7, 0),
-    glass: lampMat('#2a2d33', '#ffc98a', 0, 0.45, ctx.lamps, 0.2),
-    clock: lampMat('#f4efe2', '#fff4da', 0, 1.2, ctx.lamps, 0.5),
+    glass: lampMat('#2a2d33', '#ffc98a', 0, 0.27, ctx.lamps, 0.12, 0.7),
+    clock: lampMat('#f4efe2', '#fff4da', 0, 0.8, ctx.lamps, 0.5),
     iron: flatMat('#1f1f1f', 0.5, 0.7),
   });
   const W = Math.max(22, Math.min(ctx.W, 34)), D = Math.max(40, Math.min(ctx.D, 70));
@@ -140,7 +140,7 @@ export function missionBasilica(ctx: LandmarkCtx) {
     tile: stoneMat('roof-clay-tile', { tint: '#b36746' }, null),
     dome: stoneMat('tiles-terracotta', { tint: '#c07a55' }, { strength: 0.3, falloff: 40, top: 0.6 }),
     door: flatMat('#3a2a1e', 0.7, 0),
-    glass: lampMat('#2b2e33', '#ffc98a', 0, 0.45, ctx.lamps, 0.2),
+    glass: lampMat('#2b2e33', '#ffc98a', 0, 0.27, ctx.lamps, 0.12, 0.7),
     iron: flatMat('#2a2a2a', 0.5, 0.7),
   });
   const W = Math.max(22, Math.min(ctx.W, 32)), D = Math.max(40, Math.min(ctx.D, 62));

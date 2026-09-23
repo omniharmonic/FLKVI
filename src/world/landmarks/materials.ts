@@ -38,7 +38,7 @@ function addFlood(mat: THREE.MeshStandardMaterial, f: FloodOpts) {
         {
           float lmH = max(vLmY, 0.0);
           float lmK = mix(lmTop, 1.0, exp(-lmH / lmFall)) * (1.0 - 0.65 * vLmUp);
-          totalEmissiveRadiance += diffuseColor.rgb * lmFloodColor * (lmFlood * lmNight * lmK);
+          totalEmissiveRadiance += diffuseColor.rgb * lmFloodColor * (0.5 * lmFlood * lmNight * lmK);
         }`);
   };
   mat.customProgramCacheKey = () => 'lm-flood';
@@ -62,8 +62,8 @@ export function flatMat(color: string, roughness: number, metalness = 0, flood: 
 
 /** Self-lit element (lamps, lit windows, clock faces) whose emissive fades in at night. */
 export interface NightLamp { mat: THREE.MeshStandardMaterial; day: number; night: number }
-export function lampMat(color: string, emissive: string, day: number, night: number, lamps: NightLamp[], roughness = 0.4): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness, emissive, emissiveIntensity: day });
+export function lampMat(color: string, emissive: string, day: number, night: number, lamps: NightLamp[], roughness = 0.4, metalness = 0): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity: day });
   mat.name = 'landmark:lamp';
   lamps.push({ mat, day, night });
   return mat;

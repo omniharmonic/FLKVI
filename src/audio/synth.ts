@@ -92,6 +92,18 @@ const defs: Record<string, Def> = {
     chain(lp, pk, sh, out);
     for (const f of [420, 500]) { const o = osc(oc, 'sawtooth', f); chain(o, gain(oc, 0.35), lp); play(o); }
   } },
+  shout: { dur: 0.9, gain: 0.7, build(oc, out) {
+    // Two barked syllables ("STOP!" / "HEY!"): buzzy glottal source through vowel formants, pitch falling.
+    const f1 = filt(oc, 'bandpass', 750, 5); const f2 = filt(oc, 'bandpass', 1250, 6); const f3 = filt(oc, 'bandpass', 2600, 8);
+    const sum = gain(oc, 1); const sh = shaper(oc, 2.2); chain(sum, sh, out);
+    for (const f of [f1, f2, f3]) f.connect(sum);
+    for (const [t, len, p0, p1] of [[0.02, 0.28, 230, 170], [0.42, 0.38, 250, 160]]) {
+      const src = osc(oc, 'sawtooth', p0); src.frequency.setValueAtTime(p0, t); src.frequency.exponentialRampToValueAtTime(p1, t + len);
+      const g = gain(oc, 0); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.9, t + 0.03); g.gain.setTargetAtTime(0.0001, t + len * 0.7, 0.05);
+      chain(src, g); g.connect(f1); g.connect(f2); g.connect(f3); play(src, t, t + len + 0.15);
+      const n = noise(oc, 0.08, 'white', 77 + t * 10); const ng = gain(oc, 0); perc(ng, t, 0.25, 0.002, 0.05); chain(n, filt(oc, 'highpass', 3000), ng, out); play(n, t);
+    }
+  } },
   siren: { dur: 4, loop: true, exact: true, gain: 0.55, build(oc, out) {
     // Wail: integral of f(t) over 4 s = 3800 whole cycles so the loop is phase-continuous.
     const N = 512; const curve = new Float32Array(N);

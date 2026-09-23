@@ -262,12 +262,14 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
     const nv = w * d, nSk = ring.length;
     const P = new Float32Array((nv + nSk) * 3), N = new Float32Array((nv + nSk) * 3), UV = new Float32Array((nv + nSk) * 2);
     P.set(pos); N.set(nrm); UV.set(uv);
-    ring.forEach((v, i) => {
-      const j = nv + i;
+    // (plain loop, not a closure: a closure here would capture pos/P/... into the scope context that the
+    // raycast closure below keeps alive forever — ~25 MB of vertex arrays per city)
+    for (let i = 0; i < nSk; i++) {
+      const v = ring[i], j = nv + i;
       P[j * 3] = pos[v * 3]; P[j * 3 + 1] = pos[v * 3 + 1] - SKIRT; P[j * 3 + 2] = pos[v * 3 + 2];
       N[j * 3] = nrm[v * 3]; N[j * 3 + 1] = nrm[v * 3 + 1]; N[j * 3 + 2] = nrm[v * 3 + 2];
       UV[j * 2] = uv[v * 2]; UV[j * 2 + 1] = uv[v * 2 + 1];
-    });
+    }
     const lodIndex = (step: number) => {
       const idx: number[] = [];
       const cs: number[] = [], rs: number[] = [];

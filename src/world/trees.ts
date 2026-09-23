@@ -39,16 +39,16 @@ const PROFILES: Record<string, Profile> = {
   locust: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xc8d890, barkTint: 0x8a8078, bark: 'lib', leafType: 'ash', foliage: 'fine', tweak: (o) => { o.leaves.size *= 1.2; o.leaves.count = Math.round(o.leaves.count * 1.4); o.branch.angle[1] = 55; } },
   broadleaf: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8c080, barkTint: 0x9a9088, bark: 'lib' },
   oak: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x9cb878, barkTint: 0x8a8278, bark: 'lib', tweak: (o) => { o.branch.children[0] = 8; o.leaves.count = Math.round(o.leaves.count * 1.15); } },
-  maple: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8c47c, barkTint: 0x908a84, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.leaves.size *= 1.1; o.leaves.count = Math.round(o.leaves.count * 1.25); o.branch.angle[1] = 42; } },
-  linden: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xb0c882, barkTint: 0x8a847c, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.4); o.branch.angle[1] = 38; o.branch.start[1] = 0.3; } },
-  pear: { kind: 'ez', preset: 'Oak Small', leafTint: 0x98b870, barkTint: 0x7a746c, bark: 'lib', leafType: 'aspen', leafRough: 0.55, tweak: (o) => { o.branch.angle[1] = 28; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'linden' },
-  ginkgo: { kind: 'ez', preset: 'Aspen Medium', leafTint: 0xc0d088, barkTint: 0x8a8278, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.branch.angle[1] = 40; o.leaves.count = Math.round(o.leaves.count * 1.3); }, fallback: 'linden' },
-  plane: { kind: 'ez', preset: 'Oak Large', leafTint: 0xb4cc84, barkTint: 0xd8d0b0, bark: 'birch', barkRep: [1, 0.35], leafType: 'aspen', tweak: (o) => { o.leaves.size *= 1.1; o.branch.angle[1] = 48; o.leaves.count = Math.round(o.leaves.count * 1.2); } },
-  cottonwood: { kind: 'ez', preset: 'Oak Large', leafTint: 0xc0d48a, barkTint: 0xa8a098, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.branch.angle[1] = 42; } },
+  maple: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8c47c, barkTint: 0x908a84, bark: 'lib', leafType: 'oak', tweak: (o) => { o.leaves.size *= 1.1; o.leaves.count = Math.round(o.leaves.count * 1.25); o.branch.angle[1] = 42; } },
+  linden: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xb0c882, barkTint: 0x8a847c, bark: 'lib', leafType: 'oak', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.4); o.branch.angle[1] = 38; o.branch.start[1] = 0.3; } },
+  pear: { kind: 'ez', preset: 'Oak Small', leafTint: 0x98b870, barkTint: 0x7a746c, bark: 'lib', leafType: 'oak', leafRough: 0.55, tweak: (o) => { o.branch.angle[1] = 28; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'linden' },
+  ginkgo: { kind: 'ez', preset: 'Aspen Medium', leafTint: 0xc0d088, barkTint: 0x8a8278, bark: 'lib', leafType: 'ash', tweak: (o) => { o.branch.angle[1] = 40; o.leaves.count = Math.round(o.leaves.count * 1.3); }, fallback: 'linden' },
+  plane: { kind: 'ez', preset: 'Oak Large', leafTint: 0xb4cc84, barkTint: 0xd8d0b0, bark: 'birch', barkRep: [1, 0.35], leafType: 'oak', tweak: (o) => { o.leaves.size *= 1.1; o.branch.angle[1] = 48; o.leaves.count = Math.round(o.leaves.count * 1.2); } },
+  cottonwood: { kind: 'ez', preset: 'Oak Large', leafTint: 0xc0d48a, barkTint: 0xa8a098, bark: 'lib', leafType: 'oak', tweak: (o) => { o.branch.angle[1] = 42; } },
   ash: { kind: 'ez', preset: 'Ash Large', leafTint: 0xb0cc84, barkTint: 0x989088, bark: 'lib' },
   elm: { kind: 'ez', preset: 'Ash Large', leafTint: 0xa4c07c, barkTint: 0x8a8078, bark: 'lib', leafType: 'oak', tweak: (o) => { o.branch.angle[1] = 30; o.branch.start[1] = 0.28; o.leaves.size *= 0.75; o.leaves.count = Math.round(o.leaves.count * 1.5); } },
   aspen: { kind: 'ez', preset: 'Aspen Medium', leafTint: 0xd0e090, barkTint: 0xffffff, bark: 'birch' },
-  ornamental: { kind: 'ez', preset: 'Oak Small', leafTint: 0xa0bc78, barkTint: 0x6a5a52, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.branch.angle[1] = 62; lowBranch(o, 0.25); }, fallback: 'broadleaf' },
+  ornamental: { kind: 'ez', preset: 'Oak Small', leafTint: 0xa0bc78, barkTint: 0x6a5a52, bark: 'lib', leafType: 'oak', tweak: (o) => { o.branch.angle[1] = 62; lowBranch(o, 0.25); }, fallback: 'broadleaf' },
   eucalyptus: { kind: 'ez', preset: 'Ash Large', leafTint: 0xa8b898, barkTint: 0xe8e0d0, bark: 'birch', leafType: 'ash', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 0.8); o.branch.angle[1] = 32; }, fallback: 'broadleaf' },
   // --- southern
   liveoak: {
@@ -61,17 +61,17 @@ const PROFILES: Record<string, Profile> = {
   },
   magnolia: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x7a9860, barkTint: 0x7a746e, bark: 'lib', leafType: 'aspen', foliage: 'small', leafRough: 0.6, tweak: (o) => { o.branch.angle[1] = 50; lowBranch(o, 0.12); o.leaves.size *= 1.25; o.leaves.count = Math.round(o.leaves.count * 1.5); o.branch.length[1] *= 0.8; }, fallback: 'broadleaf' },
   crape: { kind: 'ez', preset: 'Aspen Small', leafTint: 0x98b474, barkTint: 0xc8a898, bark: 'birch', barkRep: [1, 0.5], leafType: 'oak', foliage: 'small', extra: 'blossom', extraTint: 0xf07ab0, tweak: (o) => { o.branch.angle[1] = 35; lowBranch(o, 0.1); o.branch.children[0] = 6; o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'ornamental' },
-  gumbo: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xa8c47c, barkTint: 0xd89878, bark: 'birch', leafType: 'aspen', tweak: (o) => { o.branch.angle[1] = 60; o.leaves.count = Math.round(o.leaves.count * 0.9); }, fallback: 'broadleaf' },
-  seagrape: { kind: 'ez', preset: 'Oak Small', leafTint: 0x7a9a60, barkTint: 0x7a6a5a, bark: 'lib', leafType: 'aspen', leafRough: 0.5, tweak: (o) => { lowBranch(o, 0.05); o.branch.angle[1] = 70; o.leaves.size *= 1.6; o.leaves.count = Math.round(o.leaves.count * 1.5); }, fallback: 'broadleaf' },
+  gumbo: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xa8c47c, barkTint: 0xd89878, bark: 'birch', leafType: 'oak', tweak: (o) => { o.branch.angle[1] = 60; o.leaves.count = Math.round(o.leaves.count * 0.9); }, fallback: 'broadleaf' },
+  seagrape: { kind: 'ez', preset: 'Oak Small', leafTint: 0x7a9a60, barkTint: 0x7a6a5a, bark: 'lib', leafType: 'oak', leafRough: 0.5, tweak: (o) => { lowBranch(o, 0.05); o.branch.angle[1] = 70; o.leaves.size *= 1.6; o.leaves.count = Math.round(o.leaves.count * 1.5); }, fallback: 'broadleaf' },
   // --- desert
   paloverde: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xd8dca0, barkTint: 0xb8d890, bark: 'birch', barkRep: [1, 0.6], leafType: 'ash', foliage: 'fine', trunkK: 0.02, tweak: (o) => { lowBranch(o, 0.08); o.branch.angle[1] = 62; o.branch.children[0] = 5; o.leaves.size *= 0.95; o.leaves.count = Math.round(o.leaves.count * 3); o.branch.gnarliness[1] = 0.3; } },
   mesquite: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8b080, barkTint: 0x5a4e46, bark: 'lib', leafType: 'ash', foliage: 'fine', trunkK: 0.03, tweak: (o) => { lowBranch(o, 0.1); o.branch.angle[1] = 70; o.branch.gnarliness[0] = 0.2; o.branch.gnarliness[1] = 0.35; o.branch.force.strength = -0.04; o.leaves.size *= 0.95; o.leaves.count = Math.round(o.leaves.count * 3); } },
   desertwillow: { kind: 'ez', preset: 'Aspen Small', leafTint: 0xb0c080, barkTint: 0x8a7a6a, bark: 'lib', leafType: 'ash', foliage: 'fine', tweak: (o) => { lowBranch(o, 0.15); o.branch.angle[1] = 50; o.leaves.size *= 1.1; o.leaves.count = Math.round(o.leaves.count * 1.6); }, fallback: 'mesquite' },
   // --- conifers
-  spruce: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x9fbcc4, barkTint: 0x8a7a6a, bark: 'pine', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.1); o.leaves.size *= 1.05; o.branch.start[1] = 0.1; } },
+  spruce: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x94b0b8, barkTint: 0x8a7a6a, bark: 'pine', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.8); o.leaves.size *= 1.35; o.branch.start[1] = 0.08; o.branch.children[0] = Math.round(o.branch.children[0] * 1.2); } },
   pine: { kind: 'ez', preset: 'Pine Large', leafTint: 0xbcd08c, barkTint: 0xd8a07a, bark: 'pine', tweak: (o) => { o.branch.start[1] = 0.45; o.branch.angle[1] = 100; } },
-  fir: { kind: 'ez', preset: 'Pine Large', leafTint: 0x88a878, barkTint: 0x8a6a5a, bark: 'pine', tweak: (o) => { o.branch.start[1] = 0.2; o.branch.angle[1] = 108; o.branch.length[1] *= 0.75; o.leaves.count = Math.round(o.leaves.count * 1.2); o.branch.force.strength = -0.004; }, fallback: 'spruce' },
-  cedar: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x9ab87c, barkTint: 0x9a6a50, bark: 'willow', tweak: (o) => { o.branch.start[1] = 0.12; o.branch.angle[1] = 118; o.leaves.size *= 1.2; o.leaves.count = Math.round(o.leaves.count * 1.2); o.branch.force.strength = -0.012; }, fallback: 'fir' },
+  fir: { kind: 'ez', preset: 'Pine Large', leafTint: 0x80a070, barkTint: 0x8a6a5a, bark: 'pine', tweak: (o) => { o.branch.start[1] = 0.18; o.branch.angle[1] = 106; o.branch.length[1] *= 0.8; o.leaves.count = Math.round(o.leaves.count * 1.9); o.leaves.size *= 1.4; o.branch.force.strength = -0.004; }, fallback: 'spruce' },
+  cedar: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x90b070, barkTint: 0x9a6a50, bark: 'willow', leafType: 'ash', tweak: (o) => { o.branch.start[1] = 0.1; o.branch.angle[1] = 112; o.leaves.size *= 1.6; o.leaves.count = Math.round(o.leaves.count * 1.6); o.branch.force.strength = -0.012; }, fallback: 'fir' },
   baldcypress: { kind: 'ez', preset: 'Pine Medium', leafTint: 0xb8cc90, barkTint: 0xa08070, bark: 'willow', leafType: 'ash', tweak: (o) => { o.branch.start[1] = 0.25; o.branch.angle[1] = 95; o.leaves.size *= 0.9; }, fallback: 'fir' },
   juniper: { kind: 'ez', preset: 'Pine Small', leafTint: 0x9ab08a, barkTint: 0x8a7a6a, bark: 'pine', fallback: 'spruce' },
   // --- shrubs (ez)
@@ -219,7 +219,7 @@ function vegPatch(mat: THREE.Material, mode: PatchMode) {
           // thin foliage transmits sunlight: bright when looking toward the sun through leaves
           float gtBack = pow(saturate(dot(-geometryViewDir, directLight.direction)), 4.0);
           float gtWrap = saturate(0.5 - 0.5 * dot(geometryNormal, directLight.direction));
-          reflectedLight.directDiffuse += diffuseColor.rgb * directLight.color * uTrans * (0.55 * gtBack + 0.12 * gtWrap) * vec3(1.0, 1.05, 0.7);
+          reflectedLight.directDiffuse += diffuseColor.rgb * directLight.color * uTrans * (0.45 * gtBack + 0.1 * gtWrap) * vec3(0.85, 1.0, 0.62);
         }
         #endif`);
   };

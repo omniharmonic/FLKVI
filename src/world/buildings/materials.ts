@@ -152,7 +152,7 @@ export async function prepareBuildingTextures(timeoutMs = 10000): Promise<void> 
 export function surfaceMaterial(): THREE.MeshStandardMaterial {
   if (surfaceMat) return surfaceMat;
   const R = TEX_RES, N = LAYER_IDS.length;
-  const alb = new Uint8Array(R * R * 4 * N), nrm = new Uint8Array(R * R * 4 * N);
+  let alb: Uint8Array | null = new Uint8Array(R * R * 4 * N), nrm: Uint8Array | null = new Uint8Array(R * R * 4 * N);
   const scale: number[] = [], rough: number[] = [], metal: number[] = [], grime: number[] = [], nstr: number[] = [];
   LAYER_IDS.forEach((id, li) => {
     let a: HTMLCanvasElement | null = null, n: HTMLCanvasElement | null = null;
@@ -184,8 +184,8 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
     const off = li * R * R * 4;
     for (let y = 0; y < R; y++) {
       const src = y * R * 4, dst = off + (R - 1 - y) * R * 4;
-      alb.set(da.subarray(src, src + R * 4), dst);
-      nrm.set(dn.subarray(src, src + R * 4), dst);
+      alb!.set(da.subarray(src, src + R * 4), dst);
+      nrm!.set(dn.subarray(src, src + R * 4), dst);
     }
     scale.push(sizeM); rough.push(rgh); metal.push(mtl); grime.push(GRIME[id] ?? 0); nstr.push(NRM[id] ?? 1);
     layers.set(id, { index: li, base, sizeM, rough: rgh, metal: mtl });
@@ -202,7 +202,10 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
     t.onUpdate = () => { (t.image as { data: Uint8Array | null }).data = null; t.onUpdate = null as unknown as () => void; };
     return t;
   };
-  const texA = mk(alb, true), texN = mk(nrm, false);
+  const texA = mk(alb!, true), texN = mk(nrm!, false);
+  // the forEach closure above context-allocates alb/nrm, and closures created below (onBeforeCompile)
+  // keep that context alive: clear the slots so only the textures own the data (freed after upload)
+  alb = nrm = null;
   clearProcCache(); // procedural canvases were only needed to fill the arrays
   // dummy 1x1 maps so three enables the USE_MAP / USE_NORMALMAP code paths (we swap the samplers)
   const dummy = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);

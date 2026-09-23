@@ -27,6 +27,7 @@ const SPATIAL: Record<string, { ref: number; vol: number; max?: number; rolloff?
   crash: { ref: 8, vol: 1 },
   door: { ref: 3, vol: 0.6 },
   horn: { ref: 10, vol: 0.6, doppler: true },
+  shout: { ref: 6, vol: 0.8 },
   siren: { ref: 18, vol: 0.75, rolloff: 0.9, doppler: true },
   grinder: { ref: 5, vol: 0.8 },
   spray: { ref: 2, vol: 0.45 },
