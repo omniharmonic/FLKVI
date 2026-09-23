@@ -161,6 +161,8 @@ export interface Recipe {
   climate: Climate;
   tier: 'S' | 'A' | 'B';
   terrain: Terrain;
+  /** Optional coarse terrain (~10-15 km, 30-60 m cells) for distant backdrop (mountains, hills). */
+  farTerrain?: Terrain;
   roads: RecipeRoad[];
   graph: RoadGraph;
   buildings: RecipeBuilding[];
