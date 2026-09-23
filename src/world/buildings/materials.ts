@@ -383,7 +383,7 @@ vec4 shadeWindow(vec3 V, vec3 N){
     if (kind > 1.5 && kind < 2.5) { // wall shelving along the side walls
       float sh = step(fract(hp.y / 0.42), 0.78) * step(hp.y, 2.1) * step(0.4, hp.z);
       vec3 goods = vec3(wh2(vec2(floor(hp.z*2.5), floor(hp.y/0.42))), wh2(vec2(floor(hp.z*2.5)+5.0, floor(hp.y/0.42)+1.0)), wh2(vec2(floor(hp.z*2.5)+9.0, 3.0)));
-      col = mix(col, goods * 0.55 + 0.12, sh);
+      col = mix(col, mix(vec3(0.35), goods, 0.45) * 0.8 + 0.06, sh);
     }
   } else {
     col = wallC;
@@ -395,7 +395,7 @@ vec4 shadeWindow(vec3 V, vec3 N){
     if (kind > 1.5 && kind < 2.5) { // shelving on back wall
       float sh = step(fract(hp.y / 0.45), 0.8) * step(hp.y, 2.0);
       vec3 goods = vec3(wh2(vec2(floor(hp.x*3.0), floor(hp.y/0.45))), wh2(vec2(floor(hp.x*3.0)+3.0, 1.0)), wh2(vec2(floor(hp.x*3.0)+7.0, 2.0)));
-      col = mix(col, goods * 0.6 + 0.15, sh);
+      col = mix(col, mix(vec3(0.38), goods, 0.45) * 0.8 + 0.08, sh);
     }
   }
   // furniture plane

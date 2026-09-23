@@ -112,7 +112,7 @@
   "avg": "#8f6652"
  },
  "brick-tan": {
-  "sizeM": 4,
+  "sizeM": 1.35,
   "maps": [
    "color",
    "normal",
@@ -456,7 +456,7 @@
   "tintable": true
  },
  "roof-asphalt-shingle": {
-  "sizeM": 8,
+  "sizeM": 5,
   "maps": [
    "color",
    "normal",

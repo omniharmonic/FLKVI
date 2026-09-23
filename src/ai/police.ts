@@ -108,7 +108,13 @@ export class PoliceSystem {
   private arrestMeter = 0;
   private heliLeaveT = 0;
   private frame = 0;
-  patrolDensity = POLICE_TUNING.patrolDensity;
+  /** base idle patrols (g.ai.setPatrolDensity) */
+  basePatrols = POLICE_TUNING.patrolDensity;
+  /** escalation director level (surveillance 'escalation' event) */
+  escalation = 0;
+  hotspots: Vec2[] = [];
+  get patrolDensity() { return this.basePatrols + (this.escalation >= 2 ? 4 : this.escalation >= 1 ? 2 : 0); }
+  set patrolDensity(n: number) { this.basePatrols = n; }
   /** stats for debug */
   stats = { spottedBy: '' };
 
@@ -141,7 +147,12 @@ export class PoliceSystem {
     g.events.on('crime', (c) => this.onCrime(c.p));
     g.events.on('tamperAlert', (e) => this.dispatchInvestigate(e.p));
     g.events.on('plateHit', (e) => this.onPlateHit(e.p));
-    g.events.on('runStart', () => this.reset());
+    g.events.on('runStart', () => { this.escalation = 0; this.hotspots = []; this.reset(); });
+    g.events.on('escalation', (e) => {
+      this.escalation = Math.max(this.escalation, e.level);
+      if (e.hotspots?.length) this.hotspots = e.hotspots.map((h) => [h[0], h[1]] as Vec2);
+      this.dispatchT = 0;
+    });
     g.events.on('heatZero', () => this.onHeatZero());
     g.events.on('heatChanged', ({ heat, prev }) => {
       if (heat > prev) this.dispatchT = 0; // dispatch immediately
@@ -181,12 +192,13 @@ export class PoliceSystem {
     return null;
   }
 
-  private spawnUnit(mode: UnitMode, P: PlayerInfo, near?: Vec2): Unit | null {
+  private spawnUnit(mode: UnitMode, P: PlayerInfo, near?: Vec2, unmarked = false): Unit | null {
     if (!this.traffic?.enabled) return null;
     if (this.units.filter((u) => u.mode !== 'roadblock').length >= POLICE_TUNING.maxCars) return null;
     const sp = this.hiddenSpawn(P, near);
     if (!sp) return null;
-    const car = this.traffic.addCar('police', sp.e, 0, sp.s);
+    const look = unmarked ? { model: this.rnd() < 0.5 ? 'sedan' : 'suv', color: ['#1d2126', '#2b2f36', '#3a3d42', '#23282f'][Math.floor(this.rnd() * 4)] } : undefined;
+    const car = this.traffic.addCar('police', sp.e, 0, sp.s, look);
     if (!car) return null;
     car.v = 8;
     const u = new Unit(this.nextId++, car);
@@ -480,7 +492,13 @@ export class PoliceSystem {
       case 'patrol': {
         c.sirens = false;
         c.speedCap = Infinity;
-        if (c.mode !== 'lane' && !this.ensureLane(u)) this.driveToRoad(u, dt, P, 8);
+        if (c.mode !== 'lane' && !this.ensureLane(u)) { this.driveToRoad(u, dt, P, 8); break; }
+        // escalation: patrols cruise between the remaining cameras (hotspots)
+        u.routeT += dt;
+        if (this.hotspots.length && !c.route && u.routeT > 6) {
+          u.routeT = 0;
+          if (this.rnd() < 0.7) { const h = this.hotspots[Math.floor(this.rnd() * this.hotspots.length)]; this.routeTo(u, h[0], h[1]); }
+        }
         break;
       }
       case 'leave': {
@@ -890,7 +908,7 @@ export class PoliceSystem {
       } else {
         const pc = this.patrolCount();
         if (pc < this.patrolDensity && this.spawnCd <= 0) {
-          const u = this.spawnUnit('patrol', P);
+          const u = this.spawnUnit('patrol', P, undefined, this.escalation >= 2 && pc >= this.basePatrols && this.rnd() < 0.6);
           if (u) { u.car.v = 6; this.spawnCd = 3; }
         } else if (pc > this.patrolDensity + 1) {
           const u = this.units.find((x) => x.mode === 'patrol');

@@ -31,7 +31,15 @@ export interface BuildOptions {
   lodDistance?: number;
 }
 
-interface Chunk { cx: number; cz: number; groundY: number; radius: number; group: THREE.Group; lod0: THREE.Group; lod1: THREE.Group; near: boolean }
+interface Chunk {
+  cx: number; cz: number; groundY: number; radius: number;
+  group: THREE.Group; lod0: THREE.Group; lod1: THREE.Group; near: boolean;
+  list: RecipeBuilding[];
+  /** detail geometry present on the GPU */
+  built: boolean;
+  /** in-progress time-sliced detail build */
+  job: { i: number; B: Buckets } | null;
+}
 
 export async function buildBuildings(g: Game, onProgress: Progress, opts: BuildOptions = {}): Promise<BuildingsResult> {
   return buildFromRecipe(g.recipe, onProgress, opts, g.quality);
@@ -88,7 +96,11 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
         lastYield = performance.now();
       }
     }
-    const ch = makeChunk(e.cx, e.cz, e.y, CH, B, surfM, glassM, signM, stats);
+    const sp = recipe.spawn?.p ?? [0, 0];
+    const dsp = Math.hypot(Math.max(0, Math.abs(sp[0] - e.cx) - CH / 2), Math.max(0, Math.abs(sp[1] - e.cz) - CH / 2));
+    const keep0 = dsp < lodD;
+    const ch = makeChunk(e.cx, e.cz, e.y, CH, B, surfM, glassM, signM, stats, keep0);
+    ch.list = e.list;
     chunks.push(ch);
     group.add(ch.group);
   }
@@ -101,13 +113,37 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   console.info(`[buildings] ${stats.buildings} buildings, ${stats.chunks} chunks, ${stats.meshes} meshes, tris lod0 ${stats.trisLod0} lod1 ${stats.trisLod1} common ${stats.trisCommon}, ${stats.windows} windows, ${stats.ms.toFixed(0)} ms`);
 
   const camPos = new THREE.Vector3();
+  const region = recipe.region;
+  const disposeLod0 = (c: Chunk) => {
+    for (const m of c.lod0.children as THREE.Mesh[]) m.geometry.dispose();
+    c.lod0.clear();
+    c.built = false;
+  };
   const setLod = (cam: THREE.Camera) => {
     cam.getWorldPosition(camPos);
+    const budgetEnd = performance.now() + 6;
     for (const c of chunks) {
       const dx = Math.max(0, Math.abs(camPos.x - c.cx) - c.radius), dz = Math.max(0, Math.abs(camPos.z - c.cz) - c.radius);
       const d = Math.hypot(dx, dz, Math.max(0, camPos.y - c.groundY - 10));
-      const near = c.near ? d < lodD + 30 : d < lodD - 30;
-      if (near !== c.near) { c.near = near; c.lod0.visible = near; c.lod1.visible = !near; }
+      c.near = c.near ? d < lodD + 30 : d < lodD - 30;
+      // time-sliced detail build for chunks that became near
+      if (c.near && !c.built) {
+        if (!c.job) c.job = { i: 0, B: newBuckets() };
+        while (c.job.i < c.list.length && performance.now() < budgetEnd) {
+          try { generateBuilding(c.job.B, c.list[c.job.i], region); } catch { /* ignore */ }
+          c.job.i++;
+        }
+        if (c.job.i >= c.list.length) {
+          addLod0(c, c.job.B, surfM, glassM);
+          c.job = null;
+          c.built = true;
+          refreshSigns();
+        }
+      } else if (!c.near && c.job) c.job = null;
+      else if (!c.near && c.built && d > lodD * 2.2 + 200) disposeLod0(c);
+      const show0 = c.near && c.built;
+      c.lod0.visible = show0;
+      c.lod1.visible = !show0;
     }
   };
   let lastNight = -1;
@@ -128,7 +164,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
 
 export { U as buildingUniforms };
 
-function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Buckets, surfM: THREE.Material, glassM: THREE.Material, signM: THREE.Material, stats: BuildStats): Chunk {
+function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Buckets, surfM: THREE.Material, glassM: THREE.Material, signM: THREE.Material, stats: BuildStats, keep0: boolean): Chunk {
   const group = new THREE.Group();
   group.name = `bchunk_${Math.round(cx)}_${Math.round(cz)}`;
   const lod0 = new THREE.Group(); lod0.name = 'lod0';
@@ -146,16 +182,29 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
     const t = (geo.index?.count ?? 0) / 3;
     if (which === 'l0') stats.trisLod0 += t; else if (which === 'l1') stats.trisLod1 += t; else stats.trisCommon += t;
   };
-  add(lod0, B.s[0].build(), surfM, true, 'l0');
-  add(lod0, B.g[0].build(), glassM, false, 'l0');
+  if (keep0) {
+    add(lod0, B.s[0].build(), surfM, true, 'l0');
+    add(lod0, B.g[0].build(), glassM, false, 'l0');
+  }
   add(lod1, B.s[1].build(), surfM, true, 'l1');
   add(lod1, B.g[1].build(), glassM, false, 'l1');
   add(common, B.s[2].build(), surfM, true, 'c');
   add(common, B.g[2].build(), glassM, false, 'c');
   add(common, B.sign.build(), signM, false, 'c');
-  lod1.visible = false;
+  lod1.visible = !keep0;
+  lod0.visible = keep0;
   group.add(lod0, lod1, common);
-  return { cx, cz, groundY, radius: CH / 2, group, lod0, lod1, near: true };
+  return { cx, cz, groundY, radius: CH / 2, group, lod0, lod1, near: keep0, list: [], built: keep0, job: null };
+}
+
+function addLod0(c: Chunk, B: Buckets, surfM: THREE.Material, glassM: THREE.Material) {
+  for (const [geo, mat, sh] of [[B.s[0].build(), surfM, true], [B.g[0].build(), glassM, false]] as [THREE.BufferGeometry | null, THREE.Material, boolean][]) {
+    if (!geo) continue;
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = sh; m.receiveShadow = true;
+    m.matrixAutoUpdate = false; m.updateMatrix();
+    c.lod0.add(m);
+  }
 }
 
 function yieldUI(): Promise<void> {

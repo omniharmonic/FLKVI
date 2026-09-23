@@ -76,13 +76,13 @@ export class TrafficSystem {
   isAiHandle(id: string) { return this.handleIds.has(id); }
 
   /** Spawn a sim car + vehicle handle on a lane. */
-  addCar(kind: 'civilian' | 'police', e: number, lane: number, s: number): Car | null {
+  addCar(kind: 'civilian' | 'police', e: number, lane: number, s: number, look?: { model?: string; color?: string }): Car | null {
     const vehicles = (this.g as any).vehicles;
     if (!vehicles?.spawn) return null;
     const c = this.sim.addCar(kind, e, lane, s);
     let handle: VehicleHandle;
     try {
-      handle = vehicles.spawn({ kind, p: [c.x, c.z], heading: c.h, physics: false });
+      handle = vehicles.spawn({ kind, p: [c.x, c.z], heading: c.h, physics: false, ...(look ?? {}) });
     } catch (err) {
       console.warn('[ai] vehicle spawn failed', err);
       this.sim.removeCar(c);
