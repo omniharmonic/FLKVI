@@ -229,6 +229,10 @@ export class PedSystem {
     p.ch.fallT = 0; p.ch.pivot.rotation.x = 0; p.ch.pivot.position.y = 0;
     p.walkSpeed = 1.15 + this.rnd() * 0.45;
     p.lat = (this.rnd() - 0.5) * 1.0;
+    p.leader = null; p.followers.length = 0; p.chatWith.length = 0;
+    p.jogger = false; p.jay = false; p.filmSus = false; p.door = -1; p.dodgeCd = 0;
+    if (p.fade !== 1) this.setFade(p, 1);
+    p.fade = 1; p.fadeDir = 0;
     this.group.add(p.ch.root);
     this.peds.push(p);
     return p;
@@ -236,6 +240,7 @@ export class PedSystem {
 
   private release(p: Ped) {
     if (p.bench >= 0) this.benches[p.bench].used = false;
+    this.detach(p);
     p.alive = false;
     this.group.remove(p.ch.root);
     const i = this.peds.indexOf(p);
@@ -243,16 +248,218 @@ export class PedSystem {
     this.pool.push(p);
   }
 
+  // ------------------------------------------------------------------ groups, doors, fades
+
+  /** Leave any walking group / chat cluster. */
+  private detach(p: Ped) {
+    if (p.leader) {
+      const i = p.leader.followers.indexOf(p);
+      if (i >= 0) p.leader.followers.splice(i, 1);
+      p.leader = null;
+    }
+    for (const f of p.followers) f.leader = null;
+    p.followers.length = 0;
+    for (const o of p.chatWith) { const i = o.chatWith.indexOf(p); if (i >= 0) o.chatWith.splice(i, 1); }
+    p.chatWith.length = 0;
+  }
+
+  private fadeMeshes = new WeakMap<Character, { person: THREE.MeshStandardMaterial[]; other: THREE.Object3D[] }>();
+  /** Fade a ped in/out (shop doors). Per-instance body materials fade; shared ones (hair, fallback rig) pop at 50%. */
+  private setFade(p: Ped, a: number) {
+    let f = this.fadeMeshes.get(p.ch);
+    if (!f) {
+      const ff = { person: [] as THREE.MeshStandardMaterial[], other: [] as THREE.Object3D[] };
+      p.ch.root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || o === p.ch.phone) return;
+        const mat = m.material as THREE.Material;
+        if (!Array.isArray(mat) && mat.name === 'gt-person') ff.person.push(mat as THREE.MeshStandardMaterial);
+        else ff.other.push(o);
+      });
+      this.fadeMeshes.set(p.ch, ff);
+      f = ff;
+    }
+    for (const m of f.person) { m.transparent = a < 0.999; m.opacity = a; }
+    for (const o of f.other) o.visible = a > 0.5;
+  }
+
+  /** Someone steps out of a shop door (fades in on the threshold) — also lets spawns happen in view. */
+  private trySpawnDoor(P: PlayerInfo, venuesOnly: boolean): boolean {
+    const ids = [...this.doorGrid.query(P.x, P.z, PED_TUNING.cullRadius - 10)];
+    for (let k = 0; k < 5 && ids.length; k++) {
+      const di = ids[Math.floor(this.rnd() * ids.length)];
+      const d = this.doors[di];
+      if (venuesOnly && !d.venue) continue;
+      const dist = Math.hypot(d.x - P.x, d.z - P.z);
+      if (dist < 10 || dist > PED_TUNING.cullRadius - 8) continue;
+      const p = this.acquire();
+      p.x = d.x; p.z = d.z; p.y = groundY(this.g, d.x, d.z);
+      p.h = headingOf(d.nx, d.nz);
+      p.state = 'exit';
+      p.door = di;
+      p.fade = 0; p.fadeDir = 1;
+      this.setFade(p, 0);
+      this.setLeg(p, d.x + d.nx * 2.4 + (this.rnd() - 0.5), d.z + d.nz * 2.4 + (this.rnd() - 0.5));
+      p.ch.play('walk', 0);
+      return true;
+    }
+    return false;
+  }
+
+  /** A few people standing and chatting (outside venues at night, on the sidewalk by day). */
+  private spawnCluster(x: number, z: number, n: number): boolean {
+    const y = groundY(this.g, x, z);
+    const members: Ped[] = [];
+    const a0 = this.rnd() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * Math.PI * 2 + (this.rnd() - 0.5) * 0.4;
+      const r = 0.55 + this.rnd() * 0.25;
+      const p = this.acquire();
+      p.x = x + Math.cos(a) * r; p.z = z + Math.sin(a) * r; p.y = y;
+      p.h = headingOf(x - p.x, z - p.z);
+      p.state = 'chat';
+      p.timer = 18 + this.rnd() * 45;
+      p.ch.play(i === 0 ? 'talk' : this.rnd() < 0.3 ? 'foldArms' : this.rnd() < 0.5 ? 'talk' : 'idle', 0);
+      p.ch.mixer.setTime(this.rnd() * 3);
+      members.push(p);
+    }
+    for (const p of members) p.chatWith = members.filter((o) => o !== p);
+    return members.length > 0;
+  }
+
+  /** Make `n` followers walk with leader p (pairs / trios). */
+  private addFollowers(p: Ped, n: number) {
+    p.walkSpeed = Math.min(p.walkSpeed, 1.25);
+    for (let i = 0; i < n; i++) {
+      const f = this.acquire();
+      f.leader = p;
+      p.followers.push(f);
+      f.fLat = i === 0 ? (this.rnd() < 0.5 ? -0.72 : 0.72) : -p.followers[0].fLat;
+      f.fBack = i === 0 ? this.rnd() * 0.35 : 0.6 + this.rnd() * 0.4;
+      if (n === 2 && i === 1) f.fLat *= 0.2;
+      f.state = 'follow';
+      const fx = Math.sin(p.h), fz = -Math.cos(p.h), rx = Math.cos(p.h), rz = Math.sin(p.h);
+      f.x = p.x + rx * f.fLat - fx * f.fBack; f.z = p.z + rz * f.fLat - fz * f.fBack; f.y = p.y; f.h = p.h;
+      f.ch.play('walk', 0);
+      f.ch.mixer.setTime(this.rnd() * 2);
+    }
+  }
+
+  private tryEnterShop(p: Ped): boolean {
+    let best = -1, bd = 9 * 9;
+    for (const di of this.doorGrid.query(p.x, p.z, 9)) {
+      const d = this.doors[di];
+      const dd = dist2(d.x, d.z, p.x, p.z);
+      if (dd < bd && losClear(this.g, [p.x, p.y + 1, p.z], [d.x + d.nx * 0.3, p.y + 1, d.z + d.nz * 0.3])) { bd = dd; best = di; }
+    }
+    if (best < 0) return false;
+    const d = this.doors[best];
+    const go = (q: Ped, off: number) => {
+      q.state = 'enter';
+      q.door = best;
+      this.setLeg(q, d.x - d.nz * off, d.z + d.nx * off);
+    };
+    go(p, 0);
+    p.followers.forEach((f, i) => { go(f, (i + 1) * 0.5 * (i % 2 ? -1 : 1)); f.legLen += 0.8; });
+    this.detach(p);
+    return true;
+  }
+
+  private startJaywalk(p: Ped): boolean {
+    const ps = this.net.peds[p.seg];
+    if (ps.sides.length < 2 || ps.width > 16 || ps.cls === 'footway' || ps.cls === 'pedestrian') return false;
+    const other = ps.sides.find((x) => x !== p.side);
+    if (other === undefined) return false;
+    const poly = this.net.pedPoly(ps, other);
+    const s2 = Math.max(ps.trimA + 1, Math.min(poly.len - ps.trimB - 1, p.s));
+    samplePoly(poly, s2, tmpS);
+    p.jay = true; p.jaySide = p.side; p.jayS = p.s;
+    p.side = other; p.s = s2;
+    this.setLeg(p, tmpS.x, tmpS.z);
+    p.state = 'wait';
+    p.crossNode = -1;
+    p.crossWait = 0;
+    return true;
+  }
+
+  // ------------------------------------------------------------------ filming, dodging
+
+  /** Witnesses to a takedown / arrest raise their phones and record (REC badge + lit screen). */
+  startFilming(pt: Vec2, radius: number, chanceMul: number, suspicious: boolean) {
+    const cands: Ped[] = [];
+    this.hash.query(pt[0], pt[1], radius, (p) => cands.push(p));
+    cands.sort((a, b) => dist2(a.x, a.z, pt[0], pt[1]) - dist2(b.x, b.z, pt[0], pt[1]));
+    const y = groundY(this.g, pt[0], pt[1]) + 1.2;
+    let n = 0;
+    for (const p of cands.slice(0, 12)) {
+      if (!/walk|idle|wait|watch|chat|follow|sit|notice|wander/.test(p.state) || p.fade < 1) continue;
+      if (this.rnd() > PED_TUNING.filmChance * chanceMul) continue;
+      if (dist2(p.x, p.z, pt[0], pt[1]) < 4 * 4) continue;
+      if (!canSee({ pos: [p.x, p.y + 1.6, p.z], dir: p.h, fovDeg: 260, range: radius }, [pt[0], y, pt[1]], this.g)) continue;
+      this.startFilm(p, pt, suspicious);
+      if (++n >= 5) break;
+    }
+  }
+
+  private startFilm(p: Ped, pt: Vec2, suspicious: boolean) {
+    if (p.bench >= 0) { this.benches[p.bench].used = false; p.bench = -1; }
+    this.detach(p);
+    p.state = 'film';
+    p.timer = 7 + this.rnd() * 8;
+    p.filmSus = suspicious;
+    p.callSeenAt = -1e9;
+    p.sx = pt[0]; p.sz = pt[1];
+    p.icon.set('film');
+    p.ch.play('film', 0.3);
+  }
+
+  private dodge(p: Ped, cx: number, cz: number, ch: number) {
+    const fx = Math.sin(ch), fz = -Math.cos(ch);
+    const lat = (p.x - cx) * Math.cos(ch) + (p.z - cz) * Math.sin(ch);
+    const side = Math.abs(lat) > 0.3 ? Math.sign(lat) : (this.rnd() < 0.5 ? -1 : 1);
+    const rx = Math.cos(ch) * side, rz = Math.sin(ch) * side;
+    let tx = p.x + rx * 3.6 + fx * 0.8, tz = p.z + rz * 3.6 + fz * 0.8;
+    if (!losClear(this.g, [p.x, p.y + 0.8, p.z], [tx, p.y + 0.8, tz])) { tx = p.x - rx * 3.6; tz = p.z - rz * 3.6; }
+    this.detach(p);
+    if (p.bench >= 0) { this.benches[p.bench].used = false; p.bench = -1; }
+    p.state = 'dodge';
+    p.sx = cx; p.sz = cz;
+    p.dodgeCd = 4;
+    this.setLeg(p, tx, tz);
+    p.icon.set('alarm');
+    p.ch.play('sprint', 0.08);
+  }
+
   private trySpawn(P: PlayerInfo): boolean {
     const T = PED_TUNING;
+    const hour = hourOfDay(this.g);
+    const night = hour >= 19 || hour < 2;
+    // variety: people leaving shops, chatting clusters (outside bars / restaurants at night)
+    const r0 = this.rnd();
+    if (this.doors.length && !this.initial && r0 < T.shopExitShare) { if (this.trySpawnDoor(P, false)) return true; }
+    else if (this.doors.length && night && r0 < T.shopExitShare + T.nightVenueShare) {
+      const ids = [...this.doorGrid.query(P.x, P.z, T.cullRadius - 10)].filter((i) => this.doors[i].venue);
+      if (ids.length) {
+        const d = this.doors[ids[Math.floor(this.rnd() * ids.length)]];
+        const dist = Math.hypot(d.x - P.x, d.z - P.z);
+        if (dist > 20 && dist < T.cullRadius - 10 && (this.initial || dist > T.spawnMin + 30 || !visibleToCamera(this.g, d.x, groundY(this.g, d.x, d.z), d.z, T.spawnMin + 30, true))) {
+          if (this.rnd() < 0.5) return this.trySpawnDoor(P, true);
+          const k = 1.8 + this.rnd() * 1.5, side = (this.rnd() - 0.5) * 5;
+          return this.spawnCluster(d.x + d.nx * k - d.nz * side, d.z + d.nz * k + d.nx * side, 2 + Math.floor(this.rnd() * 3));
+        }
+      }
+    }
     const segs = [...this.net.pedGrid.query(P.x, P.z, T.cullRadius)];
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 10; k++) {
       let sx: number, sz: number;
       let segI = -1, side = 0, s = 0;
       if (segs.length) {
         segI = segs[Math.floor(this.rnd() * segs.length)];
         const ps = this.net.peds[segI];
         if (!ps.hasSidewalk && this.rnd() < 0.7) continue;
+        // busier where people actually walk: pedestrian malls / footways and commercial blocks; quieter side streets
+        const busy = ps.cls === 'pedestrian' ? 1 : ps.cls === 'footway' ? 0.7 : this.bldGrid.query((ps.minX + ps.maxX) / 2, (ps.minZ + ps.maxZ) / 2, 40).size > 0 ? 0.6 : ps.cls === 'residential' ? 0.25 : 0.4;
+        if (this.rnd() > busy) continue;
         side = ps.sides[Math.floor(this.rnd() * ps.sides.length)];
         const poly = this.net.pedPoly(ps, side);
         s = ps.trimA + this.rnd() * Math.max(0, poly.len - ps.trimA - ps.trimB);
@@ -275,6 +482,18 @@ export class PedSystem {
       if (segI >= 0) {
         p.seg = segI; p.side = side; p.s = s; p.dir = this.rnd() < 0.5 ? 1 : -1;
         p.state = 'walk';
+        samplePoly(this.net.pedPoly(this.net.peds[segI], side), s, tmpS);
+        p.h = p.dir > 0 ? tmpS.h : tmpS.h + Math.PI;
+        const r = this.rnd();
+        const jogHours = hour >= 6 && hour < 20;
+        if (jogHours && r < T.joggerChance) { p.jogger = true; p.walkSpeed = 2.7 + this.rnd() * 0.7; p.lat = 0.2 + this.rnd() * 0.3; }
+        else if (r < T.joggerChance + T.chatShare && this.peds.length < this.targetCount - 3) {
+          // step aside to the building side of the sidewalk and chat
+          this.release(p);
+          return this.spawnCluster(sx + Math.cos(tmpS.h) * side * 0.3, sz + Math.sin(tmpS.h) * side * 0.3, 2 + Math.floor(this.rnd() * 2));
+        } else if (r < T.joggerChance + T.chatShare + T.groupChance && this.peds.length < this.targetCount - 2) {
+          this.addFollowers(p, this.rnd() < T.trioChance ? 2 : 1);
+        }
       } else {
         p.state = 'wander';
         this.pickWander(p);
@@ -423,8 +642,9 @@ export class PedSystem {
   // ------------------------------------------------------------------ reactions
 
   private notice(p: Ped, sx: number, sz: number, crime: boolean) {
-    if (p.state === 'fallen' || p.state === 'getup' || p.state === 'call' || p.state === 'flee' || p.cooldown > 0) return;
+    if (p.state === 'fallen' || p.state === 'getup' || p.state === 'call' || p.state === 'flee' || p.state === 'film' || p.state === 'dodge' || p.state === 'enter' || p.state === 'exit' || p.cooldown > 0) return;
     if (p.bench >= 0) { this.benches[p.bench].used = false; p.bench = -1; }
+    this.detach(p);
     p.sx = sx; p.sz = sz;
     p.callCrimeP = [sx, sz];
     p.state = 'notice';
@@ -437,9 +657,19 @@ export class PedSystem {
   private onStimulus(pt: Vec2, radius: number, kind: string, crime: boolean) {
     if (/siren|horn|engine|footstep|helicopter/.test(kind)) return;
     const r = Math.min(radius, 90);
+    const loud = /crash|metal|explo|gun|bang/.test(kind);
     let n = 0;
     this.hash.query(pt[0], pt[1], r, (p) => {
       if (n++ > 16) return;
+      if (loud && dist2(p.x, p.z, pt[0], pt[1]) < 18 * 18 && /walk|idle|wait|chat|follow|wander|watch/.test(p.state) && p.cooldown <= 0) {
+        // flinch: stagger back, look toward the bang, then react
+        this.detach(p);
+        p.state = 'stagger';
+        p.timer = 0.75 + this.rnd() * 0.3;
+        p.sx = pt[0]; p.sz = pt[1];
+        p.ch.play('hit', 0.08);
+        return;
+      }
       this.notice(p, pt[0], pt[1], crime);
     });
   }
@@ -597,9 +827,12 @@ export class PedSystem {
         p.x = tmpS.x + rx * lat;
         p.z = tmpS.z + rz * lat;
         targetH = h;
-        // occasional stop / bench
+        // occasional stop / bench / jaywalk / pop into a shop (not joggers)
+        if (p.jogger) break;
         if (this.rnd() < dt * 0.012) { p.state = 'idle'; p.timer = 2 + this.rnd() * 6; p.prevState = 'walk'; }
-        else if (this.benches.length && this.rnd() < dt * 0.05) this.tryBench(p);
+        else if (this.benches.length && !p.followers.length && this.rnd() < dt * 0.05) this.tryBench(p);
+        else if (!p.followers.length && this.rnd() < dt * PED_TUNING.jaywalkRate) this.startJaywalk(p);
+        else if (this.doors.length && this.rnd() < dt * PED_TUNING.shopEnterRate) this.tryEnterShop(p);
         break;
       }
       case 'wander': {
@@ -617,19 +850,138 @@ export class PedSystem {
       case 'wait': {
         p.crossWait += dt;
         targetH = headingOf(p.bx - p.x, p.bz - p.z);
-        if (this.safeToCross(p) || p.crossWait > (p.crossNode >= 0 ? 40 : 12)) {
+        const safe = this.safeToCross(p);
+        if (p.jay && !safe && p.crossWait > 5) {
+          // no gap: give up and keep walking on this side
+          p.side = p.jaySide; p.s = p.jayS; p.jay = false; p.state = 'walk';
+          break;
+        }
+        if (safe || (!p.jay && p.crossWait > (p.crossNode >= 0 ? 40 : 12))) {
           p.state = 'cross';
           p.ax = p.x; p.az = p.z; p.legT = 0; p.legLen = Math.max(0.01, Math.hypot(p.bx - p.x, p.bz - p.z));
         }
         break;
       }
       case 'cross': {
-        moveSpeed = p.crossNode === -2 ? p.walkSpeed : p.walkSpeed * 1.2;
+        moveSpeed = p.crossNode === -2 ? p.walkSpeed : p.walkSpeed * (p.jay ? 1.45 : 1.2);
         p.legT += moveSpeed * dt;
         const t = Math.min(1, p.legT / p.legLen);
         p.x = p.ax + (p.bx - p.ax) * t; p.z = p.az + (p.bz - p.az) * t;
         targetH = headingOf(p.bx - p.ax, p.bz - p.az);
-        if (t >= 1) p.state = 'walk';
+        if (t >= 1) { p.state = 'walk'; p.jay = false; }
+        break;
+      }
+      case 'follow': {
+        const L = p.leader;
+        if (!L || !L.alive || !/walk|cross|wait|idle|wander|chat|toBench/.test(L.state)) {
+          if (L && L.alive && L.state === 'enter' && L.door >= 0) {
+            const d = this.doors[L.door];
+            p.state = 'enter'; p.door = L.door;
+            this.setLeg(p, d.x + (this.rnd() - 0.5) * 0.8, d.z + (this.rnd() - 0.5) * 0.8);
+            this.detach(p);
+            break;
+          }
+          this.detach(p); this.resumeWalking(p); break;
+        }
+        const h = L.h;
+        const fx = Math.sin(h), fz = -Math.cos(h), rx = Math.cos(h), rz = Math.sin(h);
+        const tx = L.x + rx * p.fLat - fx * p.fBack, tz = L.z + rz * p.fLat - fz * p.fBack;
+        const dx = tx - p.x, dz = tz - p.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 14) { this.detach(p); this.resumeWalking(p); break; }
+        const sp = L.v > 0.2 ? Math.min(L.v * 1.15 + d * 0.9, 3.2) : d > 0.3 ? 1.1 : 0;
+        if (d > 0.02 && sp > 0) { const st = Math.min(d, sp * dt); p.x += (dx / d) * st; p.z += (dz / d) * st; }
+        moveSpeed = L.v > 0.2 ? L.v : d > 0.3 ? 1.1 : 0;
+        targetH = L.v > 0.2 || d > 0.3 ? (d > 0.6 ? headingOf(dx, dz) : h) : headingOf(L.x - p.x, L.z - p.z);
+        break;
+      }
+      case 'chat': {
+        p.timer -= dt;
+        if (p.chatWith.length) {
+          let cx = 0, cz = 0;
+          for (const o of p.chatWith) { cx += o.x; cz += o.z; }
+          targetH = headingOf(cx / p.chatWith.length - p.x, cz / p.chatWith.length - p.z);
+        }
+        if (p.timer <= 0) {
+          // the conversation breaks up: someone leads the rest away
+          const rest = p.chatWith.filter((o) => o.alive && o.state === 'chat');
+          this.detach(p);
+          this.resumeWalking(p);
+          if (rest.length && (p.state as PedState) === 'walk') {
+            for (const o of rest) { this.detach(o); o.leader = p; p.followers.push(o); o.state = 'follow'; o.fLat = p.followers.length === 1 ? 0.72 : -0.72; o.fBack = 0.2 * p.followers.length; }
+          }
+        }
+        break;
+      }
+      case 'enter':
+      case 'exit': {
+        moveSpeed = p.fadeDir < 0 ? 0 : p.walkSpeed * 0.9;
+        p.legT += moveSpeed * dt;
+        const t = Math.min(1, p.legT / p.legLen);
+        p.x = p.ax + (p.bx - p.ax) * t; p.z = p.az + (p.bz - p.az) * t;
+        targetH = headingOf(p.bx - p.ax, p.bz - p.az);
+        if (t >= 1) {
+          if (p.state === 'enter') { if (p.fadeDir >= 0) p.fadeDir = -1; }
+          else { p.door = -1; this.resumeWalking(p); }
+        }
+        break;
+      }
+      case 'stagger': {
+        targetH = headingOf(p.sx - p.x, p.sz - p.z);
+        p.timer -= dt;
+        // small step back from the bang during the flinch
+        const dx = p.x - p.sx, dz = p.z - p.sz, l = Math.hypot(dx, dz) || 1;
+        if (p.timer > 0.3) { p.x += (dx / l) * 0.9 * dt; p.z += (dz / l) * 0.9 * dt; }
+        if (p.timer <= 0) { p.ch.play('idle', 0.2); this.notice(p, p.sx, p.sz, false); if (p.state === 'stagger') { p.state = 'watch'; p.timer = 2; } }
+        break;
+      }
+      case 'dodge': {
+        moveSpeed = 5.2;
+        p.legT += moveSpeed * dt;
+        const t = Math.min(1, p.legT / p.legLen);
+        p.x = p.ax + (p.bx - p.ax) * t; p.z = p.az + (p.bz - p.az) * t;
+        targetH = headingOf(p.bx - p.ax, p.bz - p.az);
+        if (t >= 1) {
+          p.icon.set(null);
+          p.state = 'watch';
+          p.timer = 2 + this.rnd() * 2.5;
+          p.cooldown = Math.max(p.cooldown, 4);
+          p.ch.play('idle', 0.25);
+        }
+        break;
+      }
+      case 'film': {
+        p.timer -= dt;
+        targetH = headingOf(p.sx - p.x, p.sz - p.z);
+        if (P.ok) {
+          const d2 = dist2(p.x, p.z, P.x, P.z);
+          if (d2 < 3.5 * 3.5) {
+            // the player walks up to them: phone down, run
+            p.icon.set(null);
+            this.startFlee(p, P.x, P.z);
+            p.cooldown = 20;
+            break;
+          }
+          if (d2 < 80 * 80 && ((this.frame + p.id) & 7) === 0) {
+            const tgt = playerTarget(g);
+            if (tgt && canSee({ pos: [p.x, p.y + 1.6, p.z], dir: headingOf(P.x - p.x, P.z - p.z), fovDeg: 180, range: 70 }, tgt, g)) {
+              p.sx = P.x; p.sz = P.z;
+              p.callSeenAt = g.elapsed;
+              if (P.suspicious) p.filmSus = true;
+            }
+          }
+        }
+        if (p.timer <= 0) {
+          p.icon.set(null);
+          if (p.filmSus && g.elapsed - p.callSeenAt < 4 && this.rnd() < PED_TUNING.filmReportChance) {
+            // the clip gets posted / sent in: vague, delayed report
+            g.events.emit('witness', { source: 'npc', p: [p.sx, p.sz], confidence: 0.45, delay: 5, sourceId: `ped${p.id}-video` });
+          }
+          p.state = 'watch';
+          p.timer = 2 + this.rnd() * 2;
+          p.cooldown = 15;
+          p.ch.play('idle', 0.4);
+        }
         break;
       }
       case 'toBench': {
@@ -759,9 +1111,16 @@ export class PedSystem {
     }
 
     // animation role by movement
-    if (p.state === 'walk' || p.state === 'cross' || p.state === 'wander' || p.state === 'toBench') {
-      p.ch.play('walk', 0.3, p.walkSpeed / 1.35);
-    } else if (p.state === 'wait' || p.state === 'idle' || p.state === 'watch' || p.state === 'notice') {
+    if (p.state === 'walk' || p.state === 'cross' || p.state === 'wander' || p.state === 'toBench' || ((p.state === 'enter' || p.state === 'exit') && moveSpeed > 0)) {
+      if (p.jogger) p.ch.play('jog', 0.3, p.walkSpeed / 3.0);
+      else p.ch.play('walk', 0.3, (p.state === 'cross' && p.jay ? p.walkSpeed * 1.45 : p.walkSpeed) / 1.35);
+    } else if (p.state === 'follow') {
+      if (moveSpeed > 0.2) p.ch.play('walk', 0.3, moveSpeed / 1.35);
+      else if (p.ch.role !== 'talk') p.ch.play('talk', 0.4);
+    } else if (p.state === 'idle') {
+      const want = p.followers.length ? 'talk' : (p.id * 37) % 100 < PED_TUNING.phoneIdleChance * 100 ? 'phone' : 'idle';
+      if (p.ch.role !== want) p.ch.play(want, 0.35);
+    } else if (p.state === 'wait' || p.state === 'watch' || p.state === 'notice' || (p.state === 'enter' && moveSpeed === 0)) {
       if (p.ch.role !== 'idle') p.ch.play('idle', 0.3);
     }
 
@@ -824,7 +1183,8 @@ export class PedSystem {
     for (let i = this.peds.length - 1; i >= 0; i--) {
       const p = this.peds[i];
       const d2 = dist2(p.x, p.z, P.x, P.z);
-      if (d2 > T.cullRadius * T.cullRadius && p.state !== 'call') { this.release(p); continue; }
+      if (d2 > T.cullRadius * T.cullRadius && p.state !== 'call' && p.state !== 'film') { this.release(p); continue; }
+      p.dodgeCd -= dt;
       const every = d2 < 45 * 45 ? 1 : d2 < 90 * 90 ? 2 : 4;
       p.logicAcc += dt;
       if ((this.frame + p.id) % every === 0) {
@@ -846,6 +1206,13 @@ export class PedSystem {
         this.updatePed(p, step, P);
         if (every === 1 || (this.frame + p.id) % (every * 2) === 0) p.y = groundY(g, p.x, p.z, p.y);
       }
+      // shop-door fades
+      if (p.fadeDir !== 0) {
+        p.fade = Math.max(0, Math.min(1, p.fade + p.fadeDir * dt / 0.6));
+        this.setFade(p, p.fade);
+        if (p.fade >= 1 && p.fadeDir > 0) p.fadeDir = 0;
+        else if (p.fade <= 0 && p.fadeDir < 0) { this.release(p); continue; }
+      }
       // visuals
       p.ch.root.position.set(p.x, p.y, p.z);
       p.ch.root.rotation.y = -p.h;
@@ -860,6 +1227,24 @@ export class PedSystem {
     }
     this.obstacles.length = 0;
     for (const p of this.peds) this.obstacles.push(p.obs);
+
+    // speeding cars (player, police in free pursuit, fleeing traffic): people in the path jump aside
+    if ((this.frame % 6) === 0) {
+      const movers: { x: number; z: number; h: number; v: number }[] = [];
+      if (P.ok && P.inVehicle && P.vehicle && Math.abs(P.vehicle.speed) > T.dodgeSpeed) movers.push({ x: P.x, z: P.z, h: P.vehicle.speed >= 0 ? P.vehicle.heading : P.vehicle.heading + Math.PI, v: Math.abs(P.vehicle.speed) });
+      if (this.sim) for (const c of this.sim.cars) if (c.v > T.dodgeSpeed && (c.mode === 'free' || c.panicMode === 'flee') && dist2(c.x, c.z, P.x, P.z) < 120 * 120) movers.push({ x: c.x, z: c.z, h: c.h, v: c.v });
+      for (const m of movers) {
+        const fx = Math.sin(m.h), fz = -Math.cos(m.h);
+        const look = m.v * 1.5 + 4;
+        this.hash.query(m.x + fx * look * 0.5, m.z + fz * look * 0.5, look * 0.5 + 3, (p) => {
+          if (p.dodgeCd > 0 || /fallen|getup|dodge|enter|exit|sit/.test(p.state)) return;
+          const rx = p.x - m.x, rz = p.z - m.z;
+          const lon = rx * fx + rz * fz, lat = rx * Math.cos(m.h) + rz * Math.sin(m.h);
+          if (lon < 1.5 || lon > look || Math.abs(lat) > 2.8) return;
+          this.dodge(p, m.x, m.z, m.h);
+        });
+      }
+    }
 
     // AI cars knock peds down (police free-driving, fleeing cars)
     if (this.sim) {

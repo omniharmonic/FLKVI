@@ -16,9 +16,11 @@ import { markingWearTexture } from './textures';
 import { PropSystem } from './props';
 import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
-import { buildUnderstory } from './understory';
+import { buildUnderstory, paintPlantingBeds } from './understory';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
+import { resolveLandmarks, buildLandmarks, type LandmarksResult } from './landmarks';
+import { releaseAfterUpload } from '../render/memory';
 import { registerShadowDistance, registerInstancedShadowLod, registerShadowProxy, setShadowCascades } from '../render/shadowProxy';
 
 export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups } from './physics';
@@ -189,7 +191,11 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     const h = 0.9 + ((p.variant * 0.37) % 1) * 0.9;
     treeList.push({ p: p.p, y: groundAt(p.p[0], p.p[1]), species: 'shrub', height: h, crown: h * 1.4, seed: (p.p[0] * 131 + p.p[1] * 71) | 0 });
   }
-  try { treeList.push(...buildUnderstory({ recipe, groundAt, inBuilding, roads }, treeList)); } catch (e) { console.warn('[world] understory failed', e); }
+  try {
+    const under = buildUnderstory({ recipe, groundAt, inBuilding, roads }, treeList);
+    paintPlantingBeds(mask, under);
+    treeList.push(...under);
+  } catch (e) { console.warn('[world] understory failed', e); }
   if (g.sky) trees.sunDir = g.sky.sunDirection;
   try { await trees.build(treeList, g.renderer, (f) => P('Planting trees', 0.45 + f * 0.2)); } catch (e) { console.error('[world] trees failed', e); }
   root.add(trees.group);
@@ -204,6 +210,9 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   P('Raising buildings', 0.66);
   await yieldFrame();
   // sidewalk depth in front of facades (storefront clutter placement)
+  // hand-built landmarks replace some OSM buildings (src/world/landmarks)
+  const lm = resolveLandmarks(recipe);
+  let landmarks: LandmarksResult | null = null;
   setFrontInfo((x, z) => {
     const h = roads.nearestChain([x, z], 30);
     const y = groundAt(x, z);
@@ -212,11 +221,16 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     return { clear: Math.abs(h.off) + 1.2 - h.c.w - 0.6, y };
   });
   try {
-    buildings = await buildBuildings(g, (s, f) => P(s, 0.66 + f * 0.24));
+    buildings = await buildBuildings(g, (s, f) => P(s, 0.66 + f * 0.24), { skip: lm.skip });
     root.add(buildings.group);
     staticMeshes.push(buildings.group);
   } catch (e) { console.error('[world] buildings failed', e); }
   setFrontInfo(null);
+  try {
+    landmarks = buildLandmarks(g, lm);
+    root.add(landmarks.group);
+    staticMeshes.push(landmarks.group);
+  } catch (e) { console.error('[world] landmarks failed', e); }
 
   // ---- physics
   P('Solidifying the city', 0.92);
@@ -224,12 +238,17 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   if (g.physics && g.rapier) {
     try {
       buildTerrainCollider(g, hf);
-      buildBuildingColliders(g, recipe.buildings);
+      buildBuildingColliders(g, lm.skip.size ? recipe.buildings.filter((b) => !lm.skip.has(b.id)) : recipe.buildings);
       buildPropColliders(g, props.colliders, trees.trunks);
       buildMeshColliders(g, roadMeshes.filter((m) => /^(sidewalk|curb)\|/.test(m.name)));
       los = makeLos(g);
     } catch (e) { console.error('[world] physics failed', e); }
   }
+  // memory: static ground/road/building geometry is never read back on the CPU once colliders exist
+  // → drop the typed arrays as soon as they reach the GPU (buildings release their own chunks)
+  releaseAfterUpload(terrainGroup);
+  releaseAfterUpload(roadGroup);
+  releaseAfterUpload(waterGroup);
 
   setNight(0);
   g.addSystem({
@@ -242,6 +261,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       updateTerrainLod(terrainMeshes, game.camera.position);
       props.update(game.elapsed, game.camera);
       buildings?.update?.(dt, game);
+      landmarks?.update(game);
     },
   });
   P('done', 1);

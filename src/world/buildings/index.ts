@@ -9,11 +9,12 @@ import type { Game } from '../../core/game';
 import type { Progress } from '../../core/location';
 import type { Recipe, RecipeBuilding } from '../../core/types';
 import { generateBuilding } from './building';
-import { newBuckets, type Buckets } from './facade';
+import { newBuckets, newLod0Buckets, type Buckets } from './facade';
 import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, prepareBuildingTextures, U } from './materials';
 import { centroid } from './poly';
 import { registerShadowProxy, unregisterShadowProxy, setShadowCascades } from '../../render/shadowProxy';
 import { buildShadowHulls } from './shadowHulls';
+import { releaseGeometryAfterUpload } from '../../render/memory';
 
 export interface BuildingsResult {
   group: THREE.Group;
@@ -31,6 +32,8 @@ export interface BuildOptions {
   chunkSize?: number;
   /** distance (m) at which chunks switch from detailed to simplified facades */
   lodDistance?: number;
+  /** Building ids replaced by hand-built landmarks (src/world/landmarks): no procedural output. */
+  skip?: Set<string>;
 }
 
 interface Chunk {
@@ -67,7 +70,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   // bucket buildings by chunk (centroid)
   const byChunk = new Map<string, { cx: number; cz: number; list: RecipeBuilding[]; y: number }>();
   for (const b of recipe.buildings ?? []) {
-    if (!b.footprint || b.footprint.length < 3) continue;
+    if (!b.footprint || b.footprint.length < 3 || opts.skip?.has(b.id)) continue;
     const [x, z] = centroid(b.footprint);
     const i = Math.floor(x / CH), j = Math.floor(z / CH);
     const key = i + ',' + j;
@@ -132,7 +135,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   const initHulls = (g: Game) => {
     const grp = new THREE.Group();
     grp.name = 'building-shadow-hulls';
-    try { for (const m of buildShadowHulls(recipe.buildings ?? [], CH)) grp.add(m); } catch (e) { console.warn('[buildings] shadow hulls failed', e); return; }
+    try { for (const m of buildShadowHulls((recipe.buildings ?? []).filter((b) => !opts.skip?.has(b.id)), CH)) { releaseGeometryAfterUpload(m.geometry); grp.add(m); } } catch (e) { console.warn('[buildings] shadow hulls failed', e); return; }
     group.add(grp);
     if (!registerShadowProxy(g, grp)) { group.remove(grp); return; }
     setShadowCascades(g, grp, 2);
@@ -147,7 +150,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       c.near = c.near ? d < lodD + 30 : d < lodD - 30;
       // time-sliced detail build for chunks that became near
       if (c.near && !c.built) {
-        if (!c.job) c.job = { i: 0, B: newBuckets() };
+        if (!c.job) c.job = { i: 0, B: newLod0Buckets() };
         while (c.job.i < c.list.length && performance.now() < budgetEnd) {
           try { generateBuilding(c.job.B, c.list[c.job.i], region); } catch { /* ignore */ }
           c.job.i++;
@@ -210,6 +213,7 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
   const common = new THREE.Group(); common.name = 'common';
   const add = (parent: THREE.Group, geo: THREE.BufferGeometry | null, mat: THREE.Material, shadow: boolean, which: 'l0' | 'l1' | 'c') => {
     if (!geo) return;
+    releaseGeometryAfterUpload(geo); // memory: GPU-only after upload
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = shadow;
     m.receiveShadow = true;
@@ -238,6 +242,7 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
 function addLod0(c: Chunk, B: Buckets, surfM: THREE.Material, glassM: THREE.Material) {
   for (const [geo, mat, sh] of [[B.s[0].build(), surfM, true], [B.g[0].build(), glassM, false]] as [THREE.BufferGeometry | null, THREE.Material, boolean][]) {
     if (!geo) continue;
+    releaseGeometryAfterUpload(geo);
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = sh; m.receiveShadow = true;
     m.matrixAutoUpdate = false; m.updateMatrix();

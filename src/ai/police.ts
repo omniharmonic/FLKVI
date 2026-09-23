@@ -813,14 +813,14 @@ export class PoliceSystem {
           const relx = c.x - P.x, relz = c.z - P.z;
           const lon = relx * pfx + relz * pfz, lat = relx * prx + relz * prz;
           const aligned = Math.abs(angleDiff(c.h, fh)) < 0.45;
-          if (ram && u.role !== 'chase' && P.speed > 5) {
+          if (ram && u.role !== 'chase' && P.speed > 4) {
             // PIT: line up on a rear quarter, then steer into it (the kinematic car shoves the rear out)
             if (u.pitT > 0) {
               u.pitT -= dt;
               tx = P.x - pfx * 1.6 - prx * u.pitSide * 0.6 + P.vx * 0.2;
               tz = P.z - pfz * 1.6 - prz * u.pitSide * 0.6 + P.vz * 0.2;
               vDes = P.speed + 3;
-            } else if (u.pitCd <= 0 && aligned && lon > -4.6 && lon < -0.6 && Math.abs(lat) > 1.1 && Math.abs(lat) < 3.2) {
+            } else if (u.pitCd <= 0 && aligned && lon > -5 && lon < -0.4 && Math.abs(lat) > 0.9 && Math.abs(lat) < 3.6) {
               u.pitT = 0.75; u.pitSide = Math.sign(lat) || 1; u.pitCd = 6;
               this.stats.pits++;
               playSound(g, 'tire-squeal', { at: [c.x, groundY(g, c.x, c.z) + 0.4, c.z], volume: 0.7 });
@@ -1320,7 +1320,7 @@ export class PoliceSystem {
     }
     if (this.heli) {
       if (L < T.heliLevel) this.heliLeaveT += dt; else this.heliLeaveT = 0;
-      this.heli.update(dt, P.ok ? tgt : null, this.heat.lastKnown, this.heliLeaveT > 10, g.elapsed, P.ok ? [P.vx, P.vz] : undefined);
+      this.heli.update(dt, P.ok ? tgt : null, this.heat.lastKnown, this.heliLeaveT > 10, g.elapsed, P.ok ? [P.vx, P.vz] : undefined, g.elapsed - this.lastAnySeen < 1.5);
       if (this.heli.gone || (this.heliLeaveT > 10 && this.heli.state === 'leaving' && Math.hypot(this.heli.x - P.x, this.heli.z - P.z) > 550)) {
         this.heli.dispose();
         this.heli = null;

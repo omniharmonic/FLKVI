@@ -27,7 +27,8 @@ class Grow {
     const a = this.a; a[this.n++] = x; a[this.n++] = y; a[this.n++] = z; a[this.n++] = w;
   }
   grow() { const b = new Float32Array(this.a.length * 2); b.set(this.a); this.a = b; }
-  view() { return this.a.slice(0, this.n); }
+  /** Final array. Mostly-full buffers are handed over without a copy (the geometry frees it after GPU upload). */
+  view() { return this.n >= this.a.length * 0.6 ? this.a.subarray(0, this.n) : this.a.slice(0, this.n); }
 }
 class GrowU32 {
   a: Uint32Array; n = 0;
@@ -104,11 +105,11 @@ export class MB {
     const l = Math.hypot(nx, ny, nz);
     if (l < 1e-10) return;
     nx /= l; ny /= l; nz /= l;
-    const a = typeof ao === 'number' ? [ao, ao, ao, ao] : ao;
-    const i0 = this.vert(p0[0], p0[1], p0[2], nx, ny, nz, uv[0], uv[1], a[0], w, wl?.[0], 0);
-    this.vert(p1[0], p1[1], p1[2], nx, ny, nz, uv[2], uv[3], a[1], w, wl?.[1], 1);
-    this.vert(p2[0], p2[1], p2[2], nx, ny, nz, uv[4], uv[5], a[2], w, wl?.[2], 2);
-    this.vert(p3[0], p3[1], p3[2], nx, ny, nz, uv[6], uv[7], a[3], w, wl?.[3], 3);
+    const num = typeof ao === 'number';
+    const i0 = this.vert(p0[0], p0[1], p0[2], nx, ny, nz, uv[0], uv[1], num ? ao : ao[0], w, wl?.[0], 0);
+    this.vert(p1[0], p1[1], p1[2], nx, ny, nz, uv[2], uv[3], num ? ao : ao[1], w, wl?.[1], 1);
+    this.vert(p2[0], p2[1], p2[2], nx, ny, nz, uv[4], uv[5], num ? ao : ao[2], w, wl?.[2], 2);
+    this.vert(p3[0], p3[1], p3[2], nx, ny, nz, uv[6], uv[7], num ? ao : ao[3], w, wl?.[3], 3);
     this.idx.push3(i0, i0 + 1, i0 + 2);
     this.idx.push3(i0, i0 + 2, i0 + 3);
   }
@@ -191,6 +192,16 @@ export class MB {
     g.computeBoundingBox();
     return g;
   }
+}
+
+/** Sink bucket: accepts the same calls as MB but stores nothing (used when rebuilding only one LOD). */
+export class NullMB extends MB {
+  constructor() { super('plain'); }
+  override vert(): number { return this.vc++; }
+  override quad() { /* discard */ }
+  override quadN() { /* discard */ }
+  override polygon() { /* discard */ }
+  override build(): THREE.BufferGeometry | null { return null; }
 }
 
 /** Edge-local frame: origin (ox,oz) at the edge start, T along the edge, N outward, U = +Y. T×U = N. */

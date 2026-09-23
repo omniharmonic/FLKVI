@@ -1,6 +1,7 @@
 // OWNER: world (vegetation). Runtime understory: foundation plantings along building walls with a yard,
 // shrub / grass / flower clusters in parks, and desert specimens (saguaro, ocotillo, yucca) in Southwest yards.
 // Output is RecipeTree entries with understory species ids that trees.ts renders procedurally.
+import type * as THREE from 'three';
 import type { Recipe, RecipeTree } from '../core/types';
 import { rng, hashString } from '../core/geo';
 import { pointInPoly } from './util';
@@ -147,3 +148,27 @@ export function buildUnderstory(ctx: Ctx, existing: RecipeTree[]): RecipeTree[] 
   return out;
 }
 
+
+/**
+ * Carve soil / mulch planting beds under understory plants into the terrain land-cover masks
+ * (bare channel on, hardscape off), so shrubs sit in beds instead of growing out of paving.
+ */
+export function paintPlantingBeds(mask: { tex: THREE.Texture; hard: THREE.Texture; origin: THREE.Vector2; size: THREE.Vector2 }, plants: RecipeTree[]) {
+  const c = mask.tex.image as HTMLCanvasElement, hc = mask.hard.image as HTMLCanvasElement;
+  if (!c?.getContext || !hc?.getContext) return;
+  const res = mask.size.x / c.width;
+  const ctx = c.getContext('2d')!, hx = hc.getContext('2d')!;
+  ctx.save(); hx.save();
+  ctx.filter = 'blur(1px)'; hx.filter = 'blur(1px)';
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.fillStyle = 'rgb(0,235,0)'; hx.fillStyle = '#000';
+  for (const t of plants) {
+    if (t.species === 'saguaro' || t.species === 'ocotillo') continue;
+    const r = Math.max(0.45, Math.min(1.5, t.height * 0.55 + 0.3)) / res;
+    const x = (t.p[0] - mask.origin.x) / res, y = (t.p[1] - mask.origin.y) / res;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    hx.beginPath(); hx.arc(x, y, r * 1.1, 0, Math.PI * 2); hx.fill();
+  }
+  ctx.restore(); hx.restore();
+  mask.tex.needsUpdate = true; mask.hard.needsUpdate = true;
+}

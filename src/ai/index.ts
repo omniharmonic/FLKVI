@@ -23,8 +23,8 @@ export interface AIDebug extends AIAPI {
   peds: PedSystem;
   police: PoliceSystem;
   factory: CharacterFactory;
-  /** smoothed AI cost (ms per frame) */
-  stats: { ms: number; cars: number; peds: number; police: number; officers: number };
+  /** smoothed AI cost (ms per frame), worst frame in the last sample window, sample log */
+  stats: { ms: number; peak: number; cars: number; peds: number; police: number; officers: number; samples: string[] };
   tuning: { traffic: typeof TRAFFIC_TUNING; peds: typeof PED_TUNING; police: typeof POLICE_TUNING };
 }
 
@@ -48,7 +48,8 @@ export async function setupAI(g: Game): Promise<void> {
   const peds = new PedSystem(g, net, traffic?.sim ?? null, factory);
   const police = new PoliceSystem(g, traffic, peds, factory);
 
-  const stats = { ms: 0, cars: 0, peds: 0, police: 0, officers: 0 };
+  const stats = { ms: 0, peak: 0, cars: 0, peds: 0, police: 0, officers: 0, samples: [] as string[] };
+  let winPeak = 0, logT = 0;
   const ai: AIDebug = {
     setPatrolDensity(n: number) { police.patrolDensity = Math.max(0, Math.min(8, Math.round(n))); },
     get patrolDensity() { return police.patrolDensity; },
@@ -75,6 +76,18 @@ export async function setupAI(g: Game): Promise<void> {
       }
       const ms = performance.now() - t0;
       stats.ms += (ms - stats.ms) * 0.05;
+      winPeak = Math.max(winPeak, ms);
+      // timing sample every 20 s (budget: ≤ 4 ms/frame)
+      logT += dt;
+      if (logT > 20) {
+        logT = 0;
+        stats.peak = winPeak;
+        const line = `[ai] ${stats.ms.toFixed(2)} ms avg, ${winPeak.toFixed(1)} ms peak · cars ${traffic?.sim.cars.length ?? 0} · peds ${peds.peds.length} · police ${police.units.length} · officers ${police.officers.length} · heat ${police.heat.level}`;
+        winPeak = 0;
+        stats.samples.push(line);
+        if (stats.samples.length > 30) stats.samples.shift();
+        if (stats.ms > 4) console.warn(line + ' — over budget'); else console.info(line);
+      }
       if ((frame & 31) === 0) {
         stats.cars = traffic?.sim.cars.length ?? 0;
         stats.peds = peds.peds.length;

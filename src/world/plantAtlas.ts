@@ -349,14 +349,15 @@ function paintBark(ctx: Ctx, w: number, h: number) {
   noiseFill(ctx, w, h, R, 2600, (r) => hsl(26 + r * 8, 12, 18 + r * 30, 0.55), [3, 20]);
 }
 
-let atlasTex: THREE.CanvasTexture | null = null;
+let atlasTex: THREE.DataTexture | null = null;
+let atlasCanvas: HTMLCanvasElement | null = null;
 
 /** Build (once) and return the plant atlas texture. */
 export function plantAtlas(): THREE.Texture {
   if (atlasTex) return atlasTex;
   const cv = document.createElement('canvas');
   cv.width = cv.height = ATLAS_PX;
-  const ctx = cv.getContext('2d')!;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
   ctx.clearRect(0, 0, ATLAS_PX, ATLAS_PX);
   withCell(ctx, 'frond', (w, h) => paintFrond(ctx, w, h, false));
   withCell(ctx, 'frondDead', (w, h) => paintFrond(ctx, w, h, true));
@@ -399,22 +400,39 @@ export function plantAtlas(): THREE.Texture {
   withCell(ctx, 'shrubB', (w, h) => paintLeafClump(ctx, w, h, 82, 520, 15, 105, 32, true));
   withCell(ctx, 'leafSolid', (w, h) => { ctx.fillStyle = hsl(100, 35, 22); ctx.fillRect(0, 0, w, h); paintLeafClump(ctx, w, h, 83, 900, 8, 100, 30, false, false); });
   withCell(ctx, 'bark', (w, h) => paintBark(ctx, w, h));
-  const tex = new THREE.CanvasTexture(cv);
+  atlasCanvas = cv;
+  atlasTex = freeze(cv);
+  return atlasTex;
+}
+
+/**
+ * Copy canvas pixels into a DataTexture (rows flipped so UVs match a flipY CanvasTexture). A 2D canvas
+ * can be evicted and restored blank by the browser under memory pressure before its first GPU upload.
+ */
+function freeze(cv: HTMLCanvasElement): THREE.DataTexture {
+  const w = cv.width, h = cv.height;
+  const src = cv.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data;
+  const data = new Uint8Array(w * h * 4);
+  const row = w * 4;
+  for (let y = 0; y < h; y++) data.set(src.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+  const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
-  atlasTex = tex;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
   return tex;
 }
 
 /** Debug: data URL of the atlas (for inspection). */
 export function plantAtlasDataURL(): string {
   plantAtlas();
-  return (atlasTex!.image as HTMLCanvasElement).toDataURL('image/png');
+  return atlasCanvas!.toDataURL('image/png');
 }
 
-const foliageCache = new Map<string, THREE.CanvasTexture>();
+const foliageCache = new Map<string, THREE.Texture>();
 /**
  * Leaf-card textures for ez-tree canopies whose stock textures read wrong: 'fine' = bipinnate sprays of
  * tiny leaflets (palo verde, mesquite, honey locust), 'small' = dense small simple leaves (live oak, elm,
@@ -426,7 +444,7 @@ export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
   const S = 512;
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
-  const ctx = cv.getContext('2d')!;
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
   const R = rng(kind === 'fine' ? 501 : 502);
   const twig = (x0: number, y0: number, a: number, L: number, w: number) => {
     ctx.strokeStyle = hsl(30, 20, 30); ctx.lineWidth = w; ctx.lineCap = 'round';
@@ -477,9 +495,7 @@ export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
       ctx.restore();
     }
   }
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  const tex = freeze(cv);
   foliageCache.set(kind, tex);
   return tex;
 }

@@ -18,7 +18,7 @@ export const HELI_TUNING = {
   accel: 7,
   yawRate: 0.7,
   /** searchlight half-angle (rad) */
-  beamHalf: 0.105,
+  beamHalf: 0.12,
   /** perception cone (deg off straight-down) by day / at night (outside the light) */
   flirDay: 40,
   flirNight: 24,
@@ -98,19 +98,19 @@ function buildModel(): HeliModel {
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const fusGeo = new THREE.LatheGeometry(prof, 28);
   fusGeo.rotateX(Math.PI / 2);
-  fusGeo.scale(0.92, 1, 1);
+  fusGeo.scale(0.86, 0.92, 1.12);
   const fus = add(fusGeo, paint);
   fus.position.set(0, 0, 0);
   // lower belly in light livery (a slightly bigger lathe clipped by a scaled copy under the body)
   const belly = add(fusGeo.clone(), paintLow);
-  belly.scale.set(1.012, 0.55, 0.985);
+  belly.scale.set(1.012, 0.5, 0.99);
   belly.position.set(0, -0.5, 0.02);
   // canopy glass (front upper)
   const canGeo = new THREE.SphereGeometry(1, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
   const canopy = add(canGeo, glass);
-  canopy.scale.set(0.98, 0.95, 1.55);
+  canopy.scale.set(0.9, 0.88, 1.7);
   canopy.rotation.x = -Math.PI / 2 + 0.5;
-  canopy.position.set(0, 0.08, -1.05);
+  canopy.position.set(0, 0.06, -1.2);
   // side windows (dark insets)
   for (const s of [-1, 1]) {
     const w = add(new THREE.PlaneGeometry(1.1, 0.62), glass);
@@ -272,7 +272,7 @@ export class Helicopter {
    * Fly & look. `player` = player chest point (for perception), `goal` = lastKnown (search center).
    * Returns true if the helicopter sees the player this tick.
    */
-  update(dt: number, player: [number, number, number] | null, goal: Vec2 | null, leaving: boolean, t: number, playerVel?: Vec2): boolean {
+  update(dt: number, player: [number, number, number] | null, goal: Vec2 | null, leaving: boolean, t: number, playerVel?: Vec2, radioed = false): boolean {
     const g = this.g;
     const T = HELI_TUNING;
     if (leaving) this.state = 'leaving';
@@ -285,6 +285,11 @@ export class Helicopter {
       tx = player[0] + Math.cos(this.orbitA) * T.trackRadius;
       tz = player[2] + Math.sin(this.orbitA) * T.trackRadius;
       if (playerVel) { fvx = playerVel[0]; fvz = playerVel[1]; }
+    } else if (goal && radioed) {
+      // ground units have eyes on: come in tight over the reported position
+      this.orbitA += dt * 0.14;
+      tx = goal[0] + Math.cos(this.orbitA) * T.trackRadius;
+      tz = goal[1] + Math.sin(this.orbitA) * T.trackRadius;
     } else if (goal) {
       this.orbitA += dt * 0.11;
       const sa = this.searchArea?.();
@@ -348,13 +353,15 @@ export class Helicopter {
     let lx: number, lz: number;
     if (this.sees && player) {
       lx = player[0] + (playerVel?.[0] ?? 0) * 0.15; lz = player[2] + (playerVel?.[1] ?? 0) * 0.15;
+    } else if (goal && radioed && this.state !== 'leaving') {
+      lx = goal[0] + Math.sin(this.sweepT * 1.3) * 3; lz = goal[1] + Math.cos(this.sweepT * 1.1) * 3;
     } else if (goal && this.state !== 'leaving') {
       const sa = this.searchArea?.();
       const r = Math.max(18, Math.min(70, (sa?.r ?? 45) * 0.75));
       lx = goal[0] + Math.sin(this.sweepT * 0.55) * r * 0.9 + Math.sin(this.sweepT * 0.21) * r * 0.25;
       lz = goal[1] + Math.cos(this.sweepT * 0.43) * r * 0.9;
     } else { lx = this.x + fx * 30; lz = this.z + fz * 30; }
-    const k = this.sees ? 3.5 : 1.1;
+    const k = this.sees ? 3.5 : radioed ? 2.2 : 1.1;
     this.ax += (lx - this.ax) * Math.min(1, dt * k);
     this.az += (lz - this.az) * Math.min(1, dt * k);
     const ly = groundY(g, this.ax, this.az, gy);

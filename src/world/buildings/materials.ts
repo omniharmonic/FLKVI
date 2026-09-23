@@ -2,7 +2,7 @@
 // signage, and the window glass with interior mapping + night occupancy.
 import * as THREE from 'three';
 import { textureSet, textureSetReady, type TextureId } from '../../assets/library';
-import { procTexture, TEX_RES } from './textures';
+import { procTexture, clearProcCache, TEX_RES } from './textures';
 import { SHOP_GLSL } from './shopGlsl';
 
 /** Shared uniforms: night factor drives window occupancy and signage glow. */
@@ -198,9 +198,12 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
     t.generateMipmaps = true; t.anisotropy = 8;
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.needsUpdate = true;
+    // memory: the layer stack lives on the GPU after upload; drop the CPU copy (~1 MB per layer)
+    t.onUpdate = () => { (t.image as { data: Uint8Array | null }).data = null; t.onUpdate = null as unknown as () => void; };
     return t;
   };
   const texA = mk(alb, true), texN = mk(nrm, false);
+  clearProcCache(); // procedural canvases were only needed to fill the arrays
   // dummy 1x1 maps so three enables the USE_MAP / USE_NORMALMAP code paths (we swap the samplers)
   const dummy = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   dummy.needsUpdate = true;
@@ -312,6 +315,7 @@ let signCanvas: HTMLCanvasElement | null = null;
 let signTex: THREE.CanvasTexture | null = null;
 const signSlots = new Map<string, number>();
 let signMat: THREE.MeshStandardMaterial | null = null;
+let signDirty = false;
 
 const SIGN_STYLES = [
   { bg: '#1d2b24', fg: '#f3e9cf', font: '700 58px Georgia, "Times New Roman", serif', rule: true },
@@ -363,7 +367,7 @@ export function signSlot(text: string, style: number): [number, number, number, 
     x.fillText(text, cx + SIGN_W / 2, cy + SIGN_H / 2 + 3);
     if (st.rule) { x.lineWidth = 3; x.strokeRect(cx + 10, cy + 10, SIGN_W - 20, SIGN_H - 20); }
     x.restore();
-    if (signTex) signTex.needsUpdate = true;
+    signDirty = true;
   }
   const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
   // CanvasTexture flipY → v = 1 - y/H
@@ -383,7 +387,7 @@ export function lampSlot(): [number, number, number, number] {
     const gr = x.createRadialGradient(cx + SIGN_W / 2, cy + SIGN_H / 2, 4, cx + SIGN_W / 2, cy + SIGN_H / 2, SIGN_W / 2);
     gr.addColorStop(0, '#fff6dc'); gr.addColorStop(0.5, '#ffd99a'); gr.addColorStop(1, '#f0b060');
     x.fillStyle = gr; x.fillRect(cx, cy, SIGN_W, SIGN_H);
-    if (signTex) signTex.needsUpdate = true;
+    signDirty = true;
   }
   const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
   return [(cx + 128) / ATLAS_W, 1 - (cy + SIGN_H - 20) / ATLAS_H, (cx + SIGN_W - 128) / ATLAS_W, 1 - (cy + 20) / ATLAS_H];
@@ -398,7 +402,8 @@ export function signMaterial(): THREE.MeshStandardMaterial {
   signMat = new THREE.MeshStandardMaterial({ map: signTex, emissiveMap: signTex, emissive: '#ffffff', emissiveIntensity: 0, roughness: 0.5, name: 'bldg:sign' });
   return signMat;
 }
-export function refreshSigns() { if (signTex) signTex.needsUpdate = true; }
+/** Re-upload the sign atlas only when new slots were drawn (it is 2048×4096: a full upload + mips hitches). */
+export function refreshSigns() { if (signTex && signDirty) { signTex.needsUpdate = true; signDirty = false; } }
 
 // ---------------------------------------------------------------------------------------------
 // Window glass with interior mapping.

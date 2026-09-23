@@ -2,7 +2,7 @@
 // storefronts, cornices, parapets, porches, balconies, fire escapes. Emits into chunk buckets.
 import * as THREE from 'three';
 import type { RecipeBuilding, Vec2 } from '../../core/types';
-import { MB, Frame, type WinAttr, type V3 } from './builder';
+import { MB, NullMB, Frame, type WinAttr, type V3 } from './builder';
 import { layer, relTint, signSlot } from './materials';
 import type { Style } from './kits';
 import { signWord } from './kits';
@@ -20,6 +20,11 @@ export type Lod = 0 | 1 | 2;
 
 export function newBuckets(): Buckets {
   return { s: [new MB('surface'), new MB('surface'), new MB('surface')], g: [new MB('glass'), new MB('glass'), new MB('glass')], sign: new MB('plain') };
+}
+/** Buckets that keep only the detailed (lod0) facade output; everything else is discarded. */
+export function newLod0Buckets(): Buckets {
+  const n = new NullMB();
+  return { s: [new MB('surface'), n, n], g: [new MB('glass'), n, n], sign: n };
 }
 
 /** Surface bucket with texture layer + relative tint applied. */

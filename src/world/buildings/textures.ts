@@ -321,6 +321,8 @@ function concrete(color: string, seed: number, formwork: boolean): ProcTex {
 }
 
 const cache = new Map<string, ProcTex>();
+/** Drop cached procedural canvases (after they were copied into the layer texture arrays). */
+export function clearProcCache() { cache.clear(); }
 
 /** Procedural texture for a facade/roof/trim id. */
 export const texTimes: Record<string, number> = {};

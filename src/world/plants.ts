@@ -300,7 +300,7 @@ export function buildProc(kind: ProcKind, H: number, seed: number, lod: number):
     case 'grass': grassTuft(b, H, R); break;
     case 'flowers': flowerBed(b, H, R, seed % 2 === 0); break;
     case 'shrub-box': shrub(b, H, R, lo, 'shrubA', C(0x8aa070), 1.25, 0.06); break;
-    case 'shrub-leafy': shrub(b, H, R, lo, 'shrubB', C(0x9ab27a), 1.1, 0.15); break;
+    case 'shrub-leafy': shrub(b, H, R, lo, 'shrubB', C(0x9ab27a), 1.4, 0.25); break;
     case 'shrub-desert': shrub(b, H, R, lo, 'shrubA', C(0xb0b48a), 1.4, 0.2); break;
   }
   return b.build();
@@ -347,7 +347,7 @@ function palmFeather(b: PlantBuilder, H: number, R: () => number, lo: boolean, s
   const S = {
     canary: { r0: 0.55, r1: 0.42, crownL: 5.2, W: 1.3, n: 60, elev: [1.1, -0.5], droop: 1.1, fold: 0.35, planes: 1, cell: 'trunkDiamond' as CellId, trunkCol: 0xb89a80, tint: 0x9aae70, crownFrac: 0.3, mpr: 1.3 },
     date: { r0: 0.3, r1: 0.27, crownL: 4.2, W: 1.0, n: 40, elev: [1.3, -0.4], droop: 0.6, fold: 0.5, planes: 1, cell: 'trunkDiamond' as CellId, trunkCol: 0xa89484, tint: 0xa8b4a0, crownFrac: 0.3, mpr: 1.0 },
-    royal: { r0: 0.34, r1: 0.26, crownL: 4.0, W: 1.4, n: 16, elev: [1.0, -0.3], droop: 1.5, fold: 0.9, planes: 2, cell: 'trunkSmooth' as CellId, trunkCol: 0xd8d4cc, tint: 0x8aa868, crownFrac: 0.28, mpr: 1.6 },
+    royal: { r0: 0.34, r1: 0.26, crownL: 4.6, W: 1.5, n: 18, elev: [1.0, -0.3], droop: 1.5, fold: 0.9, planes: 2, cell: 'trunkSmooth' as CellId, trunkCol: 0xd8d4cc, tint: 0x8aa868, crownFrac: 0.28, mpr: 1.6 },
     queen: { r0: 0.2, r1: 0.17, crownL: 3.6, W: 1.3, n: 16, elev: [1.1, -0.2], droop: 1.8, fold: 1.05, planes: 2, cell: 'trunkSmooth' as CellId, trunkCol: 0xb8b2a8, tint: 0x94b070, crownFrac: 0.28, mpr: 1.2 },
     coconut: { r0: 0.24, r1: 0.16, crownL: 4.4, W: 1.35, n: 24, elev: [0.9, -0.6], droop: 1.3, fold: 0.75, planes: 1, cell: 'trunkRing' as CellId, trunkCol: 0xb0a090, tint: 0x9ab468, crownFrac: 0.28, mpr: 1.4 },
   }[sp];
@@ -406,7 +406,7 @@ function palmFeather(b: PlantBuilder, H: number, R: () => number, lo: boolean, s
 
 function saguaro(b: PlantBuilder, H: number, R: () => number, lo: boolean) {
   const r0 = 0.24 + H * 0.012;
-  const col = C(0x88a070);
+  const col = C(0x9aa888);
   const segs = lo ? 12 : 24;
   const ribbed = (r: number) => (a: number) => r * (1 - 0.07 * (0.5 - 0.5 * Math.cos(12 * a)));
   const topRound = (t: number, len: number, r: number) => {
@@ -578,13 +578,21 @@ function flowerBed(b: PlantBuilder, H: number, R: () => number, warm: boolean) {
 }
 
 function shrub(b: PlantBuilder, H: number, R: () => number, lo: boolean, cell: CellId, tint: THREE.Color, widthK: number, loose: number) {
-  const rx = H * widthK * 0.5, ry = H * 0.5;
-  const c = V(0, ry * 0.95, 0);
-  sphereBlob(b, c, rx * (lo ? 0.9 : 0.72), ry * (lo ? 0.9 : 0.74), 'leafSolid', shade(tint, 0.62), R, lo ? 1 : 2, 0.15, 0.12 + loose * 0.5);
+  // irregular mound: 1-3 overlapping lobes (loose shrubs) or one tight ball (boxwood)
+  const lobes = loose > 0.1 ? 2 + Math.floor(R() * 2) : 1;
+  const L: { c: V3; rx: number; ry: number }[] = [];
+  for (let k = 0; k < lobes; k++) {
+    const s = k === 0 ? 1 : 0.6 + R() * 0.25;
+    const rx = H * widthK * 0.5 * s * (lobes > 1 ? 0.8 : 1), ry = H * 0.5 * s;
+    const a = R() * Math.PI * 2, off = k === 0 ? 0 : H * widthK * 0.32;
+    L.push({ c: V(Math.cos(a) * off, ry * 0.92, Math.sin(a) * off), rx, ry });
+  }
+  for (const l of L) sphereBlob(b, l.c, l.rx * (lo ? 0.9 : 0.72), l.ry * (lo ? 0.9 : 0.74), 'leafSolid', shade(tint, 0.62), R, lo ? 1 : 2, 0.15, 0.12 + loose * 0.5);
   if (lo) return;
   const n = 56;
   for (let i = 0; i < n; i++) {
     // points on the upper ~80% of the ellipsoid, cards roughly tangent-crossing (fuzzy leafy silhouette)
+    const { c, rx, ry } = L[i % L.length];
     const u = R(), v = 0.15 + R() * 0.85;
     const th = u * Math.PI * 2, ph = Math.acos(1 - 2 * v * 0.92);
     const d = V(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
@@ -618,7 +626,7 @@ export function mossFor(bark: THREE.BufferGeometry, seed: number, count: number,
     const top = V(p.getX(i), p.getY(i), p.getZ(i));
     const len = lenN * (0.5 + R() * 0.8);
     const a = R() * Math.PI;
-    const col = shade(C(0xb8c0a8), 0.85 + R() * 0.25);
+    const col = shade(C(0xa4ac98), 0.8 + R() * 0.25);
     const out = V(top.x, 0, top.z).normalize();
     const n = out.clone().multiplyScalar(0.6).add(V(0, 0.4, 0)).normalize();
     for (const k2 of [0, 1]) {

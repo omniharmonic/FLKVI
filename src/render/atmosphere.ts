@@ -88,14 +88,14 @@ function opticalDepth(h: number, mu: number): number[] {
     const v11 = odTable[((i0 + 1) * OD_MU + j0 + 1) * 3 + c];
     // if any corner is blocked, soften the terminator instead of averaging 1e9
     if (v00 > 1e8 || v01 > 1e8 || v10 > 1e8 || v11 > 1e8) {
-      const vs = [v00, v01, v10, v11].filter((v) => v < 1e8);
-      if (vs.length === 0) { _od[c] = 1e9; continue; }
-      const w = [(1 - fi) * (1 - fj), (1 - fi) * fj, fi * (1 - fj), fi * fj];
-      const vals = [v00, v01, v10, v11];
+      // (allocation-free: this runs per LUT texel per step while the sun is near the horizon)
       let sw = 0, sv = 0, blocked = 0;
-      for (let q = 0; q < 4; q++) {
-        if (vals[q] < 1e8) { sw += w[q]; sv += w[q] * vals[q]; } else blocked += w[q];
-      }
+      const w00 = (1 - fi) * (1 - fj), w01 = (1 - fi) * fj, w10 = fi * (1 - fj), w11 = fi * fj;
+      if (v00 < 1e8) { sw += w00; sv += w00 * v00; } else blocked += w00;
+      if (v01 < 1e8) { sw += w01; sv += w01 * v01; } else blocked += w01;
+      if (v10 < 1e8) { sw += w10; sv += w10 * v10; } else blocked += w10;
+      if (v11 < 1e8) { sw += w11; sv += w11 * v11; } else blocked += w11;
+      if (v00 >= 1e8 && v01 >= 1e8 && v10 >= 1e8 && v11 >= 1e8) { _od[c] = 1e9; continue; }
       _od[c] = sw > 0 ? sv / sw + blocked * 4e5 : 1e9;
       continue;
     }

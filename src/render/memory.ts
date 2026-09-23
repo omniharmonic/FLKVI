@@ -1,0 +1,45 @@
+// Memory helpers (perf). Static city geometry is uploaded to the GPU once and never read back on the
+// CPU, so its typed arrays can be dropped right after upload (three.js' documented onUpload pattern).
+// That removes a second full copy of every building / road / terrain vertex from the JS heap.
+//
+//   releaseAfterUpload(obj)   every non-instanced Mesh under obj frees its vertex + index arrays once
+//                             they reach the GPU. Bounding volumes are computed first (culling needs
+//                             them). Do NOT use on geometry that is later read on the CPU (colliders,
+//                             raycasts, morphing) or edited in place.
+import * as THREE from 'three';
+
+const EMPTY = new Float32Array(0);
+function drop(this: THREE.BufferAttribute) {
+  // keep a zero-length array of the same kind (some code checks `.array.constructor`)
+  const C = this.array.constructor as unknown as { new (n: number): THREE.TypedArray };
+  try { this.array = new C(0); } catch { this.array = EMPTY; }
+}
+
+const released = new WeakSet<THREE.BufferGeometry>();
+
+export function releaseGeometryAfterUpload(geo: THREE.BufferGeometry) {
+  if (released.has(geo)) return;
+  released.add(geo);
+  if (!geo.boundingSphere) geo.computeBoundingSphere();
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  for (const k in geo.attributes) {
+    const a = geo.attributes[k] as THREE.BufferAttribute;
+    if ((a as unknown as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) continue;
+    if (a.usage !== THREE.StaticDrawUsage) continue;
+    a.onUpload(drop);
+  }
+  const idx = geo.index;
+  if (idx) idx.onUpload(drop);
+}
+
+export function releaseAfterUpload(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || (m as unknown as THREE.InstancedMesh).isInstancedMesh || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+    if (m.morphTargetInfluences) return;
+    releaseGeometryAfterUpload(m.geometry);
+    // alternate index buffers swapped in by LOD code (terrain)
+    const lods = m.userData.lods as THREE.BufferAttribute[] | undefined;
+    if (Array.isArray(lods)) for (const a of lods) if (a?.isBufferAttribute) a.onUpload(drop);
+  });
+}

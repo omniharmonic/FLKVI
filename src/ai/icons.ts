@@ -108,7 +108,7 @@ export class Icon {
     if (!kind) { this.sprite.visible = false; return; }
     this.sprite.material = iconMaterial(kind);
     const wide = kind === 'film' || kind === 'shout';
-    this.sprite.scale.set(wide ? (kind === 'shout' ? 1.5 : 0.8) : 0.55, wide ? (kind === 'shout' ? 0.75 : 0.4) : 0.55, 1);
+    this.sprite.scale.set(wide ? (kind === 'shout' ? 1.3 : 0.56) : 0.55, wide ? (kind === 'shout' ? 0.65 : 0.28) : 0.55, 1);
     this.sprite.visible = true;
   }
 }

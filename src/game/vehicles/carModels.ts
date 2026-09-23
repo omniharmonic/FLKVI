@@ -462,12 +462,12 @@ function buildWheel(R: number, tw: number, style: BodySpec['rimStyle']) {
     [R, hw - 0.045], [R - 0.004, hw - 0.026], [R - 0.022, hw - 0.004], [R - 0.05, hw + 0.004], [rimR - 0.005, hw - 0.012],
   ];
   for (const [r, y] of tireProfile) prof.push(new THREE.Vector2(r, y));
-  const tire = new THREE.LatheGeometry(prof, 22);
+  const tire = new THREE.LatheGeometry(prof, 18);
   const yf = hw - 0.018;
   const rimProf: [number, number][] = style === 'steel'
     ? [[0.001, yf - 0.005], [0.07, yf - 0.006], [0.085, yf - 0.02], [rimR - 0.06, yf - 0.035], [rimR - 0.035, yf - 0.012], [rimR - 0.012, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]]
     : [[0.001, yf + 0.006], [0.045, yf + 0.006], [0.055, yf - 0.002], [rimR - 0.018, yf - 0.004], [rimR - 0.006, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]];
-  const rim = new THREE.LatheGeometry(rimProf.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 22);
+  const rim = new THREE.LatheGeometry(rimProf.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 18);
   const parts: THREE.BufferGeometry[] = [];
   const darkParts: THREE.BufferGeometry[] = [];
   if (style !== 'steel') {
@@ -493,7 +493,7 @@ function buildWheel(R: number, tw: number, style: BodySpec['rimStyle']) {
     // Strip the non-lathe parts so the rim geometry matches: the dish replaces the flat lathe face.
     const rimOuter = new THREE.LatheGeometry(
       ([[rimR - 0.02, yf - 0.02], [rimR - 0.006, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]] as [number, number][])
-        .map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 22);
+        .map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 18);
     rim.dispose();
     parts.push(rimOuter);
   } else {
@@ -855,7 +855,7 @@ function buildCarModel(id: CarModelId): CarModel {
       ...[-0.5, 0.5].map((sx) => { const g = rbox(0.06, 0.04, 0.3, 0.01); g.translate(sx, ry, Z(rd)); return g; }),
     ]);
     const lens = (sx: number) => {
-      const g = rbox(0.5, 0.085, 0.27, 0.035, 3);
+      const g = rbox(0.5, 0.085, 0.27, 0.035, 1);
       g.translate(sx * 0.36, ry + 0.095, Z(rd));
       return g;
     };
@@ -865,7 +865,7 @@ function buildCarModel(id: CarModelId): CarModel {
   if (livery === 'taxi') {
     const rd = (s.roof[1][0] + s.roof[2][0]) / 2 + 0.25;
     const ry = fns.top(rd) + fns.roofH(rd) + 0.02;
-    const g = rbox(0.62, 0.2, 0.16, 0.04, 3);
+    const g = rbox(0.62, 0.2, 0.16, 0.04, 1);
     g.translate(0, ry + 0.11, Z(rd));
     taxiSign = g;
   }
@@ -943,7 +943,9 @@ function limb(a: THREE.Vector3, b: THREE.Vector3, tx: number, ty: number, cell: 
   return palUV(g, cell);
 }
 function pbox(w: number, h: number, d: number, x: number, y: number, z: number, cell: number, rx = 0, r = 0.02) {
-  const g = r > 0 ? rbox(w, h, d, r) : new THREE.BoxGeometry(w, h, d);
+  // Plain boxes: the cabin sits behind tinted glass, bevels there aren't worth the triangles.
+  void r;
+  const g = new THREE.BoxGeometry(w, h, d);
   if (rx) g.rotateX(rx);
   g.translate(x, y, z);
   return palUV(stripAttrs(g), cell);

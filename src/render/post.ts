@@ -240,6 +240,10 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   ao.configuration.halfRes = false;
   // rain/glass/particles should not occlude; skipping the transparency pre-pass saves ~2 ms
   ao.configuration.transparencyAware = false;
+  // perf: the line above is a no-op (false is the default), so n8ao kept auto-detecting transparent
+  // materials every frame, switched itself to transparency mode and re-rendered + traversed the whole
+  // scene 2 extra times per frame. Turn the auto-detection off.
+  (ao as unknown as { autoDetectTransparency: boolean }).autoDetectTransparency = false;
   ao.setQualityMode('Medium');
   composer.addPass(ao);
 
