@@ -676,7 +676,7 @@ vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
     } else {
       // clear glass: fresnel mix of interior and a street/sky reflection
       float cosT = clamp(dot(-gV, gN), 0.0, 1.0);
-      float F = (gKind > 1.5 && gKind < 2.5 ? 0.11 : 0.08) + 0.9 * pow(1.0 - cosT, 5.0);
+      float F = (gKind > 1.5 && gKind < 2.5 ? 0.15 : 0.09) + 0.85 * pow(1.0 - cosT, 4.0);
       vec3 R = reflect(gV, gN);
       #ifdef USE_ENVMAP
         vec3 envR = getIBLRadiance(geometryViewDir, geometryNormal, 0.02) * uGlassEnv;

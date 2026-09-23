@@ -15,6 +15,12 @@ export type FrontInfo = (x: number, z: number) => { clear: number; y: number } |
 let frontInfo: FrontInfo | null = null;
 /** World hook: lets the facade grammar place sidewalk clutter only where the sidewalk is deep enough. */
 export function setFrontInfo(fn: FrontInfo | null) { frontInfo = fn; }
+/** Sidewalk height just in front of facade position s (null when unknown). */
+export function sidewalkY(f: Frame, s: number): number | null {
+  if (!frontInfo) return null;
+  const p = f.pt(s, 0, 0.8);
+  return frontInfo(p[0], p[2])?.y ?? null;
+}
 
 function surfOf(B: BCtx['B'], lod: 0 | 1 | 2, id: string, color: THREE.Color): MB {
   const mb = B.s[lod];

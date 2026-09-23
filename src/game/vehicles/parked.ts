@@ -109,6 +109,7 @@ export class ParkingSystem {
     };
     push(m.trim, mats.trim); push(m.chrome, mats.chrome); push(m.grille, mats.grille); push(m.head, mats.headOff);
     push(m.tail, mats.tailOff); push(m.reverse, mats.revOff); push(m.plate, plateMaterial()); push(m.paintParts, mats.trim);
+    push(m.interior, mats.interior); push(m.signals, mats.amber);
     const misc = mergeGeometries(miscGeos.map(clean), true)!;
     const nearMisc = new THREE.InstancedMesh(misc, miscMats, cap);
     const wheelGeos = m.wheelPos.map((p, i) => {
@@ -119,7 +120,7 @@ export class ParkingSystem {
     });
     const wheels = mergeWheelGroups(wheelGeos);
     const nearWheels = new THREE.InstancedMesh(wheels, [mats.tire, mats.rim, mats.rimDark], cap);
-    const farBody = new THREE.InstancedMesh(m.lod.body, [paint, mats.glass, mats.dark, mats.trim], cap);
+    const farBody = new THREE.InstancedMesh(m.lod.body, [paint, mats.glassFar, mats.dark, mats.trim], cap);
     // One group per merged input: wheels (tire+rim collapse to tire at distance), head, tail.
     // very far: one draw — lod2 body with its 4 material groups baked to vertex colours (× instance paint)
     const farBody2 = new THREE.InstancedMesh(bakedLod2(m), veryFarMaterial(), cap);

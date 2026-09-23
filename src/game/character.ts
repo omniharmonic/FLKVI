@@ -12,7 +12,7 @@ const PLAYER_LOOK: Partial<Look> = {
   sex: 'm', build: 1, skin: '#c99a78', eyes: '#2e1c10', hair: 'buzz', hairColor: '#1a1410', glasses: false,
   top: 'hoodie', topColor: '#2c2f34', topColor2: '#2c2f34', open: false,
   bottom: 'jeans', bottomColor: '#222c42', belt: false,
-  shoes: 'sneaker', shoeColor: '#4a4d52', soleColor: '#e2e0da', sockColor: '#1a1a1c', crewSocks: false,
+  shoes: 'sneaker', shoeColor: '#43464b', soleColor: '#9a9893', sockColor: '#1a1a1c', crewSocks: false,
   gloves: '#141416', policeBack: false, hat: 'hood', hatColor: '#2c2f34',
 };
 

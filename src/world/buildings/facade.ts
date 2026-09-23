@@ -7,7 +7,7 @@ import { layer, relTint, signSlot } from './materials';
 import type { Style } from './kits';
 import { signWord } from './kits';
 import { shopCategory } from './shopGlsl';
-import { wallLantern, wallPack, plaque, downLens, ghostSign, storefrontClutter } from './streetDetail';
+import { wallLantern, wallPack, plaque, downLens, ghostSign, storefrontClutter, sidewalkY } from './streetDetail';
 
 export interface Buckets {
   /** surface buckets: [lod0 detail, lod1 far, common] */
@@ -759,14 +759,20 @@ function storefrontSign(c: BCtx, f: Frame, a: number, z: number, top: number, fl
 function storefrontDress(c: BCtx, f: Frame, a: number, z: number, y0: number, top: number, floorTop: number, i: number, sd: number, sharedSign = false) {
   const { st, b } = c;
   const w = z - a;
-  void y0;
   if (!sharedSign) storefrontSign(c, f, a, z, top, floorTop, i, sd);
-  // awning
-  if (st.awnings && w > 1.5) {
+  // awning: valance must clear the sidewalk by ≥ 2.2 m (low ground floors / sloped or raised sidewalks)
+  const gy = Math.max(y0, c.groundY, sidewalkY(f, (a + z) / 2) ?? -Infinity);
+  const val = 0.25;
+  let yT = top - 0.05, drop = 0.75;
+  if (yT - drop - val < gy + 2.3) {
+    drop = yT - val - gy - 2.3;
+    if (drop < 0.35) { drop = 0.35; yT = Math.min(floorTop - 0.05, gy + 2.3 + val + drop); }
+  }
+  if (st.awnings && w > 1.5 && yT - drop - val >= gy + 2.1) {
     const ac = st.awningColors[0];
     void i;
     const striped = st.awningStriped;
-    const yT = top - 0.05, drop = 0.75, proj = 1.3, val = 0.25;
+    const proj = 1.3;
     const fb = c.B;
     const n = striped ? Math.max(2, Math.round(w / 0.3)) : 1;
     const sw = (w - 0.3) / n;

@@ -1,5 +1,6 @@
 // Shared vehicle materials (cached; never mutate per-instance).
 import * as THREE from 'three';
+import { paletteTexture } from './palette';
 
 const cache = new Map<string, THREE.Material>();
 function cached<T extends THREE.Material>(key: string, make: () => T): T {
@@ -15,30 +16,75 @@ export const CAR_COLORS = [
   '#6b1e2a', '#35383c',
 ];
 
+/** Metallic-flake normal map: per-texel random micro-normals, tiled densely so the base coat sparkles under the clearcoat. */
+let flakeTex: THREE.DataTexture | null = null;
+function flakeNormal() {
+  if (flakeTex) return flakeTex;
+  const N = 128, data = new Uint8Array(N * N * 4);
+  let seed = 987654321;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < N * N; i++) {
+    const x = (r() - 0.5) * 0.9, y = (r() - 0.5) * 0.9, z = Math.sqrt(Math.max(0, 1 - x * x - y * y));
+    data.set([(x * 0.5 + 0.5) * 255, (y * 0.5 + 0.5) * 255, (z * 0.5 + 0.5) * 255, 255], i * 4);
+  }
+  flakeTex = new THREE.DataTexture(data, N, N);
+  flakeTex.wrapS = flakeTex.wrapT = THREE.RepeatWrapping;
+  flakeTex.repeat.set(70, 16); // body UV: u spans ~2 car lengths, v spans 2.2 m → ~1 mm flakes
+  flakeTex.magFilter = THREE.NearestFilter;
+  flakeTex.minFilter = THREE.LinearMipmapLinearFilter;
+  flakeTex.generateMipmaps = true;
+  flakeTex.needsUpdate = true;
+  return flakeTex;
+}
+
 export function paintMaterial(color: string, map: THREE.Texture | null, key: string): THREE.MeshPhysicalMaterial {
   return cached(`paint-${key}-${color}`, () => {
     const c = new THREE.Color(color);
     const hsl = { h: 0, s: 0, l: 0 };
     c.getHSL(hsl);
+    // Whites/creams read as solid paint; everything else is a metallic base coat with flake under a glossy clearcoat.
+    const solid = hsl.l > 0.8 || (hsl.s > 0.6 && hsl.h > 0.1 && hsl.h < 0.2);
     return new THREE.MeshPhysicalMaterial({
       color: c,
       map,
-      // Lighter paints read as solid; darker/saturated ones get a metallic flake feel.
-      metalness: hsl.l > 0.75 ? 0.1 : 0.45,
-      roughness: hsl.l > 0.75 ? 0.32 : 0.42,
+      metalness: solid ? 0.05 : 0.62,
+      roughness: solid ? 0.36 : 0.34,
+      normalMap: solid ? null : flakeNormal(),
+      normalScale: new THREE.Vector2(0.22, 0.22),
       clearcoat: 1,
-      clearcoatRoughness: 0.05,
-      envMapIntensity: 1.2,
+      clearcoatRoughness: 0.04,
+      envMapIntensity: 1.15,
     });
   });
 }
 
 export const mats = {
+  /** Near glass: see-through tinted with env reflections (cabin interior visible behind it). */
   get glass() {
-    return cached('glass', () => new THREE.MeshPhysicalMaterial({
+    return cached('glass', () => {
+      const m = new THREE.MeshPhysicalMaterial({
+        color: 0x10171c, metalness: 0.0, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.02,
+        ior: 1.5, specularIntensity: 1, envMapIntensity: 2.2,
+        transparent: true, opacity: 0.6, depthWrite: false,
+      });
+      // Fresnel alpha: tinted see-through head-on, mirror-like at grazing angles (like real auto glass).
+      m.onBeforeCompile = (sh) => {
+        sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>',
+          'diffuseColor.a = mix(diffuseColor.a, 1.0, pow(1.0 - saturate(dot(normal, geometryViewDir)), 2.5));\n#include <opaque_fragment>');
+      };
+      m.customProgramCacheKey = () => 'gt-car-glass';
+      return m;
+    });
+  },
+  /** Far LODs have no cabin: keep their glass opaque dark. */
+  get glassFar() {
+    return cached('glassFar', () => new THREE.MeshPhysicalMaterial({
       color: 0x0b1015, metalness: 0.0, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02,
       ior: 1.5, specularIntensity: 1, envMapIntensity: 1.6,
     }));
+  },
+  get interior() {
+    return cached('interior', () => new THREE.MeshStandardMaterial({ map: paletteTexture(), roughness: 0.85, metalness: 0 }));
   },
   get dark() {
     return cached('dark', () => new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.95, metalness: 0 }));
@@ -59,7 +105,7 @@ export const mats = {
     return cached('grille', () => new THREE.MeshStandardMaterial({ color: 0xffffff, map: grilleTex, roughness: 0.6, metalness: 0.4 }));
   },
   get tire() {
-    return cached('tire', () => new THREE.MeshStandardMaterial({ color: 0x161618, roughness: 0.9, metalness: 0 }));
+    return cached('tire', () => new THREE.MeshStandardMaterial({ color: 0xffffff, map: tireTex, roughness: 0.88, metalness: 0 }));
   },
   headOff: null as unknown as THREE.MeshPhysicalMaterial,
   headOn: null as unknown as THREE.MeshPhysicalMaterial,
@@ -73,6 +119,7 @@ export const mats = {
   blueOff: null as unknown as THREE.MeshPhysicalMaterial,
   blueOn: null as unknown as THREE.MeshPhysicalMaterial,
   amber: null as unknown as THREE.MeshPhysicalMaterial,
+  amberOn: null as unknown as THREE.MeshPhysicalMaterial,
 };
 
 function canvasTex(w: number, h: number, draw: (x: CanvasRenderingContext2D) => void, srgb = true) {
@@ -118,6 +165,28 @@ export const grilleTex = canvasTex(128, 64, (x) => {
     x.closePath(); x.stroke();
   }
 });
+/**
+ * Tire: lathe UV (u around, v across the profile: sidewall → tread → sidewall). Rubber tone variation,
+ * raised sidewall lettering blocks, circumferential grooves + lateral tread blocks, and dust on the shoulders.
+ */
+const tireTex = canvasTex(512, 64, (x) => {
+  x.fillStyle = '#19191b'; x.fillRect(0, 0, 512, 64);
+  // v (canvas y, flipped): rows 0-20 & 44-64 sidewalls, 20-44 tread
+  x.fillStyle = '#141416'; x.fillRect(0, 21, 512, 22);
+  for (let i = 0; i < 128; i++) { x.fillStyle = '#0c0c0d'; x.fillRect(i * 4, 22, 1.6, 20); }
+  x.fillStyle = '#0a0a0b'; x.fillRect(0, 27, 512, 1.5); x.fillRect(0, 36, 512, 1.5);
+  for (const y0 of [5, 52]) {
+    for (let i = 0; i < 512; i += 9) {
+      if ((i / 9) % 24 > 15) continue;
+      x.fillStyle = (i / 9) % 3 ? '#2c2c2f' : '#333336';
+      x.fillRect(i, y0, 6, 6);
+    }
+  }
+  const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, 'rgba(110,100,85,0.18)'); g.addColorStop(0.3, 'rgba(110,100,85,0.0)');
+  g.addColorStop(0.7, 'rgba(110,100,85,0.0)'); g.addColorStop(1, 'rgba(110,100,85,0.18)');
+  x.fillStyle = g; x.fillRect(0, 0, 512, 64);
+});
 grilleTex.wrapS = grilleTex.wrapT = THREE.RepeatWrapping;
 grilleTex.repeat.set(4, 1.5);
 
@@ -139,6 +208,7 @@ mats.redOn = lens(0xff2020, 0xff0a14, 9, 0.15);
 mats.blueOff = lens(0x05103a, 0x1f45ff, 0.05, 0.15);
 mats.blueOn = lens(0x3050ff, 0x1f45ff, 11, 0.15);
 mats.amber = lens(0x8a4a05, 0xff8a10, 0.0, 0.12);
+mats.amberOn = lens(0xffa030, 0xff8a10, 6, 0.12);
 
 /** Update shared light materials each frame from the night factor. */
 export function updateSharedLightMaterials(night: number) {
@@ -146,6 +216,32 @@ export function updateSharedLightMaterials(night: number) {
   mats.tailRun.emissiveIntensity = 0.25 + night * 1.6;
   mats.tailBrake.emissiveIntensity = 3.5 + night * 3;
   mats.revOn.emissiveIntensity = 2 + night * 3;
+  mats.amberOn.emissiveIntensity = 4 + night * 3;
+  beamMaterial().opacity = 0.55 * Math.min(1, night * 1.4);
+}
+
+let beamMat: THREE.MeshBasicMaterial | null = null;
+/** Additive ground light pool cast by headlights (cheap stand-in for a spotlight on every car). */
+export function beamMaterial() {
+  if (beamMat) return beamMat;
+  const t = canvasTex(64, 128, (x) => {
+    // local: canvas top = far end of the beam, bottom = bumper
+    const img = x.createImageData(64, 128);
+    for (let j = 0; j < 128; j++) for (let i = 0; i < 64; i++) {
+      const v = 1 - j / 127; // 0 at bumper, 1 far
+      const u = (i / 63 - 0.5) * 2;
+      const spread = 0.25 + v * 0.75;
+      const lat = Math.max(0, 1 - (u / spread) ** 2);
+      const along = Math.min(1, v * 7) * (1 - v) ** 1.3;
+      const a = lat * along;
+      const k = (j * 64 + i) * 4;
+      img.data[k] = 255; img.data[k + 1] = 236; img.data[k + 2] = 205; img.data[k + 3] = Math.round(255 * a);
+    }
+    x.putImageData(img, 0, 0);
+  });
+  beamMat = new THREE.MeshBasicMaterial({ map: t, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  beamMat.name = 'veh-beam';
+  return beamMat;
 }
 
 // ---------- Canvas textures ----------

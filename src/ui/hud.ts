@@ -114,7 +114,7 @@ export class HUD {
   }
 
   renderMode() {
-    const g = this.g; const place = (g.recipe?.name ?? '').split(',')[0];
+    const g = this.g; const place = (g.recipe?.name ?? '').split(/,| — | - /)[0];
     this.modeEl.replaceChildren(h('span', { class: 'rec' }), h('span', {}, `${g.mode === 'freeroam' ? 'FREE ROAM' : 'TAKEDOWN'}${place ? ' · ' + place.toUpperCase() : ''}`), h('span', { class: 'hint' }, 'M MAP · ESC PAUSE'));
     this.score.style.display = g.mode === 'freeroam' ? 'none' : '';
   }

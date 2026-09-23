@@ -89,6 +89,14 @@ export class Vehicle implements VehicleHandle {
   slip = 0;
   /** Seconds since spawn/last touched (for parked demotion). */
   idleTime = 0;
+  /** Turn signal: −1 left, 1 right, 2 hazards, 0 off. */
+  signal = 0;
+  private signalHold = 0;
+  /** Night headlight ground pool on (set by the manager for nearby cars). */
+  beam = false;
+  /** Lateral / longitudinal acceleration (m/s², car frame; + = right / forward), smoothed. */
+  latG = 0;
+  lonG = 0;
 
   constructor(private g: Game, opts: { id: string; kind: 'civilian' | 'police'; model: CarModel; color: string; seed: number; x: number; z: number; heading: number; y?: number; mode: PhysicsMode; colliderMap: Map<number, Vehicle> }) {
     this.id = opts.id;
@@ -386,9 +394,32 @@ export class Vehicle implements VehicleHandle {
         this.spin[i] -= (this.speed / this.model.wheelR) * dt * (this.braking && this.control.handbrake && i >= 2 ? 0 : 1);
         spin.rotation.x = this.spin[i];
       }
-      this.visual.chassis.rotation.set(0, 0, 0);
+      // Visual body roll / dive / squat on top of the physical suspension (reads as weight transfer).
+      if (dt > 0) {
+        _right.set(1, 0, 0).applyQuaternion(this.object.quaternion);
+        const ax = (this.velocity.x - this.prevVelocity.x) / dt, az = (this.velocity.z - this.prevVelocity.z) / dt;
+        const lat = clamp(ax * _right.x + az * _right.z, -25, 25), lon = clamp(-(ax * _fwd.x + az * _fwd.z) * -1, -25, 25);
+        this.latG = damp(this.latG, lat, 6, dt);
+        this.lonG = damp(this.lonG, lon, 6, dt);
+      }
+      const k = this.model.id === 'sports' ? 0.55 : this.model.id === 'van' || this.model.id === 'pickup' || this.model.id.includes('suv') ? 1.35 : 1;
+      this.visRoll = damp(this.visRoll, clamp(this.latG * 0.0042 * k, -0.065, 0.065), 8, dt);
+      this.visPitch = damp(this.visPitch, clamp(this.lonG * 0.0032 * k, -0.045, 0.045), 8, dt);
+      // Pivot roughly around the axle line at ground so the body doesn't slide off its wheels.
+      this.visual.chassis.rotation.set(this.visPitch, 0, this.visRoll);
     } else this.syncVisualFromHandle(dt);
-    this.visual.setLights({ head: this.headlights, brake: this.braking, reverse: this.reversing, siren: !!this.siren, t: this.g.elapsed });
+    this.updateSignal(dt);
+    this.visual.setDriver(this.driver !== 'none' && !this.destroyed);
+    this.visual.setLights({ head: this.headlights, brake: this.braking, reverse: this.reversing, siren: !!this.siren, t: this.g.elapsed, signal: this.signal, beam: this.beam });
+  }
+
+  private updateSignal(dt: number) {
+    if (this.destroyed || (this.crashed && this.driver !== 'player') || (this.driver === 'none' && this.health < 60)) { this.signal = 2; return; }
+    if (this.driver !== 'ai') { this.signal = 0; this.signalHold = 0; return; }
+    // AI: use explicit steer intent if the AI provides it, else the turn we're in (yaw rate).
+    const intent = Math.abs(this.control.steer) > 0.2 ? Math.sign(this.control.steer) : Math.abs(this.steerAngle) > 0.12 && Math.abs(this.speed) < 14 ? Math.sign(this.steerAngle) : 0;
+    if (intent) { this.signal = intent; this.signalHold = 1.4; }
+    else if ((this.signalHold -= dt) <= 0) this.signal = 0;
   }
 
   private syncVisualFromHandle(dt: number) {

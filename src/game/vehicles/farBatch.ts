@@ -50,7 +50,7 @@ export class FarTrafficBatch {
       return im;
     };
     b = {
-      body: mk(model.lod.body, [paintFor(model, '#ffffff'), mats.glass, mats.dark, mats.trim], true),
+      body: mk(model.lod.body, [paintFor(model, '#ffffff'), mats.glassFar, mats.dark, mats.trim], true),
       wheels: mk(model.lod.wheels, [mats.tire, mats.rim], false),
       head: mk(model.lod.head, headMat, false),
       tail: mk(model.lod.tail, tailMat, false),

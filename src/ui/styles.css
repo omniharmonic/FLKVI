@@ -269,8 +269,10 @@ kbd { font: 600 11px/1 var(--mono); padding: 5px 8px; border-radius: 6px; backgr
 .hud-speed .gauge i { display: block; height: 100%; background: linear-gradient(90deg, #fff, var(--amber), var(--red)); width: 0; }
 .hud-flag { font: 700 10px/1 var(--mono); letter-spacing: 0.18em; color: var(--red); margin-top: 8px; display: none; }
 .hud-flag.on { display: block; animation: gt-blink 1s infinite; }
-.hud-mode { position: absolute; left: 24px; top: 22px; font: 600 10px/1 var(--mono); letter-spacing: 0.3em; color: #d5dbe3; text-shadow: 0 1px 6px rgba(0,0,0,0.9); display: flex; gap: 10px; align-items: center; }
-.hud-mode .rec { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: gt-blink 1.4s steps(2) infinite; }
+.hud-mode { position: absolute; left: 24px; top: 22px; font: 600 10px/1 var(--mono); letter-spacing: 0.3em; color: #d5dbe3; text-shadow: 0 1px 6px rgba(0,0,0,0.9); display: flex; gap: 10px; align-items: center; max-width: calc(50% - 230px); overflow: hidden; white-space: nowrap; }
+.hud-mode > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.hud-mode .hint { flex-shrink: 0; }
+.hud-mode .rec { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: gt-blink 1.4s steps(2) infinite; }
 .hud-mode .hint { color: rgba(213,219,227,0.6); letter-spacing: 0.12em; }
 
 .hud-vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.4s; box-shadow: inset 0 0 180px 40px rgba(255, 30, 45, 0.45); }

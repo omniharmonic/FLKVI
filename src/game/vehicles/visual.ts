@@ -1,7 +1,7 @@
 // Per-vehicle scene graph built from a shared CarModel (geometries + materials are shared).
 import * as THREE from 'three';
 import type { CarModel } from './carModels';
-import { mats, paintMaterial, plateMaterial, PLATE_CELLS } from './materials';
+import { mats, paintMaterial, plateMaterial, beamMaterial, PLATE_CELLS } from './materials';
 
 export interface VehicleVisual {
   root: THREE.Group;
@@ -10,7 +10,10 @@ export interface VehicleVisual {
   bodyMesh: THREE.Mesh;
   /** Steering pivots (FL, FR, RL, RR); child 0 = spinning wheel mesh. */
   wheels: THREE.Group[];
-  setLights(s: { head: boolean; brake: boolean; reverse: boolean; siren: boolean; t: number }): void;
+  /** signal: −1 left, 1 right, 2 hazards, 0 off. */
+  setLights(s: { head: boolean; brake: boolean; reverse: boolean; siren: boolean; t: number; signal?: number; beam?: boolean }): void;
+  /** Show/hide the seated driver figure. */
+  setDriver(on: boolean): void;
   setPaint(color: string): void;
   readonly far: boolean;
   setFar(f: boolean): void;
@@ -60,7 +63,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
   chassis.add(bodyMesh);
-  const add = (geo: THREE.BufferGeometry | null | undefined, mat: THREE.Material, shadow = false) => {
+  const add = (geo: THREE.BufferGeometry | null | undefined, mat: THREE.Material | THREE.Material[], shadow = false) => {
     if (!geo) return null;
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = shadow;
@@ -75,6 +78,12 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   const head = add(model.head, mats.headOff)!;
   const tail = add(model.tail, mats.tailOff)!;
   const rev = add(model.reverse, mats.revOff)!;
+  add(model.interior, mats.interior);
+  const driver = add(model.drivers[seed % model.drivers.length], mats.interior)!;
+  driver.visible = false;
+  const signals = add(model.signals, [mats.amber, mats.amber] as unknown as THREE.Material)!;
+  const sigMats: THREE.Material[] = [mats.amber, mats.amber];
+  signals.material = sigMats;
   add(plateGeo(model, seed % PLATE_CELLS), plateMaterial());
   let red: THREE.Mesh | null = null, blue: THREE.Mesh | null = null;
   if (model.lightbar) {
@@ -100,13 +109,19 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   // Far LOD
   const far = new THREE.Group();
   far.visible = false;
-  const farBody = new THREE.Mesh(model.lod.body, [paint, mats.glass, mats.dark, mats.trim]);
+  const farBody = new THREE.Mesh(model.lod.body, [paint, mats.glassFar, mats.dark, mats.trim]);
   farBody.castShadow = true;
   const farWheels = new THREE.Mesh(model.lod.wheels, [mats.tire, mats.rim]);
   const farHead = new THREE.Mesh(model.lod.head, mats.headOff);
   const farTail = new THREE.Mesh(model.lod.tail, mats.tailOff);
   far.add(farBody, farWheels, farHead, farTail);
   root.add(far);
+  // Headlight ground pool (night only): flat additive quad ahead of the bumper, in the unpitched root.
+  const beam = new THREE.Mesh(beamGeo(), beamMaterial());
+  beam.position.set(0, 0.04, -model.L / 2 - 0.2);
+  beam.visible = false;
+  beam.renderOrder = 2;
+  root.add(beam);
   let isFar = false;
   const phase = (seed % 7) * 0.13;
   return {
@@ -119,7 +134,13 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       chassis.visible = !f;
       for (const w of wheels) w.visible = !f;
     },
+    setDriver(on: boolean) { driver.visible = on; },
     setLights(s) {
+      beam.visible = !!s.beam && s.head && !isFar;
+      const blink = ((s.t + phase) % 0.7) < 0.36;
+      const sg = s.signal ?? 0;
+      sigMats[0] = (sg === -1 || sg === 2) && blink ? mats.amberOn : mats.amber;
+      sigMats[1] = (sg === 1 || sg === 2) && blink ? mats.amberOn : mats.amber;
       head.material = s.head ? mats.headOn : mats.headOff;
       tail.material = s.brake ? mats.tailBrake : s.head ? mats.tailRun : mats.tailOff;
       farHead.material = head.material as THREE.MeshPhysicalMaterial;
@@ -127,11 +148,11 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       rev.material = s.reverse ? mats.revOn : mats.revOff;
       if (red && blue) {
         if (s.siren) {
-          // Classic alternating double-flash pattern.
-          const t = (s.t + phase) % 0.8;
-          const a = t < 0.4, fl = (t % 0.2) < 0.09;
-          red.material = a && fl ? mats.redOn : mats.redOff;
-          blue.material = !a && fl ? mats.blueOn : mats.blueOff;
+          const st = strobe(s.t + phase);
+          red.material = st.red ? mats.redOn : mats.redOff;
+          blue.material = st.blue ? mats.blueOn : mats.blueOff;
+          // Wig-wag: headlights alternate with the bar.
+          if (!s.head || st.wig) head.material = st.wig ? mats.headOn : mats.headOff;
         } else { red.material = mats.redOff; blue.material = mats.blueOff; }
       }
     },
@@ -142,4 +163,28 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       paintParts.material = p;
     },
   };
+}
+
+/**
+ * Police light-bar pattern (0.9 s cycle): red side quad-flashes, then blue side quad-flashes, with a
+ * short all-on burst; the headlights wig-wag on the half-beat. Shared by the lamp materials and the
+ * real strobe lights cast on surroundings (manager).
+ */
+export function strobe(t: number) {
+  const c = ((t % 0.9) + 0.9) % 0.9;
+  const half = c < 0.45;
+  const k = (c % 0.45) / 0.45; // 0..1 within a side
+  const pulse = Math.floor(k * 8) % 2 === 0 && k < 0.78; // 4 quick flashes
+  const burst = c > 0.84;
+  return { red: (half && pulse) || burst, blue: (!half && pulse) || burst, wig: Math.floor(c / 0.225) % 2 === 1 };
+}
+
+let _beam: THREE.BufferGeometry | null = null;
+function beamGeo() {
+  if (_beam) return _beam;
+  const g = new THREE.PlaneGeometry(7, 16);
+  g.rotateX(-Math.PI / 2); // lies flat; canvas top (v=1) now at −Z (ahead)
+  g.translate(0, 0, -8);
+  _beam = g;
+  return g;
 }

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { PAL, palUV } from './palette';
 
 export type CarModelId = 'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports' | 'taxi' | 'police' | 'police-suv';
 export const CAR_MODEL_IDS: CarModelId[] = ['sedan', 'hatchback', 'suv', 'pickup', 'van', 'sports', 'taxi', 'police', 'police-suv'];
@@ -47,7 +48,7 @@ const SPECS: Record<'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports',
     windshield: [1.38, 2.25], rearWindow: [3.5, 4.02],
     sideGlass: [[1.62, 2.64], [2.76, 3.86]],
     doors: [[1.52, 2.7], [2.7, 3.72]],
-    noseR: 0.14, tailR: 0.13, rimStyle: 'spoke5', bulge: 0.035, hoodCrown: 0.035,
+    noseR: 0.14, tailR: 0.13, rimStyle: 'spoke5', bulge: 0.025, hoodCrown: 0.035,
   },
   hatchback: {
     L: 4.25, W: 0.89, axleF: 0.86, axleR: 3.44, wheelR: 0.32, tireW: 0.205,
@@ -58,7 +59,7 @@ const SPECS: Record<'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports',
     windshield: [1.2, 2.02], rearWindow: [3.62, 4.08],
     sideGlass: [[1.42, 2.38], [2.5, 3.72]],
     doors: [[1.35, 2.44], [2.44, 3.38]],
-    noseR: 0.13, tailR: 0.1, rimStyle: 'spoke10', bulge: 0.03, hoodCrown: 0.03,
+    noseR: 0.13, tailR: 0.1, rimStyle: 'spoke10', bulge: 0.022, hoodCrown: 0.03,
   },
   suv: {
     L: 4.85, W: 0.97, axleF: 1.0, axleR: 3.88, wheelR: 0.38, tireW: 0.245,
@@ -69,7 +70,7 @@ const SPECS: Record<'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports',
     windshield: [1.3, 2.02], rearWindow: [4.5, 4.72],
     sideGlass: [[1.45, 2.58], [2.7, 3.55], [3.66, 4.45]],
     doors: [[1.4, 2.64], [2.64, 3.62]],
-    noseR: 0.12, tailR: 0.1, rimStyle: 'spoke5', bulge: 0.03, hoodCrown: 0.03,
+    noseR: 0.12, tailR: 0.1, rimStyle: 'spoke5', bulge: 0.022, hoodCrown: 0.03,
   },
   pickup: {
     L: 5.35, W: 0.99, axleF: 1.05, axleR: 4.3, wheelR: 0.39, tireW: 0.255,
@@ -102,7 +103,7 @@ const SPECS: Record<'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports',
     windshield: [1.66, 2.48], rearWindow: [3.1, 3.95],
     sideGlass: [[1.9, 3.12]],
     doors: [[1.78, 3.02]],
-    noseR: 0.15, tailR: 0.14, rimStyle: 'spoke10', bulge: 0.04, hoodCrown: 0.03,
+    noseR: 0.15, tailR: 0.14, rimStyle: 'spoke10', bulge: 0.03, hoodCrown: 0.03,
   },
 };
 
@@ -143,7 +144,7 @@ function makeBodyFns(s: BodySpec) {
   const archR = s.wheelR + 0.065;
   const halfW = (d: number) => {
     const f = Math.max(0, 1 - d / 0.95), r = Math.max(0, 1 - (s.L - d) / 0.75);
-    return s.W * (1 - 0.1 * f * f - 0.07 * r * r);
+    return s.W * (1 - 0.075 * f * f - 0.055 * r * r);
   };
   const inset = (d: number) => {
     const rn = s.noseR, rt = s.tailR;
@@ -212,7 +213,7 @@ function ringAt(s: BodySpec, fns: ReturnType<typeof makeBodyFns>, d: number, lod
   push(gw, yt + cy(gw), 'gSeal');
   const seal = Math.min(0.035, gh * 0.25);
   const gwTop = gw - gh * s.tumble;
-  const rr = Math.min(0.1, gh * 0.4);
+  const rr = Math.min(0.065, gh * 0.3);
   const gSideTop = yt + gh - rr;
   const xs = gw - seal * s.tumble;
   push(xs, yt + seal + cy(xs), 'gSide');
@@ -287,7 +288,7 @@ function buildBodyGeometry(s: BodySpec, lod = 0) {
         let m = MAT_PAINT;
         if (cat === 'under' || cat === 'wellWall' || cat === 'wellCeil') m = MAT_DARK;
         else if (cat === 'gSeal') m = inRanges(dm, s.sideGlass) ? MAT_TRIM : MAT_PAINT;
-        else if (cat === 'gSide') m = inRanges(dm, s.sideGlass) ? MAT_GLASS : MAT_PAINT;
+        else if (cat === 'gSide') m = inRanges(dm, s.sideGlass) ? MAT_GLASS : inRanges(dm, [[s.sideGlass[0][0], s.sideGlass[s.sideGlass.length - 1][1]]]) ? MAT_TRIM : MAT_PAINT;
         else if (cat === 'gTop') m = inRanges(dm, [s.windshield, ...(s.rearWindow ? [s.rearWindow] : [])]) ? MAT_GLASS : MAT_PAINT;
         const a = base + i * M + j, b = a + 1, c = a + M, dd = c + 1;
         if (side > 0) groups[m].push(a, b, c, b, dd, c);
@@ -598,6 +599,12 @@ export interface CarModel {
   wheelR: number;
   lightbar?: { base: THREE.BufferGeometry; red: THREE.BufferGeometry; blue: THREE.BufferGeometry; redPos: THREE.Vector3; bluePos: THREE.Vector3 };
   taxiSign?: THREE.BufferGeometry;
+  /** Cabin interior (seats, dash, wheel, trim shell), palette-UV'd (see palette.ts). */
+  interior: THREE.BufferGeometry;
+  /** Seated driver figures (palette-UV'd), a few skin/shirt variants. */
+  drivers: THREE.BufferGeometry[];
+  /** Amber turn-signal lenses; groups: 0 = left (−X), 1 = right (+X). */
+  signals: THREE.BufferGeometry;
   livery: Livery;
   /** Collider: half extents and center (chassis local). */
   colHalf: THREE.Vector3;
@@ -858,6 +865,24 @@ function buildCarModel(id: CarModelId): CarModel {
   const cabHalf = new THREE.Vector3(s.W * s.cabin - 0.08, (cabTop - belt) / 2, (r1 - r0) / 2 * 0.8);
   const cabCenter = new THREE.Vector3(0, belt + cabHalf.y, Z((r0 + r1) / 2));
 
+  // Turn signals: small amber lenses under the headlight corners and below the tail lamps.
+  const sigL: THREE.BufferGeometry[] = [], sigR: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const out = sx < 0 ? sigL : sigR;
+    const hTop = fns.top(0.05) - (tall ? 0.03 : 0.02);
+    const hh = baseId === 'sports' ? 0.07 : tall ? 0.15 : 0.1;
+    const y1 = hTop - hh * 1.1 - 0.012, y0 = y1 - 0.045;
+    const x0 = wF - 0.22, x1 = wF + 0.02;
+    out.push(projectPatch(s, fns, sx > 0 ? [[x1, y0], [x0, y0], [x0, y1], [x1, y1]] : [[-x0, y0], [-x1, y0], [-x1, y1], [-x0, y1]], 3, 1, false, 0.007));
+    const tTop = tall ? ytR - 0.02 : fns.top(s.L - 0.05) - 0.03;
+    const th = tall ? (baseId === 'suv' ? 0.34 : 0.42) : 0.14;
+    const ry1 = tall ? tTop - th - 0.11 : tTop - th - 0.012, ry0 = ry1 - 0.05;
+    const rx0 = wR - (tall ? 0.16 : 0.3), rx1 = wR + 0.02;
+    out.push(projectPatch(s, fns, sx < 0 ? [[-rx1, ry0], [-rx0, ry0], [-rx0, ry1], [-rx1, ry1]] : [[rx0, ry0], [rx1, ry0], [rx1, ry1], [rx0, ry1]], 3, 1, true, 0.007));
+  }
+  const signals = mergeGeometries([merge(sigL), merge(sigR)], true)!;
+  const { interior, drivers } = buildInterior(s, fns, baseId, livery);
+
   const model: CarModel = {
     id, spec: s, L: s.L, W: s.W, height: cabTop,
     body, paintMap,
@@ -866,7 +891,7 @@ function buildCarModel(id: CarModelId): CarModel {
     grille: merge(grilleParts),
     head: merge(headParts), tail: merge(tailParts), reverse: merge(revParts), plate: merge(plateParts),
     wheel, wheelPos, wheelR: s.wheelR,
-    lightbar, taxiSign, livery,
+    lightbar, taxiSign, livery, interior, drivers, signals,
     colHalf, colCenter, cabHalf, cabCenter,
     driverSeat: new THREE.Vector3(-0.38, belt - 0.35, Z(s.windshield[1] + 0.35)),
     driverDoor: new THREE.Vector3(-(s.W + 0.75), 0, Z(s.doors[0][0] + 0.5)),
@@ -878,6 +903,136 @@ function buildCarModel(id: CarModelId): CarModel {
   };
   const count = (g: THREE.BufferGeometry | null | undefined) => (g ? (g.index ? g.index.count : g.attributes.position.count) / 3 : 0);
   model.tris = count(body) + count(model.paintParts) + count(model.trim) + count(model.chrome) + count(model.grille) + count(model.head) + count(model.tail)
-    + count(model.reverse) + count(model.plate) + 4 * count(wheel) + (lightbar ? count(lightbar.base) + count(lightbar.red) * 2 : 0) + count(taxiSign);
+    + count(model.reverse) + count(model.plate) + 4 * count(wheel) + (lightbar ? count(lightbar.base) + count(lightbar.red) * 2 : 0) + count(taxiSign)
+    + count(interior) + count(drivers[0]) + count(signals);
   return model;
+}
+
+// ---------- Interior + driver ----------
+
+/** Box from a to b (thickness tx × ty), palette colored. */
+function limb(a: THREE.Vector3, b: THREE.Vector3, tx: number, ty: number, cell: number) {
+  const len = a.distanceTo(b);
+  const g = new THREE.BoxGeometry(tx, ty, len);
+  const m = new THREE.Matrix4().lookAt(a, b, new THREE.Vector3(0, 1, 0));
+  g.applyMatrix4(m);
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  g.translate(mid.x, mid.y, mid.z);
+  return palUV(g, cell);
+}
+function pbox(w: number, h: number, d: number, x: number, y: number, z: number, cell: number, rx = 0, r = 0.02) {
+  const g = r > 0 ? rbox(w, h, d, r) : new THREE.BoxGeometry(w, h, d);
+  if (rx) g.rotateX(rx);
+  g.translate(x, y, z);
+  return palUV(stripAttrs(g), cell);
+}
+
+function buildInterior(s: BodySpec, fns: ReturnType<typeof makeBodyFns>, baseId: string, livery: Livery) {
+  const half = s.L / 2;
+  const Z = (d: number) => d - half;
+  const parts: THREE.BufferGeometry[] = [];
+  const sports = baseId === 'sports';
+  const floorY = fns.bottom(2) + 0.08;
+  const yH = floorY + (sports ? 0.13 : baseId === 'suv' || baseId === 'pickup' || baseId === 'van' ? 0.26 : 0.2);
+  const dF = s.windshield[1] + (sports ? 0.25 : 0.2);
+  const belt = fns.top(dF);
+  const iw = s.W * s.cabin - 0.07;
+  const seatCell = livery === 'police' || livery === 'taxi' ? PAL.seatDark : baseId === 'sedan' ? PAL.seatBeige : baseId === 'suv' || baseId === 'van' ? PAL.seatGrey : PAL.seatDark;
+  const glassH = (d: number) => fns.top(d) + fns.roofH(d);
+  const seat = (x: number, d: number, w: number) => {
+    parts.push(pbox(w, 0.13, 0.5, x, yH, Z(d - 0.02), seatCell, 0.08));
+    parts.push(pbox(w * 0.96, 0.62, 0.13, x, yH + 0.33, Z(d + 0.27), seatCell, -0.22, 0.04));
+    parts.push(pbox(w * 0.5, 0.17, 0.1, x, yH + 0.72, Z(d + 0.36), seatCell, -0.15, 0.035));
+  };
+  const rearSeats = s.doors.length > 1 && baseId !== 'van';
+  const dR = dF + (baseId === 'pickup' ? 0.82 : 0.92);
+  seat(-0.37, dF, 0.5);
+  seat(0.37, dF, 0.5);
+  if (rearSeats) {
+    parts.push(pbox(iw * 2 - 0.1, 0.14, 0.5, 0, yH + 0.02, Z(dR), seatCell, 0.08));
+    parts.push(pbox(iw * 2 - 0.1, 0.6, 0.14, 0, yH + 0.34, Z(dR + 0.27), seatCell, -0.2, 0.04));
+    for (const x of [-0.42, 0.42]) parts.push(pbox(0.25, 0.15, 0.1, x, yH + 0.7, Z(dR + 0.35), seatCell, -0.15, 0.035));
+  }
+  // Dashboard: low front block under the windshield base + upper instrument binnacle.
+  const d0 = s.windshield[0] + 0.12;
+  const dashRear = dF - 0.5;
+  const upperFront = Math.max(d0, dashRear - 0.3);
+  const upperTop = Math.min(belt + 0.07, glassH(upperFront) - 0.03);
+  parts.push(pbox(iw * 2, upperTop - (belt - 0.35), dashRear - upperFront, 0, (upperTop + belt - 0.35) / 2, Z((upperFront + dashRear) / 2), PAL.dash, 0, 0.03));
+  if (upperFront - d0 > 0.05) {
+    const lowTop = Math.min(belt, glassH(d0) - 0.03);
+    parts.push(pbox(iw * 2, lowTop - (belt - 0.4), upperFront - d0 + 0.02, 0, (lowTop + belt - 0.4) / 2, Z((d0 + upperFront) / 2), PAL.dash, 0, 0.02));
+  }
+  parts.push(pbox(0.24, 0.3, 0.7, 0, yH + 0.05, Z(dF - 0.35), PAL.dash, 0, 0.03)); // console
+  // Steering wheel + column.
+  const wc = new THREE.Vector3(-0.37, belt - 0.02, Z(dashRear + 0.14));
+  const rim = new THREE.TorusGeometry(0.185, 0.02, 5, 16);
+  rim.rotateX(-0.45);
+  rim.translate(wc.x, wc.y, wc.z);
+  parts.push(palUV(stripAttrs(rim), PAL.wheel));
+  parts.push(limb(wc, new THREE.Vector3(wc.x, wc.y - 0.1, wc.z - 0.25), 0.07, 0.07, PAL.wheel));
+  parts.push(limb(new THREE.Vector3(wc.x - 0.16, wc.y - 0.04, wc.z + 0.02), new THREE.Vector3(wc.x + 0.16, wc.y - 0.04, wc.z + 0.02), 0.03, 0.02, PAL.wheel));
+  // Shell: floor, door panels, headliner, rear bulkhead / parcel shelf (the body skin is single-sided).
+  const back = s.rearWindow && (baseId === 'sedan' || sports) ? s.rearWindow[1] : s.rearWindow ? s.rearWindow[0] + (s.rearWindow[1] - s.rearWindow[0]) * 0.3 : s.roof[s.roof.length - 1][0] - 0.1;
+  const front = s.windshield[0];
+  parts.push(pbox(iw * 2 + 0.1, 0.04, back - front, 0, floorY, Z((front + back) / 2), PAL.carpet, 0, 0));
+  for (const sx of [-1, 1]) {
+    parts.push(pbox(0.04, belt - floorY + 0.02, back - front - 0.1, sx * (s.W - s.bulge - 0.09), (belt + floorY) / 2, Z((front + back) / 2), PAL.panel, 0, 0));
+  }
+  const r0 = s.windshield[1], r1 = s.rearWindow && (baseId === 'sedan' || sports) ? s.rearWindow[0] : s.roof[s.roof.length - 2][0];
+  let roofMin = 9;
+  for (let d = r0; d <= r1; d += 0.1) roofMin = Math.min(roofMin, glassH(d));
+  const gTopW = Math.max(0.3, s.W * s.cabin - (roofMin - belt) * s.tumble - 0.06);
+  parts.push(pbox(gTopW * 2, 0.03, r1 - r0 + 0.1, 0, roofMin - 0.045, Z((r0 + r1) / 2), PAL.headliner, 0, 0));
+  if (baseId === 'sedan' || sports) {
+    // Parcel shelf over the trunk + bulkhead behind the (rear) seat back.
+    const a = (rearSeats ? dR : dF) + 0.35;
+    parts.push(pbox(iw * 2, 0.03, back - a, 0, fns.top(back) + 0.01, Z((a + back) / 2), PAL.dash, 0, 0));
+    parts.push(pbox(iw * 2, fns.top(a) - floorY, 0.04, 0, (fns.top(a) + floorY) / 2, Z(a), PAL.panel, 0, 0));
+  } else {
+    // Cargo floor + inner tailgate / cab back wall.
+    const top = glassH(back) - 0.05;
+    if (baseId !== 'pickup') parts.push(pbox(iw * 2, 0.05, back - dR - 0.3, 0, yH - 0.05, Z((dR + 0.3 + back) / 2), PAL.carpet, 0, 0));
+    parts.push(pbox(iw * 2 + 0.1, top - floorY, 0.04, 0, (top + floorY) / 2, Z(back), PAL.panel, 0, 0));
+    if (baseId === 'van') {
+      // Bulkhead behind the front seats.
+      const bd = dF + 0.5, bt = glassH(bd) - 0.05;
+      parts.push(pbox(iw * 2 + 0.1, bt - floorY, 0.04, 0, (bt + floorY) / 2, Z(bd), PAL.panel, 0, 0));
+    }
+  }
+  const interior = mergeGeometries(parts.map(stripAttrs), false)!;
+
+  // Seated driver (low-poly), wheel at wc.
+  const drivers: THREE.BufferGeometry[] = [];
+  const looks: [number, number][] = livery === 'police'
+    ? [[PAL.skin1, PAL.uniform], [PAL.skin2, PAL.uniform], [PAL.skin3, PAL.uniform]]
+    : [[PAL.skin1, PAL.shirt1], [PAL.skin2, PAL.shirt2], [PAL.skin3, PAL.shirt3]];
+  for (const [skin, shirt] of looks) {
+    const b: THREE.BufferGeometry[] = [];
+    const x = -0.37;
+    const hip = new THREE.Vector3(x, yH + 0.1, Z(dF + 0.12));
+    const neck = new THREE.Vector3(x, yH + 0.62, Z(dF + 0.2));
+    b.push(limb(hip, neck, 0.36, 0.22, shirt));
+    const head = new THREE.SphereGeometry(0.1, 8, 6);
+    head.scale(0.9, 1.1, 1);
+    head.translate(x, neck.y + 0.15, neck.z - 0.03);
+    b.push(palUV(stripAttrs(head), skin));
+    const hair = new THREE.SphereGeometry(0.103, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    hair.scale(0.92, 1.05, 1.03);
+    hair.translate(x, neck.y + 0.17, neck.z - 0.015);
+    b.push(palUV(stripAttrs(hair), PAL.hair));
+    b.push(limb(neck, new THREE.Vector3(x, neck.y + 0.08, neck.z - 0.02), 0.08, 0.08, skin));
+    for (const sx of [-1, 1]) {
+      const sh = new THREE.Vector3(x + sx * 0.19, yH + 0.55, Z(dF + 0.18));
+      const hand = new THREE.Vector3(wc.x + sx * 0.16, wc.y + 0.03, wc.z + 0.03);
+      const elbow = new THREE.Vector3(x + sx * 0.22, yH + 0.33, (sh.z + hand.z) / 2 + 0.06);
+      b.push(limb(sh, elbow, 0.1, 0.1, shirt));
+      b.push(limb(elbow, hand, 0.08, 0.08, shirt));
+      const knee = new THREE.Vector3(x + sx * 0.11, yH + 0.14, Z(dF - 0.38));
+      b.push(limb(new THREE.Vector3(x + sx * 0.1, yH + 0.1, Z(dF + 0.02)), knee, 0.15, 0.14, PAL.pants));
+      b.push(limb(knee, new THREE.Vector3(knee.x, floorY + 0.08, knee.z - 0.12), 0.11, 0.11, PAL.pants));
+    }
+    drivers.push(mergeGeometries(b.map(stripAttrs), false)!);
+  }
+  return { interior, drivers };
 }

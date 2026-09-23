@@ -194,7 +194,7 @@ function chooseSpawn(infos: ReturnType<typeof buildRoads>, roads: RoadIndex, bld
     for (const side of [1, -1]) {
       const sw = swOf(r, side);
       if (!ped && sw < 1.2) continue;
-      const off = ped ? r.width * 0.3 : r.width / 2 + Math.min(sw * 0.55, 2.2);
+      const off = ped ? r.width * 0.3 : r.width / 2 + Math.min(sw * 0.5, 1.6);
       walk(r.pts, 7, (p, i, dir) => {
         const q: Vec2 = [p[0] - dir[1] * off * side, p[1] + dir[0] * off * side];
         const d0 = Math.hypot(q[0], q[1]);

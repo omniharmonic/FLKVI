@@ -8,6 +8,7 @@ import { hashString } from '../../core/geo';
 import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
 import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
 import { Vehicle } from './vehicle';
+import { strobe } from './visual';
 import { ParkingSystem, type ParkedSlot } from './parked';
 import { CarShadows } from './shadows';
 import { FarTrafficBatch, WheelBatch } from './farBatch';
@@ -66,8 +67,10 @@ export class VehicleSystem implements VehiclesAPI, System {
       this.group.add(s, s.target);
       this.headlights.push(s);
     }
-    for (const c of [0xff1020, 0x2040ff]) {
-      const p = new THREE.PointLight(c, 0, 28, 1.6);
+    // Strobe lights cast on surroundings: one per police car, for the 2 nearest with sirens on
+    // (color follows the bar pattern; constant light count → no shader recompiles).
+    for (let i = 0; i < 2; i++) {
+      const p = new THREE.PointLight(0xff1020, 0, 30, 1.6);
       p.name = 'siren-light';
       this.group.add(p);
       this.sirenLights.push(p);
@@ -293,7 +296,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     updateSharedLightMaterials(night);
     const cam = g.camera.position;
     const playerVid = g.player?.vehicleId;
-    let sirenCar: Vehicle | null = null, sirenD = 1e9;
+    const sirenCars: [number, Vehicle][] = [];
     this.shadows.begin();
     this.farBatch.begin();
     this.wheelBatch.begin();
@@ -303,6 +306,7 @@ export class VehicleSystem implements VehiclesAPI, System {
       const d = v.position.distanceTo(cam);
       v.visual.setFar(d > LOD_FAR && v.id !== playerVid);
       v.headlights = v.driver !== 'none' && !v.destroyed && (night > 0.15 || v.kind === 'police' && !!v.siren);
+      v.beam = v.headlights && night > 0.2 && d < 90;
       // far civilian cars render through the per-model far batch (perf)
       const batched = !sleepy && v.visual.far && v.kind !== 'police' && !v.destroyed && !!v.object.parent;
       v.object.visible = !sleepy && !batched;
@@ -326,7 +330,7 @@ export class VehicleSystem implements VehiclesAPI, System {
           this.farBatch.add(v.model, v.object.matrixWorld, v.color, head, tail);
         }
       }
-      if (v.siren && d < sirenD) { sirenD = d; sirenCar = v; }
+      if (v.siren && v.model.lightbar && !v.destroyed && d < 160) sirenCars.push([d, v]);
       this.effects(v, dt, d);
     }
     this.shadows.end();
@@ -344,15 +348,18 @@ export class VehicleSystem implements VehiclesAPI, System {
         s.intensity = 60 * night;
       } else s.intensity = 0;
     }
-    // Siren light pool: nearest siren car gets real flashing lights.
+    // Siren strobes cast on nearby surfaces: the 2 nearest police cars with sirens get a real light.
+    sirenCars.sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < 2; i++) {
       const L = this.sirenLights[i];
-      if (sirenCar && sirenCar.model.lightbar && sirenD < 150) {
-        const lb = sirenCar.model.lightbar;
-        L.position.copy(i === 0 ? lb.redPos : lb.bluePos).setY((i === 0 ? lb.redPos.y : lb.bluePos.y) + 0.3).applyMatrix4(sirenCar.object.matrixWorld);
-        const t = (g.elapsed + 0.0) % 0.8;
-        const on = (i === 0 ? t < 0.4 : t >= 0.4) && (t % 0.2) < 0.09;
-        L.intensity = on ? 6 + 40 * night : 0;
+      const c = sirenCars[i]?.[1];
+      if (c && c.model.lightbar) {
+        const lb = c.model.lightbar;
+        const st = strobe(g.elapsed + (hashString(c.id) % 7) * 0.13);
+        const side = st.red && !st.blue ? lb.redPos : st.blue && !st.red ? lb.bluePos : lb.redPos.clone().lerp(lb.bluePos, 0.5);
+        L.position.copy(side).setY(side.y + 0.35).applyMatrix4(c.object.matrixWorld);
+        L.color.setHex(st.red && st.blue ? 0xd070ff : st.red ? 0xff1020 : 0x2448ff);
+        L.intensity = st.red || st.blue ? 8 + 55 * night : 0;
       } else L.intensity = 0;
     }
   }

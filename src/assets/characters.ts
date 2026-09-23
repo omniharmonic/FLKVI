@@ -217,7 +217,6 @@ interface Base {
 const BASES = new Map<THREE.BufferGeometry, Base>(); // original body geometry → base
 const GEO_BASE = new WeakMap<THREE.BufferGeometry, Base>(); // any prepared geometry → base
 const BASE_BY_SEX: Partial<Record<'m' | 'f', Base>> = {};
-(globalThis as any).__pzBases = BASES;
 
 function jointPos(mesh: THREE.SkinnedMesh, i: number): THREE.Vector3 {
   const m = new THREE.Matrix4().copy(mesh.skeleton.boneInverses[i]).invert();
@@ -280,7 +279,7 @@ const BUILDS: Record<'m' | 'f', BuildParams[]> = {
   m: [
     { trap: 0.5, lat: 0.4, uarm: 0.77, larm: 0.85, thigh: 0.82, calf: 0.86, chestX: 0.9, chestZ: 0.84, waistX: 0.94, glute: 0.66, belly: 0.0, neck: 0.86, hand: 0.9, hipX: 0.94 },
     { trap: 0.45, lat: 0.33, uarm: 0.83, larm: 0.89, thigh: 0.88, calf: 0.9, chestX: 0.94, chestZ: 0.88, waistX: 1.02, glute: 0.72, belly: 0.03, neck: 0.9, hand: 0.92, hipX: 0.97 },
-    { trap: 0.35, lat: 0.2, uarm: 0.97, larm: 0.98, thigh: 0.98, calf: 0.97, chestX: 1.0, chestZ: 0.98, waistX: 1.14, glute: 0.84, belly: 0.085, neck: 0.98, hand: 0.97, hipX: 1.02 },
+    { trap: 0.4, lat: 0.22, uarm: 0.91, larm: 0.95, thigh: 0.96, calf: 0.94, chestX: 0.98, chestZ: 0.95, waistX: 1.16, glute: 0.8, belly: 0.1, neck: 0.96, hand: 0.96, hipX: 1.03 },
   ],
   f: [
     { trap: 0.3, lat: 0.25, uarm: 0.84, larm: 0.9, thigh: 0.84, calf: 0.88, chestX: 0.94, chestZ: 0.9, waistX: 0.96, glute: 0.7, belly: 0.0, neck: 0.92, hand: 0.94, hipX: 0.92 },
@@ -632,10 +631,10 @@ function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
   // shoes: heavily smoothed (no toes), flat sole, slightly longer toe box
   let toeZ = -1e9;
   for (let i = 0; i < s.n; i++) if (y(i) < 0.06) toeZ = Math.max(toeZ, s.P[i * 3 + 2]);
-  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 22, 0.011, 1, (p) => {
-    if (p.y < 0.02) p.y = Math.min(p.y, -0.006);
-    p.y = Math.max(p.y, -0.014);
-    if (p.z > toeZ - 0.07 && p.y < 0.07) p.z += 0.012 * smooth01(toeZ - 0.07, toeZ - 0.01, p.z);
+  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 12, 0.0065, 0.85, (p) => {
+    if (p.y < 0.018) p.y = Math.min(p.y, -0.004);
+    p.y = Math.max(p.y, -0.01);
+    if (p.z > toeZ - 0.07 && p.y < 0.07) p.z += 0.006 * smooth01(toeZ - 0.07, toeZ - 0.01, p.z);
   });
   addTube(o, s, base);
   if (base.brows) addFacePart(o, base, base.brows, 5);
@@ -1454,7 +1453,6 @@ function applyPerson(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, 
   const u = makeUniforms(base);
   applyLook(u, base, look);
   body.material = personMaterial(base, u);
-  body.material.userData.pzU = u;
   body.customDepthMaterial = personDepthMaterial(u);
   body.castShadow = true; body.receiveShadow = true;
   body.frustumCulled = false;

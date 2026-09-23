@@ -451,7 +451,7 @@ vec3 shadeShop(vec3 d, vec2 lp, float W, float H, float sill, float flH, float s
   vec3 art = lampC * uLamp * gLampOn * (0.25 + pool) * 1.6;
   vec3 day = gDayIrr * (0.3 + 0.9 * (1.0 - depthF) * (1.0 - depthF));
   // by day the street is far brighter than any shop: keep interiors dim so reflections dominate
-  vec3 rad = col * (day + art) * (1.0 - 0.45 * depthF) * mix(0.5, 1.0, smoothstep(0.1, 0.6, uNight));
+  vec3 rad = col * (day + art) * (1.0 - 0.45 * depthF) * mix(0.36, 1.0, smoothstep(0.1, 0.6, uNight));
   rad += gEmit;
   gEmit = vec3(0.0);
   vec4 gl = shopGlass(lp, W, H, sill, seed, cat, entry, lampC);
