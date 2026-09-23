@@ -365,15 +365,16 @@ class ImpostorAtlas {
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
     const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(0.3, 1, 0.8); this.scene.add(dl);
   }
-  private plain(m: THREE.Material | null, alphaTest: number, k: string) {
+  /** Bake material for a source material. Every bake material is one of just two programs (Lambert + map +
+   *  alpha test, ± vertex colours): the tiles are tiny and ~diffuse, and on software GL each extra program
+   *  costs seconds of compile (per-variant PBR clones were the old multi-second loading freeze). */
+  private plain(m: THREE.Material | null, k: string) {
     if (!m) return null;
-    const key = `${m.uuid}|${alphaTest}|${k}`;
+    const key = `${m.uuid}|${k}`;
     let c = this.mats.get(key);
     if (!c) {
-      // Lambert, not the PBR source material: the impostor tiles are tiny and ~diffuse anyway, and the
-      // Lambert program compiles several times faster (bake compiles dominated the old loading freeze)
       const s = m as THREE.MeshStandardMaterial;
-      c = new THREE.MeshLambertMaterial({ map: s.map ?? null, normalMap: s.normalMap ?? null, color: s.color ?? 0xffffff, vertexColors: s.vertexColors, alphaTest, side: s.side });
+      c = new THREE.MeshLambertMaterial({ map: s.map ?? null, color: s.color ?? 0xffffff, vertexColors: s.vertexColors, alphaTest: 0.4, side: THREE.DoubleSide });
       c.name = 'veg-bake-' + k;
       this.mats.set(key, c);
     }
@@ -381,25 +382,36 @@ class ImpostorAtlas {
   }
   private groupFor(V: Variant) {
     const grp = new THREE.Group();
-    const mats = [this.plain(V.barkMat, V.uniform ? 0.4 : 0, 'b'), this.plain(V.leafMat, 0.4, 'l'), this.plain(V.extraMat, 0.4, 'x')];
+    const mats = [this.plain(V.barkMat, 'b'), this.plain(V.leafMat, 'l'), this.plain(V.extraMat, 'x')];
     grp.add(new THREE.Mesh(V.bark, mats[0]!));
     if (V.leaves && mats[1]) grp.add(new THREE.Mesh(V.leaves, mats[1]));
     if (V.extra && mats[2]) grp.add(new THREE.Mesh(V.extra, mats[2]));
     return grp;
   }
-  /** Compile every bake program the given variants need without blocking (parallel compile when available). */
-  async precompile(renderer: THREE.WebGLRenderer, variants: Variant[]) {
-    const grps = variants.map((V) => this.groupFor(V));
-    for (const g of grps) this.scene.add(g);
+  private compile(renderer: THREE.WebGLRenderer, objs: THREE.Object3D[]): Promise<unknown> {
+    for (const o of objs) this.scene.add(o);
     const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, -10, 10);
     // compile against the atlas target (program variants depend on the target's colour space / tone mapping)
     const prev = renderer.getRenderTarget();
-    let ready: Promise<unknown> | null = null;
+    let ready: Promise<unknown> = Promise.resolve();
     renderer.setRenderTarget(this.rt);
     try { ready = renderer.compileAsync(this.scene, cam); } catch { /* compiled lazily on first bake */ }
     renderer.setRenderTarget(prev);
-    try { await ready; } catch { /* ignore */ }
-    for (const g of grps) this.scene.remove(g);
+    for (const o of objs) this.scene.remove(o);
+    return ready.catch(() => {});
+  }
+  /** Start compiling the two bake programs right away (GPU process works while the CPU generates trees). */
+  warm(renderer: THREE.WebGLRenderer) {
+    const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); tex.needsUpdate = true;
+    const geo = new THREE.PlaneGeometry(0.1, 0.1);
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(geo.getAttribute('position').count * 3).fill(1), 3));
+    const mk = (vc: boolean) => new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, vertexColors: vc, alphaTest: 0.4, side: THREE.DoubleSide }));
+    const objs = [mk(false), mk(true)];
+    return this.compile(renderer, objs).then(() => { for (const o of objs) (o.material as THREE.Material).dispose(); geo.dispose(); tex.dispose(); });
+  }
+  /** Compile the bake programs the given variants need without blocking (parallel compile when available). */
+  precompile(renderer: THREE.WebGLRenderer, variants: Variant[]) {
+    return this.compile(renderer, variants.map((V) => this.groupFor(V))).then(() => {});
   }
   bake(renderer: THREE.WebGLRenderer, V: Variant, idx: number) {
     V.atlasIdx = idx;
@@ -549,38 +561,56 @@ export class TreeSystem {
     this.nearCount = new Array(this.plan.length).fill(0);
     this.midCount = new Array(this.plan.length).fill(0);
     this.buildImpostors(renderer);
+    const __sync = () => { const t = performance.now(); try { const gl = renderer!.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); } catch { /* */ } return (performance.now() - t).toFixed(0); };
+    const __s0 = __sync();
+    const warm = renderer && this.atlas ? this.atlas.warm(renderer) : null;
+    const __s1 = __sync();
+    console.info(`[veg] TIMING sync-before ${__s0} sync-after-warm ${__s1}`);
     // near-spawn variants now (behind the loading screen), the rest after the game starts
     const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
     const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;
     this.pending = order.filter((i) => !eager.includes(i));
-    const __T: string[] = [];
     let done = 0, t0 = performance.now();
     const step = async (f: number) => {
       onProgress?.(f);
-      if (performance.now() - t0 > 24) { const y0 = performance.now(); await yieldFrame(); t0 = performance.now(); __T.push('y' + (t0 - y0).toFixed(0)); }
+      if (performance.now() - t0 > 24) { await yieldFrame(); t0 = performance.now(); }
     };
     const built: number[] = [];
-    let __a = performance.now();
     for (const i of eager) {
-      const g0 = performance.now();
       if (this.generate(i)) built.push(i);
-      __T.push('g' + (performance.now() - g0).toFixed(0));
-      await step((++done / eager.length) * 0.8);
-    }
-    __T.push('gen ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
-    if (renderer && this.atlas) {
-      await this.atlas.precompile(renderer, built.map((i) => this.variants[i]!));
-      __T.push('precompile ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
-      done = 0;
-      for (const i of built) { const b0 = performance.now(); this.atlas.bake(renderer, this.variants[i]!, i); __T.push('b' + (performance.now() - b0).toFixed(0)); await step(0.8 + (++done / built.length) * 0.2); }
-      __T.push('bake ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
+      await step(++done / eager.length);
     }
     for (const i of built) this.activate(i);
-    __T.push('act ' + (performance.now() - __a).toFixed(0));
-    console.info('[veg] TIMING ' + __T.join(' '));
-    if (!this.pending.length) this.atlas?.releaseMaterials();
+    // impostor tiles: kick off the (parallel) bake-shader compile now; the tiles are rendered in
+    // finishLoad(), after the rest of the world has been built, so the compile overlaps that work
+    if (renderer && this.atlas) {
+      const atlas = this.atlas;
+      const t = performance.now();
+      this.atlasPending = Promise.all([warm, atlas.precompile(renderer, built.map((i) => this.variants[i]!))]).then(() => {
+        console.info(`[veg] impostor programs ready after ${(performance.now() - t).toFixed(0)} ms`);
+      });
+      this.unbaked = built;
+    }
     (globalThis as any).__gtVegList = trees; // debug: inspected by dev tools
     console.info(`[veg] ${built.length}/${this.plan.length} variants at load (${[...this.byProfile.keys()].join(', ')}), ${this.insts.length}/${trees.length} plants; ${this.pending.length} variants stream in later`);
+  }
+
+  private atlasPending: Promise<void> | null = null;
+  private unbaked: number[] = [];
+  /** Render the impostor tiles of the variants built at load (call before the game starts). */
+  async finishLoad() {
+    const r = this.renderer, atlas = this.atlas;
+    if (!r || !atlas) return;
+    await this.atlasPending;
+    this.atlasPending = null;
+    let t0 = performance.now();
+    for (const i of this.unbaked) {
+      const V = this.variants[i];
+      if (V) atlas.bake(r, V, i);
+      if (performance.now() - t0 > 24) { await yieldFrame(); t0 = performance.now(); }
+    }
+    this.unbaked = [];
+    if (!this.pending.length) atlas.releaseMaterials();
   }
 
   /** Generate (or fetch from cache) the geometry of planned variant i. */
@@ -638,12 +668,17 @@ export class TreeSystem {
 
   /** Stream one pending variant per call: generate → (next call) bake + activate. Keeps each frame's cost to one step. */
   private streamStep = 0;
+  private streamWait: Promise<void> | null = null;
   private stream() {
-    if (!this.pending.length) return;
+    if (!this.pending.length || this.atlasPending || this.unbaked.length || this.streamWait) return;
     if (++this.streamStep % 3) return; // spread the work: at most one step every third frame
     const i = this.pending[0];
     if (!this.variants[i]) {
-      if (!this.generate(i)) this.pending.shift();
+      if (!this.generate(i)) { this.pending.shift(); return; }
+      // compile its bake program off-thread before baking (no in-game compile hitch)
+      if (this.renderer && this.atlas) {
+        this.streamWait = this.atlas.precompile(this.renderer, [this.variants[i]!]).catch(() => {}).then(() => { this.streamWait = null; });
+      }
       return;
     }
     this.pending.shift();

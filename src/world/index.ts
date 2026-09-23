@@ -31,7 +31,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const times: string[] = [];
   let tl = performance.now(), lastStage = 'init';
   const P = (s: string, f: number) => {
-    if (s !== lastStage) { const n = performance.now(); times.push(`${lastStage} ${(n - tl).toFixed(0)}`); tl = n; lastStage = s; }
+    if (s !== lastStage) { const f0 = performance.now(); try { const gl = g.renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); } catch { /* */ } const n = performance.now(); times.push(`${lastStage} ${(n - tl).toFixed(0)} (gpu ${(n - f0).toFixed(0)})`); tl = n; lastStage = s; }
     onProgress(s, Math.max(0, Math.min(1, f)));
   };
   P('Loading materials', 0);
@@ -242,6 +242,9 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     staticMeshes.push(landmarks.group);
   } catch (e) { console.error('[world] landmarks failed', e); }
 
+  // impostor tiles for the trees (their shader compile ran in parallel with the buildings)
+  try { await trees.finishLoad(); } catch (e) { console.warn('[world] tree impostors failed', e); }
+
   // ---- physics
   P('Solidifying the city', 0.92);
   await yieldFrame();
@@ -262,6 +265,18 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // push static geometry to the GPU now (behind the loading screen) so the CPU copies are freed even
   // for chunks that are off-screen at spawn
   try { uploadNow(g.renderer, root); } catch (e) { console.warn('[world] upload failed', e); }
+  // load time: start compiling the world's shader programs now (in parallel where the browser supports
+  // KHR_parallel_shader_compile) so gameplay/AI/surveillance setup overlaps it and the first frame doesn't
+  // stall on them. Compiled against an offscreen target: the composer renders the scene into one, and
+  // program variants depend on the target's colour space / tone mapping.
+  try {
+    const rt = new THREE.WebGLRenderTarget(1, 1);
+    const prev = g.renderer.getRenderTarget();
+    g.renderer.setRenderTarget(rt);
+    const warm = g.renderer.compileAsync(g.scene, g.camera);
+    g.renderer.setRenderTarget(prev);
+    warm.catch(() => {}).finally(() => rt.dispose());
+  } catch (e) { console.warn('[world] shader warm-up failed', e); }
 
   setNight(0);
   g.addSystem({

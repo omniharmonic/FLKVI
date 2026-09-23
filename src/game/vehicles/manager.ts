@@ -5,7 +5,7 @@ import type { Game, System } from '../../core/game';
 import type { VehiclesAPI, VehicleHandle } from '../../core/api';
 import type { Vec2 } from '../../core/types';
 import { hashString } from '../../core/geo';
-import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModel, type CarModelId } from './carModels';
+import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
 import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
 import { Vehicle, DRIFT } from './vehicle';
 import { strobe } from './visual';
@@ -15,6 +15,7 @@ import { FarTrafficBatch, WheelBatch } from './farBatch';
 import { Smoke } from '../effects';
 import { SkidMarks, Sparks } from './fx';
 import { Knockables } from './knockables';
+import { OverlapChecker } from './overlap';
 import { clamp, groundY, nightFactor, playSound, v3 } from '../util';
 
 const PROMOTE_RADIUS = 32;
@@ -53,6 +54,8 @@ export class VehicleSystem implements VehiclesAPI, System {
   readonly skids = new SkidMarks();
   readonly sparks = new Sparks();
   readonly knockables: Knockables;
+  /** Safe car-box overlap tests (no Rapier world queries; see overlap.ts). */
+  readonly overlap: OverlapChecker;
   private scrapeT = 0;
   private nextId = 1;
   private promoteTimer = 0;
@@ -69,6 +72,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     g.scene.add(this.parking.group);
     g.scene.add(this.smoke.points, this.skids.mesh, this.sparks.points);
     this.knockables = new Knockables(g, this.rayIgnore);
+    this.overlap = new OverlapChecker(g, (c) => this.parking.colliderToSlot.has(c.handle) || this.rayIgnore.has(c.handle),
+      () => { const out: RAPIER_NS.Collider[] = []; for (const v of this.vehicles.values()) out.push(...v.colliders); return out; });
     // Fixed light pool (constant light count → no shader recompiles).
     for (let i = 0; i < 2; i++) {
       const s = new THREE.SpotLight(0xfff1dc, 0, 70, 0.52, 0.55, 1.4);
@@ -165,9 +170,10 @@ export class VehicleSystem implements VehiclesAPI, System {
    */
   promote(slot: ParkedSlot): Vehicle | null {
     for (const v of this.vehicles.values()) if (v.parkedSlot && v.parkedSlot.index === slot.index) return v;
-    this.parking.activate(slot);
     const model = getCarModel(slot.model);
-    const clear = this.clearSpot(model, slot.x, slot.y, slot.z, slot.heading);
+    // Its own parked colliders are skipped (parking colliders are excluded from the checker).
+    const clear = this.overlap.clearSpot(model, slot.x, slot.z, slot.heading, undefined, slot.y, 13);
+    this.parking.activate(slot);
     if (!clear) { slot.dead = true; return null; } // stays hidden (active) and never comes back
     if (clear[0] !== slot.x || clear[1] !== slot.z) { slot.x = clear[0]; slot.z = clear[1]; slot.y = groundY(this.g, slot.x, slot.z); slot.m = undefined; }
     const v = new Vehicle(this.g, {
@@ -180,29 +186,6 @@ export class VehicleSystem implements VehiclesAPI, System {
     v.body.sleep();
     v.sync(0);
     return v;
-  }
-
-  /** Nearest pose (x, z) near the given one where the car's hull (above curb height) overlaps nothing solid. */
-  private clearSpot(m: CarModel, x: number, y: number, z: number, heading: number): [number, number] | null {
-    const R = this.g.rapier;
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -heading);
-    const rot = { x: q.x, y: q.y, z: q.z, w: q.w };
-    // Test box: from 0.25 m above the hull bottom (clears curbs / slope) up to the roof, slightly inset.
-    const y0 = m.colCenter.y - m.colHalf.y + 0.25, y1 = Math.max(y0 + 0.2, m.roofY - 0.05);
-    const shape = new R.Cuboid(m.colHalf.x - 0.08, (y1 - y0) / 2, m.colHalf.z - 0.08);
-    const f = new THREE.Vector3(Math.sin(heading), 0, -Math.cos(heading)), r = new THREE.Vector3(-f.z, 0, f.x);
-    for (const [a, b] of [[0, 0], [0, 0.6], [0, -0.6], [0.5, 0], [-0.5, 0], [0, 1.4], [0, -1.4], [0.5, 1], [0.5, -1], [-0.5, 1], [-0.5, -1], [0, 2.4], [0, -2.4]]) {
-      const px = x + r.x * a + f.x * b, pz = z + r.z * a + f.z * b;
-      const gy = a === 0 && b === 0 ? y : groundY(this.g, px, pz);
-      let hit = false;
-      this.g.physics.intersectionsWithShape({ x: px, y: gy + (y0 + y1) / 2, z: pz }, rot, shape, (c) => {
-        if (c.isSensor() || this.parking.colliderToSlot.has(c.handle)) return true;
-        hit = true;
-        return false;
-      });
-      if (!hit) return [px, pz];
-    }
-    return null;
   }
 
   private demotable(v: Vehicle) {

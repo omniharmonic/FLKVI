@@ -425,22 +425,11 @@ export class Vehicle implements VehicleHandle {
   flipUpright() {
     const t = this.body.translation();
     const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this.heading);
-    // Reset in place, or nudge to the nearest clear spot if we're wedged into something.
-    const R = this.rapier, m = this.model;
-    const shape = new R.Cuboid(m.colHalf.x, m.colHalf.y, m.colHalf.z);
-    const f = new THREE.Vector3(Math.sin(this.heading), 0, -Math.cos(this.heading)), r = new THREE.Vector3(-f.z, 0, f.x);
-    let px = t.x, pz = t.z;
-    for (const [a, b] of [[0, 0], [0, -3], [0, 3], [-2.2, 0], [2.2, 0], [-2.2, -3], [2.2, -3], [0, -6], [0, 6]]) {
-      const x = t.x + r.x * a + f.x * b, z = t.z + r.z * a + f.z * b;
-      const y = groundY(this.g, x, z) + 0.6 + m.colCenter.y;
-      let hit = false;
-      this.g.physics.intersectionsWithShape({ x, y, z }, { x: rot.x, y: rot.y, z: rot.z, w: rot.w }, shape, (c) => {
-        if (this.colliders.includes(c) || c.isSensor()) return true;
-        hit = true;
-        return false;
-      });
-      if (!hit) { px = x; pz = z; break; }
-    }
+    // Reset in place, or nudge to the nearest clear spot if we're wedged into something. Uses the
+    // manager's safe overlap checker (Rapier world queries can panic mid-frame; see overlap.ts).
+    const oc = (this.g as any).vehicles?.overlap as import('./overlap').OverlapChecker | undefined;
+    const spot = oc?.clearSpot(this.model, t.x, t.z, this.heading, (c) => this.colliders.includes(c)) ?? [t.x, t.z];
+    const [px, pz] = spot;
     this.body.setTranslation({ x: px, y: groundY(this.g, px, pz) + 0.6, z: pz }, true);
     this.body.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
