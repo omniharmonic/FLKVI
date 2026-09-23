@@ -181,7 +181,7 @@ export function cloudGate(ctx: LandmarkCtx) {
   const cube = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   const mirror = new THREE.MeshStandardMaterial({ color: '#e9ecef', metalness: 1, roughness: 0.035, envMap: cube.texture, envMapIntensity: 1 });
   mirror.name = 'landmark:mirror';
-  const kit = new Kit({ mirror, granite: stoneMat('stone', { tint: '#9d9993' }, null) });
+  const kit = new Kit({ mirror, granite: stoneMat('concrete-precast', { tint: '#b9b7b3' }, null) });
   const L = 10.05, H = 10, B = 6.4, ARCH = 3.7, n = 2.7;
   const g = new THREE.SphereGeometry(1, 96, 56);
   const pos = g.getAttribute('position') as THREE.BufferAttribute;

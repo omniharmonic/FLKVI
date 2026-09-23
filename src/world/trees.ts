@@ -346,56 +346,97 @@ function makeProcVariant(key: string, P: ProcProfile, seed: number, refH: number
   return { key, bark: g, leaves: null, extra: null, ratio, uniform: true, refH, barkMat: proceduralMaterial(), leafMat: null, extraMat: null, bark1, leaves1: null };
 }
 
-/** Renders each variant from the side into an atlas for cross-billboard impostors. */
-function bakeAtlas(renderer: THREE.WebGLRenderer, variants: Variant[], tile = 256) {
-  const cols = Math.ceil(Math.sqrt(variants.length));
-  const size = cols * tile;
-  const rt = new THREE.WebGLRenderTarget(size, size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, samples: 4 });
-  const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff, 1.6));
-  const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(0.3, 1, 0.8); scene.add(dl);
-  const prevRT = renderer.getRenderTarget();
-  const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
-  const prevScissor = renderer.getScissorTest();
-  renderer.setRenderTarget(rt);
-  renderer.setClearColor(0x000000, 0);
-  renderer.clear();
-  const plain = (m: THREE.Material | null, alphaTest: number, k: string) => {
+/**
+ * Cross-billboard impostor atlas: one tile per planned variant, baked incrementally (tiles for variants that
+ * stream in after the game starts are added later). Bake materials are cached per source material and
+ * compiled up front (in parallel where KHR_parallel_shader_compile exists) — re-creating them per variant
+ * used to recompile the same programs dozens of times (the old multi-second loading freeze).
+ */
+class ImpostorAtlas {
+  readonly rt: THREE.WebGLRenderTarget;
+  readonly cols: number;
+  private scene = new THREE.Scene();
+  private mats = new Map<string, THREE.Material>();
+  private cleared = false;
+  constructor(n: number, private tile = 256) {
+    this.cols = Math.ceil(Math.sqrt(Math.max(1, n)));
+    const size = this.cols * tile;
+    this.rt = new THREE.WebGLRenderTarget(size, size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, samples: 4 });
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(0.3, 1, 0.8); this.scene.add(dl);
+  }
+  private plain(m: THREE.Material | null, alphaTest: number, k: string) {
     if (!m) return null;
-    const c = m.clone(); c.onBeforeCompile = () => {}; c.customProgramCacheKey = () => 'bake-' + k; c.alphaTest = alphaTest; return c;
-  };
-  variants.forEach((V, i) => {
-    V.atlasIdx = i;
-    const cx = i % cols, cy = Math.floor(i / cols);
-    const w = V.ratio;
-    const cam = new THREE.OrthographicCamera(-w / 2, w / 2, 1, 0, -10, 10);
-    cam.position.set(0, 0, 2); cam.lookAt(0, 0, 0);
+    const key = `${m.uuid}|${alphaTest}|${k}`;
+    let c = this.mats.get(key);
+    if (!c) {
+      c = m.clone(); c.onBeforeCompile = () => {}; c.customProgramCacheKey = () => 'bake-' + k; c.alphaTest = alphaTest;
+      this.mats.set(key, c);
+    }
+    return c;
+  }
+  private groupFor(V: Variant) {
     const grp = new THREE.Group();
-    const mats = [plain(V.barkMat, V.uniform ? 0.4 : 0, 'b'), plain(V.leafMat, 0.4, 'l'), plain(V.extraMat, 0.4, 'x')];
+    const mats = [this.plain(V.barkMat, V.uniform ? 0.4 : 0, 'b'), this.plain(V.leafMat, 0.4, 'l'), this.plain(V.extraMat, 0.4, 'x')];
     grp.add(new THREE.Mesh(V.bark, mats[0]!));
     if (V.leaves && mats[1]) grp.add(new THREE.Mesh(V.leaves, mats[1]));
     if (V.extra && mats[2]) grp.add(new THREE.Mesh(V.extra, mats[2]));
-    scene.add(grp);
+    return grp;
+  }
+  /** Compile every bake program the given variants need without blocking (parallel compile when available). */
+  async precompile(renderer: THREE.WebGLRenderer, variants: Variant[]) {
+    const grps = variants.map((V) => this.groupFor(V));
+    for (const g of grps) this.scene.add(g);
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, -10, 10);
+    try { await renderer.compileAsync(this.scene, cam); } catch { /* compiled lazily on first bake */ }
+    for (const g of grps) this.scene.remove(g);
+  }
+  bake(renderer: THREE.WebGLRenderer, V: Variant, idx: number) {
+    V.atlasIdx = idx;
+    const { tile, cols, rt } = this;
+    const prevRT = renderer.getRenderTarget();
+    const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    const prevScissor = renderer.getScissorTest();
+    if (!this.cleared) {
+      this.cleared = true;
+      rt.scissorTest = false;
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear();
+    }
+    const cx = idx % cols, cy = Math.floor(idx / cols);
+    const w = V.ratio;
+    const cam = new THREE.OrthographicCamera(-w / 2, w / 2, 1, 0, -10, 10);
+    cam.position.set(0, 0, 2); cam.lookAt(0, 0, 0);
+    const grp = this.groupFor(V);
+    this.scene.add(grp);
     rt.viewport.set(cx * tile, cy * tile, tile, tile);
     rt.scissor.set(cx * tile, cy * tile, tile, tile);
     rt.scissorTest = true;
     renderer.setRenderTarget(rt);
-    renderer.render(scene, cam);
-    scene.remove(grp);
-    for (const m of mats) m?.dispose();
-  });
-  renderer.setScissorTest(prevScissor);
-  renderer.setRenderTarget(prevRT);
-  renderer.setClearColor(prevClear, prevAlpha);
-  return { tex: rt.texture, cols };
+    renderer.setClearColor(0x000000, 0);
+    renderer.render(this.scene, cam);
+    this.scene.remove(grp);
+    renderer.setScissorTest(prevScissor);
+    renderer.setRenderTarget(prevRT);
+    renderer.setClearColor(prevClear, prevAlpha);
+  }
+  /** Bake materials are only needed while tiles are still being added. */
+  releaseMaterials() { for (const m of this.mats.values()) m.dispose(); this.mats.clear(); }
 }
 
 /** Max visible distance (m) for small plants; beyond it they are culled (no impostor). */
 function maxDistFor(h: number) { return h < 1.2 ? 70 : h < 3 ? 110 : Infinity; }
 
+type VariantBase = Omit<Variant, 'atlasIdx' | 'near' | 'mid'>;
+/** Generated variant geometry per (profile, seed, refH) — reused if another city (or a reload of this one
+ *  in the same session) needs the same species. Materials are cached separately. */
+const variantCache = new Map<string, VariantBase>();
+interface PlanItem { k: string; seed: number; refH: number; trees: number[]; minD: number }
+
 export class TreeSystem {
   group = new THREE.Group();
-  private variants: Variant[] = [];
+  private variants: (Variant | undefined)[] = [];
   private byProfile = new Map<string, number[]>();
   private insts: TreeInst[] = [];
   private far!: THREE.InstancedMesh;
@@ -414,10 +455,26 @@ export class TreeSystem {
   spanishMoss = true;
   /** Trunk cylinders for physics: x,z,y,radius,height */
   trunks: { x: number; z: number; y: number; r: number; h: number }[] = [];
+  /** Where the player starts: variants with plants within `eagerDist` of it are built during loading;
+   *  the rest stream in after the game starts (a few ms per frame). */
+  focus: [number, number] | null = null;
+  eagerDist = 190;
+  /** Called for every instanced mesh created (also for meshes of variants that stream in later). */
+  onMesh: ((m: THREE.InstancedMesh, ring: 'near' | 'mid') => void) | null = null;
+
+  private plan: PlanItem[] = [];
+  private trees: RecipeTree[] = [];
+  private treeProf: string[] = [];
+  private treeRot: number[] = [];
+  private pending: number[] = [];
+  private atlas: ImpostorAtlas | null = null;
+  private renderer: THREE.WebGLRenderer | undefined;
 
   constructor() { this.group.name = 'trees'; }
 
   async build(trees: RecipeTree[], renderer: THREE.WebGLRenderer | undefined, onProgress?: (f: number) => void) {
+    this.trees = trees;
+    this.renderer = renderer;
     // profiles used (rare profiles fold into their fallback to keep draw calls bounded)
     const used = new Map<string, number>();
     const prof = trees.map((t) => { const p = profileFor(t.species); return p === 'liveoakmoss' && !this.spanishMoss ? 'liveoak' : p; });
@@ -434,88 +491,157 @@ export class TreeSystem {
     }
     const resolve = (p: string) => { let q = p; for (let i = 0; i < 4 && remap.has(q); i++) q = remap.get(q)!; return q; };
     if (!used.size) return;
-    const keys = [...used.keys()];
-    const plan: { k: string; seed: number; refH: number }[] = [];
-    for (const k of keys) {
+    // variant plan (only for profiles present in this city)
+    for (const k of used.keys()) {
       const P = PROFILES[k] ?? PROFILES.broadleaf;
       const n = used.get(k) ?? 0;
+      const add = (seed: number, refH: number) => {
+        const ids = this.byProfile.get(k) ?? [];
+        ids.push(this.plan.length);
+        this.byProfile.set(k, ids);
+        this.plan.push({ k, seed, refH, trees: [], minD: Infinity });
+      };
       if (P.kind === 'proc') {
         const hs = PROC_REF_H[P.proc];
         const list = n < 40 ? [hs[hs.length - 1]] : hs;
-        list.forEach((h, i) => plan.push({ k, seed: (hashString(k) + i * 7919) % 100000, refH: h }));
+        list.forEach((h, i) => add((hashString(k) + i * 7919) % 100000, h));
       } else {
         const nv = n > 150 ? 2 : 1;
-        for (let i = 0; i < nv; i++) plan.push({ k, seed: (hashString(k) + i * 7919) % 100000, refH: 0 });
+        for (let i = 0; i < nv; i++) add((hashString(k) + i * 7919) % 100000, 0);
       }
     }
-    let done = 0;
-    for (const it of plan) {
-      const P = PROFILES[it.k] ?? PROFILES.broadleaf;
-      try {
-        const v = (P.kind === 'proc' ? makeProcVariant(it.k, P, it.seed, it.refH) : makeEzVariant(it.k, P, it.seed)) as Variant;
-        v.atlasIdx = 0; v.near = []; v.mid = [];
-        const ids = this.byProfile.get(it.k) ?? [];
-        ids.push(this.variants.length);
-        this.byProfile.set(it.k, ids);
-        this.variants.push(v);
-      } catch (e) { console.warn('[world] tree variant failed', it.k, e); }
-      done++; onProgress?.(done / plan.length);
-      await yieldFrame();
-    }
-    if (!this.variants.length) return;
-    // instances
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-    const counts = new Array(this.variants.length).fill(0);
+    // assign every plant to a planned variant (deterministic; independent of build order) + physics trunks
+    const fx = this.focus?.[0] ?? 0, fz = this.focus?.[1] ?? 0;
     trees.forEach((t, ti) => {
       const pk = resolve(prof[ti]);
+      this.treeProf[ti] = pk;
+      this.treeRot[ti] = 0;
       const ids = this.byProfile.get(pk) ?? this.byProfile.get('broadleaf') ?? this.byProfile.values().next().value;
       if (!ids) return;
       const R = rng(t.seed || hashString(`${t.p[0]},${t.p[1]}`));
       const h = Math.max(0.3, t.height || 8);
       let v = ids[Math.floor(R() * ids.length)];
-      if (this.variants[v].uniform && ids.length > 1) {
+      if (PROFILES[this.plan[v].k]?.kind === 'proc' && ids.length > 1) {
         let best = Infinity;
-        for (const id of ids) { const d = Math.abs(this.variants[id].refH - h) * (0.85 + R() * 0.3); if (d < best) { best = d; v = id; } }
+        for (const id of ids) { const d = Math.abs(this.plan[id].refH - h) * (0.85 + R() * 0.3); if (d < best) { best = d; v = id; } }
       }
-      const V = this.variants[v];
-      let sxz: number;
-      if (V.uniform) sxz = h;
-      else { sxz = (t.crown || h * 0.6) / V.ratio; sxz = Math.max(h * 0.65, Math.min(h * 1.5, sxz)); }
-      q.setFromAxisAngle(up, R() * Math.PI * 2);
-      sc.set(sxz, h, sxz);
-      pos.set(t.p[0], t.y - 0.05, t.p[1]);
-      m4.compose(pos, q, sc);
-      const md = maxDistFor(h);
-      this.insts.push({ x: t.p[0], y: t.y, z: t.p[1], v, m: new Float32Array(m4.elements), r: Math.max(sxz * V.ratio * 0.5, h * 0.5), h, md2: md * md });
-      counts[v]++;
+      this.treeRot[ti] = R() * Math.PI * 2;
+      const it = this.plan[v];
+      it.trees.push(ti);
+      it.minD = Math.min(it.minD, Math.hypot(t.p[0] - fx, t.p[1] - fz));
       if (h > 2.5) {
         const P = PROFILES[pk];
         const r = P?.kind === 'proc' ? (P.trunkR ?? 0.25) : Math.max(0.12, Math.min(0.45, h * ((P as EzProfile)?.trunkK ?? 0.018)));
         this.trunks.push({ x: t.p[0], z: t.p[1], y: t.y, r, h: Math.min(h * 0.4, 4) });
       }
     });
-    // near/mid meshes
-    this.variants.forEach((V, i) => {
-      const cap = Math.max(1, Math.min(counts[i], 1500));
-      const mk = (geo: THREE.BufferGeometry, mat: THREE.Material, ring: 'near' | 'mid', part: string) => {
-        const m = new THREE.InstancedMesh(geo, mat, cap);
-        m.castShadow = ring === 'near'; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.visible = false;
-        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        m.name = `tree_${V.key}_${part}_${ring}`;
-        this.group.add(m);
-        (ring === 'near' ? V.near : V.mid).push(m);
-      };
-      mk(V.bark, V.barkMat, 'near', 'b');
-      if (V.leaves && V.leafMat) mk(V.leaves, V.leafMat, 'near', 'l');
-      if (V.extra && V.extraMat) mk(V.extra, V.extraMat, 'near', 'x');
-      mk(V.bark1 ?? V.bark, V.barkMat, 'mid', 'b');
-      if (V.leaves && V.leafMat) mk(V.leaves1 ?? V.leaves, V.leafMat, 'mid', 'l');
-      if (V.extra && V.extraMat) mk(V.extra, V.extraMat, 'mid', 'x');
-      this.nearCount[i] = 0; this.midCount[i] = 0;
-    });
-    // impostors
+    this.variants = new Array(this.plan.length).fill(undefined);
+    this.nearCount = new Array(this.plan.length).fill(0);
+    this.midCount = new Array(this.plan.length).fill(0);
+    this.buildImpostors(renderer);
+    // near-spawn variants now (behind the loading screen), the rest after the game starts
+    const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
+    const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;
+    this.pending = order.filter((i) => !eager.includes(i));
+    let done = 0, t0 = performance.now();
+    const step = async (f: number) => {
+      onProgress?.(f);
+      if (performance.now() - t0 > 24) { await yieldFrame(); t0 = performance.now(); }
+    };
+    const built: number[] = [];
+    const __T: string[] = []; let __a = performance.now();
+    for (const i of eager) {
+      if (this.generate(i)) built.push(i);
+      await step((++done / eager.length) * 0.8);
+    }
+    __T.push('gen ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
+    if (renderer && this.atlas) {
+      await this.atlas.precompile(renderer, built.map((i) => this.variants[i]!));
+      __T.push('precompile ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
+      done = 0;
+      for (const i of built) { const b0 = performance.now(); this.atlas.bake(renderer, this.variants[i]!, i); __T.push('b' + (performance.now() - b0).toFixed(0)); await step(0.8 + (++done / built.length) * 0.2); }
+      __T.push('bake ' + (performance.now() - __a).toFixed(0)); __a = performance.now();
+    }
+    for (const i of built) this.activate(i);
+    __T.push('act ' + (performance.now() - __a).toFixed(0));
+    console.info('[veg] TIMING ' + __T.join(' '));
+    if (!this.pending.length) this.atlas?.releaseMaterials();
+    (globalThis as any).__gtVegList = trees; // debug: inspected by dev tools
+    console.info(`[veg] ${built.length}/${this.plan.length} variants at load (${[...this.byProfile.keys()].join(', ')}), ${this.insts.length}/${trees.length} plants; ${this.pending.length} variants stream in later`);
+  }
+
+  /** Generate (or fetch from cache) the geometry of planned variant i. */
+  private generate(i: number): boolean {
+    const it = this.plan[i];
+    const P = PROFILES[it.k] ?? PROFILES.broadleaf;
+    const ck = `${it.k}|${it.seed}|${it.refH}`;
+    try {
+      let base = variantCache.get(ck);
+      if (!base) {
+        base = P.kind === 'proc' ? makeProcVariant(it.k, P, it.seed, it.refH) : makeEzVariant(it.k, P, it.seed);
+        variantCache.set(ck, base);
+      }
+      this.variants[i] = { ...base, atlasIdx: i, near: [], mid: [] };
+      return true;
+    } catch (e) { console.warn('[world] tree variant failed', it.k, e); return false; }
+  }
+
+  /** Instances + near/mid meshes for a generated variant. */
+  private activate(i: number) {
+    const V = this.variants[i];
+    if (!V) return;
+    const it = this.plan[i];
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    for (const ti of it.trees) {
+      const t = this.trees[ti];
+      const h = Math.max(0.3, t.height || 8);
+      let sxz: number;
+      if (V.uniform) sxz = h;
+      else { sxz = (t.crown || h * 0.6) / V.ratio; sxz = Math.max(h * 0.65, Math.min(h * 1.5, sxz)); }
+      q.setFromAxisAngle(up, this.treeRot[ti]);
+      sc.set(sxz, h, sxz);
+      pos.set(t.p[0], t.y - 0.05, t.p[1]);
+      m4.compose(pos, q, sc);
+      const md = maxDistFor(h);
+      this.insts.push({ x: t.p[0], y: t.y, z: t.p[1], v: i, m: new Float32Array(m4.elements), r: Math.max(sxz * V.ratio * 0.5, h * 0.5), h, md2: md * md });
+    }
+    const cap = Math.max(1, Math.min(it.trees.length, 1500));
+    const mk = (geo: THREE.BufferGeometry, mat: THREE.Material, ring: 'near' | 'mid', part: string) => {
+      const m = new THREE.InstancedMesh(geo, mat, cap);
+      m.castShadow = ring === 'near'; m.receiveShadow = true; m.frustumCulled = false; m.count = 0; m.visible = false;
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.name = `tree_${V.key}_${part}_${ring}`;
+      this.group.add(m);
+      (ring === 'near' ? V.near : V.mid).push(m);
+      this.onMesh?.(m, ring);
+    };
+    mk(V.bark, V.barkMat, 'near', 'b');
+    if (V.leaves && V.leafMat) mk(V.leaves, V.leafMat, 'near', 'l');
+    if (V.extra && V.extraMat) mk(V.extra, V.extraMat, 'near', 'x');
+    mk(V.bark1 ?? V.bark, V.barkMat, 'mid', 'b');
+    if (V.leaves && V.leafMat) mk(V.leaves1 ?? V.leaves, V.leafMat, 'mid', 'l');
+    if (V.extra && V.extraMat) mk(V.extra, V.extraMat, 'mid', 'x');
+  }
+
+  /** Stream one pending variant per call: generate → (next call) bake + activate. Keeps each frame's cost to one step. */
+  private streamStep = 0;
+  private stream() {
+    if (!this.pending.length) return;
+    if (++this.streamStep % 3) return; // spread the work: at most one step every third frame
+    const i = this.pending[0];
+    if (!this.variants[i]) {
+      if (!this.generate(i)) this.pending.shift();
+      return;
+    }
+    this.pending.shift();
+    if (this.renderer && this.atlas) this.atlas.bake(this.renderer, this.variants[i]!, i);
+    this.activate(i);
+    if (!this.pending.length) { this.atlas?.releaseMaterials(); console.info('[veg] all variants streamed in'); }
+  }
+
+  private buildImpostors(renderer: THREE.WebGLRenderer | undefined) {
     let atlas: THREE.Texture | null = null, cols = 1;
-    if (renderer) { const a = bakeAtlas(renderer, this.variants); atlas = a.tex; cols = a.cols; }
+    if (renderer) { this.atlas = new ImpostorAtlas(this.plan.length); atlas = this.atlas.rt.texture; cols = this.atlas.cols; }
     const quad = new THREE.PlaneGeometry(1, 1);
     quad.translate(0, 0.5, 0);
     const q2 = quad.clone(); q2.rotateY(Math.PI / 2);
@@ -532,7 +658,7 @@ export class TreeSystem {
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
     geo.setIndex(I);
-    const total2 = this.insts.length;
+    const total2 = this.trees.length;
     this.farAtlas = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, total2) * 3), 3);
     this.farAtlas.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aAtlas', this.farAtlas);
@@ -597,8 +723,6 @@ export class TreeSystem {
     this.group.add(si);
     this.shadowImpostors = si;
     this.cols = cols;
-    (globalThis as any).__gtVegList = trees; // debug: inspected by dev tools
-    console.info(`[veg] ${this.variants.length} variants (${[...this.byProfile.keys()].join(', ')}), ${this.insts.length} plants`);
   }
   private cols = 1;
 
@@ -610,6 +734,7 @@ export class TreeSystem {
     treeUniforms.uTime.value = t;
     if (this.sunDir) treeUniforms.uTrans.value = THREE.MathUtils.smoothstep(this.sunDir.y, -0.02, 0.12);
     if (!this.far) return;
+    this.stream();
     this.frame++;
     if (this.frame % 2 === 1) return;
     camera.updateMatrixWorld();
@@ -629,7 +754,7 @@ export class TreeSystem {
       if (d2 > T.md2) continue;
       this.sph.center.set(T.x, T.y + T.h * 0.5, T.z); this.sph.radius = T.h * 0.7 + T.r;
       if (!this.frustum.intersectsSphere(this.sph)) continue;
-      const V = this.variants[T.v];
+      const V = this.variants[T.v]!;
       if (d2 < fd2) {
         const n = this.nearCount[T.v];
         if (n < V.near[0].instanceMatrix.count) {
@@ -655,6 +780,7 @@ export class TreeSystem {
       fc++;
     }
     this.variants.forEach((V, i) => {
+      if (!V) return;
       for (const m of V.near) { m.count = this.nearCount[i]; m.visible = m.count > 0; m.instanceMatrix.needsUpdate = m.visible; }
       for (const m of V.mid) { m.count = this.midCount[i]; m.visible = m.count > 0; m.instanceMatrix.needsUpdate = m.visible; }
     });

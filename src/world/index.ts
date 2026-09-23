@@ -201,14 +201,22 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   } catch (e) { console.warn('[world] understory failed', e); }
   if (g.sky) trees.sunDir = g.sky.sunDirection;
   trees.spanishMoss = recipe.origin.lon > -95.5 && recipe.origin.lat > 27.5 && recipe.origin.lat < 34 && recipe.climate === 'humid';
+  // load time: only species growing near the spawn are generated behind the loading screen; the rest
+  // stream in after the game starts (trees.update), so meshes are configured as they are created
+  trees.focus = [sp[0], sp[1]];
+  let treeProxyFailed = false;
+  trees.onMesh = (m, ring) => {
+    // mid-ring trees cast through shadow-only impostors; if proxies are unsupported, mid leaves cast directly
+    if (ring === 'mid' && treeProxyFailed) m.castShadow = true;
+    // perf: full-detail trees (< ~50 m) only need to cast into the near sun cascade
+    if (m.castShadow) setShadowCascades(g, m, 1);
+  };
   try { await trees.build(treeList, g.renderer, (f) => P('Planting trees', 0.45 + f * 0.2)); } catch (e) { console.error('[world] trees failed', e); }
   root.add(trees.group);
-  // perf: mid-ring trees cast through shadow-only impostors; if proxies are unsupported, mid leaves cast directly
   if (trees.shadowImpostors && !registerShadowProxy(g, trees.shadowImpostors)) {
-    trees.group.traverse((o) => { if ((o as THREE.InstancedMesh).isInstancedMesh && o.name.startsWith('tree_') && o !== trees.shadowImpostors) o.castShadow = true; });
+    treeProxyFailed = true;
+    trees.group.traverse((o) => { if ((o as THREE.InstancedMesh).isInstancedMesh && o.name.startsWith('tree_') && o !== trees.shadowImpostors && o.name !== 'tree_impostors') { o.castShadow = true; setShadowCascades(g, o, 1); } });
   }
-  // perf: full-detail trees (< ~50 m) only need to cast into the near sun cascade
-  for (const o of trees.group.children) if (o.castShadow && o.name !== 'tree_impostors' && o !== trees.shadowImpostors) setShadowCascades(g, o, 1);
 
   // ---- buildings (owned by buildings agent)
   P('Raising buildings', 0.66);

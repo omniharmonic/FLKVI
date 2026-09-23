@@ -15,6 +15,7 @@ import { centroid } from './poly';
 import { registerShadowProxy, setShadowCascades } from '../../render/shadowProxy';
 import { buildShadowHulls } from './shadowHulls';
 import { releaseGeometryAfterUpload } from '../../render/memory';
+import { yieldFrame } from '../util';
 
 export interface BuildingsResult {
   group: THREE.Group;
@@ -358,5 +359,5 @@ function addLod0(su: Sub, sGeo: THREE.BufferGeometry | null, gGeo: THREE.BufferG
 }
 
 function yieldUI(): Promise<void> {
-  return new Promise((r) => setTimeout(r, 0));
+  return yieldFrame(); // load-time: fast MessageChannel yields with periodic paint yields (world/util)
 }

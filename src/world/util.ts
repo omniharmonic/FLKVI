@@ -235,4 +235,23 @@ export class Grid<T> {
   }
 }
 
-export const yieldFrame = () => new Promise<void>((r) => setTimeout(r, 0));
+/**
+ * Yield to the event loop during loading. setTimeout(0) is clamped/deprioritised while the page is busy
+ * (measured ~40 ms per yield under load, which doubled some load stages), so most yields go through a
+ * MessageChannel task (~0.05 ms). Every ~120 ms one timer yield is used instead so the loading screen can paint.
+ */
+let lastPaintYield = 0;
+const mcQueue: (() => void)[] = [];
+let mc: MessageChannel | null = null;
+export const yieldFrame = (): Promise<void> => {
+  const now = performance.now();
+  if (typeof MessageChannel === 'undefined' || now - lastPaintYield > 120) {
+    lastPaintYield = now;
+    return new Promise<void>((r) => setTimeout(r, 0));
+  }
+  if (!mc) {
+    mc = new MessageChannel();
+    mc.port1.onmessage = () => { mcQueue.shift()?.(); };
+  }
+  return new Promise<void>((r) => { mcQueue.push(r); mc!.port2.postMessage(0); });
+};
