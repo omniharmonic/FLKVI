@@ -4,7 +4,7 @@ import type { Game, System } from '../core/game';
 import type { Player } from './player';
 import type { VehicleSystem } from './vehicles/manager';
 import { clamp, damp, headingToDir, lerpAngle, wrapAngle } from './util';
-import { settings } from '../ui/settings';
+import { settings, reducedMotion } from '../ui/settings';
 
 const SENS = 0.0022;
 
@@ -53,7 +53,8 @@ export class CameraRig implements System {
     if (mouseMoved) this.idleMouse = 0; else this.idleMouse += dt;
 
     const desiredPivot = new THREE.Vector3();
-    let targetFov = 62;
+    const baseFov = clamp(settings.fov || 62, 45, 95);
+    let targetFov = baseFov;
     let targetDist: number;
     let shoulder = 0;
     if (veh) {
@@ -76,7 +77,7 @@ export class CameraRig implements System {
       const L = veh.model.L;
       desiredPivot.copy(veh.position).add(new THREE.Vector3(0, veh.model.roofY * 0.8 + 0.45, 0));
       targetDist = (L * 1.12 + 0.6 + clamp(spd * 0.045, 0, 2.2)) * this.zoom;
-      targetFov = 62 + clamp((spd - 8) * 0.5, 0, 22);
+      targetFov = baseFov + clamp((spd - 8) * 0.5, 0, 22);
       if (spd > 28) this.trauma = Math.max(this.trauma, clamp((spd - 28) / 60, 0, 0.18));
       if (veh.lastImpact > 0) { this.addTrauma(clamp(veh.lastImpact / 12, 0.15, 0.8)); veh.lastImpact = 0; }
       // Lateral G: the camera swings out of the turn (you see more of the car's flank) and leans a touch.
@@ -96,7 +97,7 @@ export class CameraRig implements System {
       desiredPivot.y += Math.sin(ph) * 0.025 * clamp(s / 4, 0, 1.3);
       targetDist = (p.sprinting ? 4.6 : 4.0) * this.zoom;
       shoulder = 0.55 * clamp(this.zoom, 0.6, 1.3);
-      targetFov = p.sprinting ? 68 : 62;
+      targetFov = p.sprinting ? baseFov + 6 : baseFov;
     }
     if (!this.pivotInit) { this.pivot.copy(desiredPivot); this.pivotInit = true; }
     // Pivot smoothing: tight horizontally, softer vertically (stairs/curbs).
@@ -130,7 +131,7 @@ export class CameraRig implements System {
     // Shake (trauma²).
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
     this.shakeT += dt;
-    const sh = this.trauma * this.trauma;
+    const sh = this.trauma * this.trauma * (reducedMotion() ? 0.3 : 1);
     if (sh > 0.0005) {
       const t = this.shakeT * 28;
       cam.rotateZ(Math.sin(t * 1.1) * 0.04 * sh);

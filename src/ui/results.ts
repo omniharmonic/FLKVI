@@ -4,6 +4,7 @@ import type { GameEvents } from '../core/events';
 import { h, btn, uiRoot, fmt, fmtTime } from './dom';
 import { runStats } from './runstats';
 import { chosen } from './picker';
+import { openShareModal } from './sharecard';
 
 export function showBusted(lost: number): HTMLElement {
   const el = h('div', { class: 'gt-busted' }, h('div', { class: 'veil' }), h('div', { class: 'flash' }),
@@ -12,7 +13,7 @@ export function showBusted(lost: number): HTMLElement {
   return el;
 }
 
-interface PB { streak: number; score: number }
+interface PB { streak: number; score: number; time?: number; date?: string }
 function pbKey(g: Game) { return `groundtruth.pb.${chosen?.baked ?? g.recipe?.name ?? 'unknown'}`; }
 function loadPB(g: Game): PB | null { try { const r = localStorage.getItem(pbKey(g)); return r ? JSON.parse(r) : null; } catch { return null; } }
 function savePB(g: Game, pb: PB) { try { localStorage.setItem(pbKey(g), JSON.stringify(pb)); } catch { /* */ } }
@@ -21,7 +22,9 @@ export function showResults(g: Game, r: GameEvents['runEnd'], actions: { runAgai
   const st = runStats(g);
   const prev = loadPB(g);
   const isPB = !prev || r.streak > prev.streak || (r.streak === prev.streak && r.score > prev.score);
-  if (isPB) savePB(g, { streak: r.streak, score: r.score });
+  if (isPB) savePB(g, { streak: r.streak, score: r.score, time: Math.round(st.time()), date: new Date().toISOString().slice(0, 10) });
+  const city = chosen?.name ?? g.recipe?.name ?? '';
+  const share = () => openShareModal(g, { city, streak: r.streak, score: r.score, banked: r.banked, cuts: st.cuts, disables: st.disables, time: st.time(), reason: r.reason, pb: isPB, mode: g.mode });
   const stat = (v: string, label: string, sub?: string) => h('div', {}, h('b', {}, v), h('span', {}, label), sub ? h('small', {}, sub) : null);
   const el = h('div', { class: 'gt-results-scr' },
     h('div', { class: 'wrap' },
@@ -40,6 +43,7 @@ export function showResults(g: Game, r: GameEvents['runEnd'], actions: { runAgai
         btn('Run again', actions.runAgain, 'gt-btn primary'),
         btn('Free roam', actions.freeRoam),
         btn('New location', actions.newLocation),
+        btn('Share card', share, 'gt-btn ghost share'),
       ),
     ),
   );

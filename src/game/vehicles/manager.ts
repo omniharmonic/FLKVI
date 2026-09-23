@@ -467,12 +467,12 @@ export class VehicleSystem implements VehiclesAPI, System {
     // Tire smoke when drifting / burnouts.
     const smoky = v.burnout || (v.slip > 0.3 && spd > 7) || (driven && v.control.handbrake && spd > 8);
     if (smoky) {
-      const rate = v.burnout ? 45 : 20;
+      const rate = v.burnout ? 22 : 16;
       for (let i = 2; i < 4; i++) {
         if (!vc.wheelIsInContact(i) || r() > rate * dt) continue;
         const wp = v.model.wheelPos[i].clone().setY(0.15).applyMatrix4(v.object.matrixWorld);
         const vel = v.velocity.clone().multiplyScalar(0.2).add(new THREE.Vector3((r() - 0.5) * 0.6, 0.3 + r() * 0.3, (r() - 0.5) * 0.6));
-        this.smoke.emit(wp, vel, { size: v.burnout ? 0.8 : 0.6, grow: v.burnout ? 2.8 : 2.2, life: v.burnout ? 2.4 : 1.6, shade: 0.85, alpha: v.burnout ? 0.38 : 0.28 });
+        this.smoke.emit(wp, vel, { size: 0.45, grow: v.burnout ? 1.9 : 1.6, life: v.burnout ? 2.2 : 1.5, shade: 0.8, alpha: v.burnout ? 0.2 : 0.16 });
       }
     }
     // Skid marks: per-wheel trails while sliding sideways, locking up, handbraking or burning out.

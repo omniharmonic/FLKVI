@@ -41,7 +41,7 @@ export class SkidMarks {
     const hw = w / 2;
     const l = p.clone().addScaledVector(side, -hw), r = p.clone().addScaledVector(side, hw);
     const tr = this.tracks.get(key);
-    if (!tr || now - tr.t > 0.12 || tr.p.distanceToSquared(p) > 4) {
+    if (!tr || now - tr.t > 0.35 || tr.p.distanceToSquared(p) > 16) {
       this.tracks.set(key, { p: p.clone(), l, r, a, t: now });
       return;
     }

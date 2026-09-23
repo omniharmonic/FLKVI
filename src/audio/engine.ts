@@ -17,8 +17,8 @@ export function audioCtx(): AudioContext {
     master.connect(comp); comp.connect(ctx.destination);
     // `duck` sits before master for world sounds (sfx, amb) so menus can duck the world without muting UI.
     const duck = ctx.createGain(); duck.connect(master);
-    const sfx = ctx.createGain(); sfx.gain.value = 1; sfx.connect(duck);
-    const amb = ctx.createGain(); amb.gain.value = 1; amb.connect(duck);
+    const sfx = ctx.createGain(); sfx.gain.value = settings.sfxVolume ?? 1; sfx.connect(duck);
+    const amb = ctx.createGain(); amb.gain.value = settings.sfxVolume ?? 1; amb.connect(duck);
     const music = ctx.createGain(); music.gain.value = settings.musicVolume; music.connect(master);
     const ui = ctx.createGain(); ui.gain.value = 0.7; ui.connect(master);
     buses = { master, sfx, ui, music, amb, duck };
@@ -26,6 +26,8 @@ export function audioCtx(): AudioContext {
       const t = ctx!.currentTime;
       buses!.master.gain.setTargetAtTime(s.volume, t, 0.05);
       buses!.music.gain.setTargetAtTime(s.musicVolume, t, 0.05);
+      buses!.sfx.gain.setTargetAtTime(s.sfxVolume ?? 1, t, 0.05);
+      buses!.amb.gain.setTargetAtTime(s.sfxVolume ?? 1, t, 0.05);
     });
     installUnlock();
   }

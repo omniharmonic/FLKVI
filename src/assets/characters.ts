@@ -642,7 +642,7 @@ function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
   // shoes: heavily smoothed (no toes), flat sole, slightly longer toe box
   let toeZ = -1e9;
   for (let i = 0; i < s.n; i++) if (y(i) < 0.06) toeZ = Math.max(toeZ, s.P[i * 3 + 2]);
-  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 12, 0.007, 1, (p) => {
+  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 16, 0.008, 0.3, (p) => {
     if (p.y < 0.018) p.y = Math.min(p.y, -0.004);
     p.y = Math.max(p.y, -0.01);
     if (p.z > toeZ - 0.07 && p.y < 0.07) p.z += 0.006 * smooth01(toeZ - 0.07, toeZ - 0.01, p.z);
@@ -679,6 +679,9 @@ const LOD_TRIS: number[][] = [
   [330, 150, 110, 48, 60, 0, 0],
 ];
 const LOD_DIST = [15, 50];
+let lodScale = 1;
+/** Scale the person LOD switch distances (quality presets; <1 = cheaper). */
+export function setPeopleLodScale(k: number): void { lodScale = Math.max(0.01, k); }
 const LODS = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry[]>();
 
 function simplifyTo(idx: Uint32Array, pos: Float32Array, tris: number, sloppyOk: boolean): Uint32Array {
@@ -748,8 +751,8 @@ function installLod(body: THREE.SkinnedMesh, base: Base, full: THREE.BufferGeome
     _camP.setFromMatrixPosition(camera.matrixWorld);
     const d = Math.hypot(e[12] - _camP.x, e[13] - _camP.y, e[14] - _camP.z);
     let lv = level;
-    if (lv < 2 && d > LOD_DIST[lv] + 2) lv++;
-    else if (lv > 0 && d < LOD_DIST[lv - 1] - 2) lv--;
+    if (lv < 2 && d > LOD_DIST[lv] * lodScale + 2) lv++;
+    else if (lv > 0 && d < LOD_DIST[lv - 1] * lodScale - 2) lv--;
     if (lv === level && body.geometry !== full) return;
     const l = lodsFor(full, base);
     level = lv;

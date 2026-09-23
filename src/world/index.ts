@@ -16,6 +16,7 @@ import { markingWearTexture } from './textures';
 import { PropSystem } from './props';
 import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
+import { buildUnderstory } from './understory';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
 import { registerShadowDistance, registerInstancedShadowLod, registerShadowProxy, setShadowCascades } from '../render/shadowProxy';
@@ -188,6 +189,8 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     const h = 0.9 + ((p.variant * 0.37) % 1) * 0.9;
     treeList.push({ p: p.p, y: groundAt(p.p[0], p.p[1]), species: 'shrub', height: h, crown: h * 1.4, seed: (p.p[0] * 131 + p.p[1] * 71) | 0 });
   }
+  try { treeList.push(...buildUnderstory({ recipe, groundAt, inBuilding, roads }, treeList)); } catch (e) { console.warn('[world] understory failed', e); }
+  if (g.sky) trees.sunDir = g.sky.sunDirection;
   try { await trees.build(treeList, g.renderer, (f) => P('Planting trees', 0.45 + f * 0.2)); } catch (e) { console.error('[world] trees failed', e); }
   root.add(trees.group);
   // perf: mid-ring trees cast through shadow-only impostors; if proxies are unsupported, mid leaves cast directly
