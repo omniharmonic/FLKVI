@@ -21,6 +21,10 @@ export type Lod = 0 | 1 | 2;
 export function newBuckets(): Buckets {
   return { s: [new MB('surface'), new MB('surface'), new MB('surface')], g: [new MB('glass'), new MB('glass'), new MB('glass')], sign: new MB('plain') };
 }
+/** Buckets for chunks away from the spawn: the detailed (lod0) output is discarded (built on demand later). */
+export function newFarBuckets(): Buckets {
+  return { s: [new NullMB(), new MB('surface'), new MB('surface')], g: [new NullMB(), new MB('glass'), new MB('glass')], sign: new MB('plain') };
+}
 /** Buckets that keep only the detailed (lod0) facade output; everything else is discarded. */
 export function newLod0Buckets(): Buckets {
   const n = new NullMB();

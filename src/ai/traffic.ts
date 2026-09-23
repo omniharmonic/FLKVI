@@ -139,6 +139,7 @@ export class TrafficSystem {
     const d = c.data as CarData | null;
     if (!d) return;
     const h = d.handle;
+    h.hazards = d.crashed || c.pullOver > 0 || c.curb === 'parked';
     if (d.crashed) return;
     h.position.set(c.x, d.y, c.z);
     h.heading = c.h;

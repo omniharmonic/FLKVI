@@ -18,7 +18,7 @@ export const CAR_COLORS = [
 
 /** Metallic-flake normal map: per-texel random micro-normals, tiled densely so the base coat sparkles under the clearcoat. */
 let flakeTex: THREE.DataTexture | null = null;
-function flakeNormal() {
+export function flakeNormal() {
   if (flakeTex) return flakeTex;
   const N = 128, data = new Uint8Array(N * N * 4);
   let seed = 987654321;
@@ -132,7 +132,7 @@ function canvasTex(w: number, h: number, draw: (x: CanvasRenderingContext2D) => 
   return t;
 }
 /** Headlight insert: chrome reflector bowls, projector lenses and an LED signature strip. */
-const headTex = canvasTex(256, 96, (x) => {
+export const headTex = canvasTex(256, 96, (x) => {
   const g = x.createLinearGradient(0, 0, 0, 96);
   g.addColorStop(0, '#9aa0a8'); g.addColorStop(0.5, '#e8ecef'); g.addColorStop(1, '#5b6068');
   x.fillStyle = g; x.fillRect(0, 0, 256, 96);
@@ -145,12 +145,12 @@ const headTex = canvasTex(256, 96, (x) => {
   x.strokeStyle = '#2a2d31'; x.lineWidth = 4; x.strokeRect(2, 2, 252, 92);
 });
 /** Emissive mask for the headlight: bright lenses + LED strip. */
-const headEm = canvasTex(256, 96, (x) => {
+export const headEm = canvasTex(256, 96, (x) => {
   x.fillStyle = '#2a2a2a'; x.fillRect(0, 0, 256, 96);
   x.fillStyle = '#ffffff'; x.fillRect(10, 8, 236, 9);
   for (const cx of [70, 170]) { x.beginPath(); x.arc(cx, 52, 24, 0, Math.PI * 2); x.fill(); }
 });
-const tailTex = canvasTex(128, 64, (x) => {
+export const tailTex = canvasTex(128, 64, (x) => {
   x.fillStyle = '#7a0a0c'; x.fillRect(0, 0, 128, 64);
   for (let i = 0; i < 6; i++) { x.fillStyle = i % 2 ? '#a3141a' : '#5a0508'; x.fillRect(0, i * 11, 128, 6); }
   x.strokeStyle = '#220203'; x.lineWidth = 4; x.strokeRect(2, 2, 124, 60);

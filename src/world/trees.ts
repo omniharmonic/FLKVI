@@ -73,7 +73,7 @@ const PROFILES: Record<string, Profile> = {
   fir: { kind: 'ez', preset: 'Pine Large', leafTint: 0x80a070, barkTint: 0x8a6a5a, bark: 'pine', tweak: (o) => { o.branch.start[1] = 0.18; o.branch.angle[1] = 106; o.branch.length[1] *= 0.8; o.leaves.count = Math.round(o.leaves.count * 1.9); o.leaves.size *= 1.4; o.branch.force.strength = -0.004; }, fallback: 'spruce' },
   cedar: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x90b070, barkTint: 0x9a6a50, bark: 'willow', leafType: 'ash', tweak: (o) => { o.branch.start[1] = 0.1; o.branch.angle[1] = 112; o.leaves.size *= 1.6; o.leaves.count = Math.round(o.leaves.count * 1.6); o.branch.force.strength = -0.012; }, fallback: 'fir' },
   baldcypress: { kind: 'ez', preset: 'Pine Medium', leafTint: 0xb8cc90, barkTint: 0xa08070, bark: 'willow', leafType: 'ash', tweak: (o) => { o.branch.start[1] = 0.25; o.branch.angle[1] = 95; o.leaves.size *= 0.9; }, fallback: 'fir' },
-  juniper: { kind: 'ez', preset: 'Pine Small', leafTint: 0x9ab08a, barkTint: 0x8a7a6a, bark: 'pine', fallback: 'spruce' },
+  juniper: { kind: 'ez', preset: 'Pine Small', leafTint: 0x7a9068, barkTint: 0x7a6a5a, bark: 'pine', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.8); o.leaves.size *= 1.5; o.branch.angle[1] = 95; }, fallback: 'spruce' },
   // --- shrubs (ez)
   shrub: { kind: 'ez', preset: 'Bush 1', leafTint: 0xa8c47c, barkTint: 0x806a5a, bark: 'lib' },
   // --- procedural

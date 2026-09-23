@@ -173,34 +173,73 @@ export class MB {
   }
 
   build(): THREE.BufferGeometry | null {
-    if (this.idx.n === 0) return null;
+    return this.buildRange(0, this.idx.n, 0, this.vc);
+  }
+
+  /** Mark for buildRange: current (index count, vertex count). */
+  mark(): [number, number] { return [this.idx.n, this.vc]; }
+
+  /**
+   * Geometry from a contiguous run of triangles [i0, i1) whose vertices are [v0, v1) (everything emitted
+   * between two mark() calls). Compact GPU formats: int8 normals, uint8 layer, half-float weathering and
+   * window-size attributes (~30% smaller than all-float32).
+   */
+  buildRange(i0: number, i1: number, v0: number, v1: number): THREE.BufferGeometry | null {
+    if (i1 <= i0 || v1 <= v0) return null;
+    const whole = v0 === 0 && v1 === this.vc;
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos.view(), 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(this.nrm.view(), 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(this.uv.view(), 2));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col.view(), 3));
-    if (this.lay) g.setAttribute('aLayer', new THREE.BufferAttribute(this.lay.view(), 1));
-    if (this.wx) g.setAttribute('aWx', new THREE.BufferAttribute(this.wx.view(), 4));
-    if (this.w0) {
-      g.setAttribute('aWin0', new THREE.BufferAttribute(this.w0.view(), 2));
-      g.setAttribute('aWinA', new THREE.BufferAttribute(this.wa!.view(), 4));
-      g.setAttribute('aWinB', new THREE.BufferAttribute(this.wb!.view(), 4));
+    const f32 = (G: Grow, k: number) => (whole ? G.view() : G.a.slice(v0 * k, v1 * k));
+    g.setAttribute('position', new THREE.BufferAttribute(f32(this.pos, 3), 3));
+    const nv = v1 - v0;
+    {
+      const src = this.nrm.a, n8 = new Int8Array(nv * 3);
+      for (let i = 0, o = v0 * 3; i < nv * 3; i++) n8[i] = Math.round(src[o + i] * 127);
+      g.setAttribute('normal', new THREE.BufferAttribute(n8, 3, true));
     }
-    const idx = this.idx.a.slice(0, this.idx.n);
-    g.setIndex(new THREE.BufferAttribute(this.vc > 65535 ? idx : new Uint16Array(idx), 1));
+    g.setAttribute('uv', new THREE.BufferAttribute(f32(this.uv, 2), 2));
+    g.setAttribute('color', new THREE.BufferAttribute(f32(this.col, 3), 3));
+    if (this.lay) {
+      const src = this.lay.a, l8 = new Uint8Array(nv);
+      for (let i = 0; i < nv; i++) l8[i] = src[v0 + i];
+      g.setAttribute('aLayer', new THREE.BufferAttribute(l8, 1));
+    }
+    if (this.wx) g.setAttribute('aWx', half(this.wx.a, v0 * 4, v1 * 4, 4));
+    if (this.w0) {
+      g.setAttribute('aWin0', new THREE.BufferAttribute(f32(this.w0, 2), 2)); // metres along long glass bands: keep fp32
+      g.setAttribute('aWinA', half(this.wa!.a, v0 * 4, v1 * 4, 4));
+      g.setAttribute('aWinB', new THREE.BufferAttribute(f32(this.wb!, 4), 4));
+    }
+    const n = i1 - i0, src = this.idx.a;
+    let idx: Uint16Array | Uint32Array;
+    if (nv > 65535) {
+      idx = new Uint32Array(n);
+      for (let i = 0; i < n; i++) idx[i] = src[i0 + i] - v0;
+    } else {
+      idx = new Uint16Array(n);
+      for (let i = 0; i < n; i++) idx[i] = src[i0 + i] - v0;
+    }
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;
   }
 }
 
+const _toHalf = THREE.DataUtils.toHalfFloat;
+function half(a: Float32Array, s: number, e: number, k: number): THREE.BufferAttribute {
+  const out = new Uint16Array(e - s);
+  for (let i = 0; i < e - s; i++) out[i] = _toHalf(a[s + i]);
+  return new THREE.Float16BufferAttribute(out, k);
+}
+
 /** Sink bucket: accepts the same calls as MB but stores nothing (used when rebuilding only one LOD). */
 export class NullMB extends MB {
   constructor() { super('plain'); }
+  // only counts (triangles feed the near-detail density estimate)
   override vert(): number { return this.vc++; }
-  override quad() { /* discard */ }
-  override quadN() { /* discard */ }
-  override polygon() { /* discard */ }
+  override quad() { this.idx.n += 6; }
+  override quadN() { this.idx.n += 6; }
+  override polygon(pts: V3[], _n: V3, _u: unknown, _a?: unknown, holes?: V3[][]) { this.idx.n += Math.max(0, pts.length - 2 + 2 * (holes?.length ?? 0)) * 3; }
   override build(): THREE.BufferGeometry | null { return null; }
 }
 

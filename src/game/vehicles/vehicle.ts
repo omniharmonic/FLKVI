@@ -31,6 +31,8 @@ export function tuningFor(model: CarModel): Tuning {
     case 'van': Object.assign(t, { mass: 2300, engine: 11000, maxSpeed: 36, grip: 1.3, stiffness: 24, rest: 0.28 }); break;
     case 'hatchback': Object.assign(t, { mass: 1250, engine: 8500, maxSpeed: 40, grip: 1.55 }); break;
     case 'police': Object.assign(t, { mass: 1700, engine: 13500, maxSpeed: 48, grip: 1.75 }); break;
+    // Rapier brake is an impulse cap: scale with mass. Suspension stiffness is per unit mass.
+    case 'bus': Object.assign(t, { mass: 11500, engine: 30000, maxSpeed: 27, brake: 420, steerMax: 0.62, grip: 1.3, stiffness: 20, rest: 0.3, downforce: 0.6 }); break;
   }
   void base;
   return t;
@@ -54,6 +56,8 @@ export class Vehicle implements VehicleHandle {
   siren = false;
   flagged = false;
   destroyed = false;
+  /** Hazard lights (both signals blink); set by AI for pulled-over / stopped / stuck cars. */
+  hazards = false;
   /** Extra (not in the core contract): */
   model: CarModel;
   modelId: string;
@@ -202,6 +206,7 @@ export class Vehicle implements VehicleHandle {
     if (this.controller) { this.g.physics.removeVehicleController(this.controller); this.controller = null; }
     this.physicsMode = 'kinematic';
     this.crashed = false;
+    this.rear = null;
     this.body.setBodyType(R.RigidBodyType.KinematicPositionBased, true);
   }
 
@@ -407,21 +412,48 @@ export class Vehicle implements VehicleHandle {
     return n;
   }
 
+  /** Trailing rear-axle point for long kinematic vehicles (bus), and the resulting render/collider pose. */
+  private rear: { x: number; z: number } | null = null;
+  private kx = 0; private kz = 0; private kh = 0;
+  /**
+   * AI drives the vehicle centre along its path. For long wheelbases that looks like the whole bus
+   * slides sideways through turns; instead the front axle follows the AI path and the rear axle
+   * trails it (tractrix), so the rear cuts inside the corner like a real bus.
+   */
+  private updateTrail() {
+    const s = this.model.spec, wb = s.axleR - s.axleF;
+    const x = this.position.x, z = this.position.z, h = this.heading;
+    if (wb < 4.5) { this.kx = x; this.kz = z; this.kh = h; return; }
+    const fo = this.model.L / 2 - s.axleF; // centre → front axle
+    const fx = Math.sin(h), fz = -Math.cos(h);
+    const Fx = x + fx * fo, Fz = z + fz * fo;
+    let r = this.rear;
+    const d = r ? Math.hypot(Fx - r.x, Fz - r.z) : 0;
+    if (!r || d > wb * 1.3 || d < wb * 0.7 || this.speed < -0.2) r = this.rear = { x: Fx - fx * wb, z: Fz - fz * wb };
+    let dx = Fx - r.x, dz = Fz - r.z;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l; dz /= l;
+    r.x = Fx - dx * wb; r.z = Fz - dz * wb;
+    this.kh = Math.atan2(dx, -dz);
+    this.kx = Fx - dx * fo; this.kz = Fz - dz * fo;
+  }
+
   private fixedKinematic(dt: number) {
-    // AI writes position.x/z + heading; we follow terrain.
-    const x = this.position.x, z = this.position.z;
+    // AI writes position.x/z + heading; we follow terrain (long vehicles: trailing-axle pose).
+    this.updateTrail();
+    const x = this.kx, z = this.kz, h = this.kh;
     const y = groundY(this.g, x, z);
     this.position.y = y;
     const L = this.model.spec.axleR - this.model.spec.axleF;
-    const fx = Math.sin(this.heading), fz = -Math.cos(this.heading);
+    const fx = Math.sin(h), fz = -Math.cos(h);
     const yf = groundY(this.g, x + fx * L / 2, z + fz * L / 2), yr = groundY(this.g, x - fx * L / 2, z - fz * L / 2);
     const pitch = Math.atan2(yf - yr, L);
-    _e.set(pitch, -this.heading, 0, 'YXZ');
+    _e.set(pitch, -h, 0, 'YXZ');
     _q.setFromEuler(_e);
     this.body.setNextKinematicTranslation({ x, y, z });
     this.body.setNextKinematicRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w });
-    const dh = wrapAngle(this.heading - this.lastHeading);
-    this.lastHeading = this.heading;
+    const dh = wrapAngle(h - this.lastHeading);
+    this.lastHeading = h;
     const yawRate = dh / dt;
     const accel = (this.speed - this.lastSpeed) / dt;
     this.lastSpeed = this.speed;
@@ -484,7 +516,7 @@ export class Vehicle implements VehicleHandle {
   }
 
   private updateSignal(dt: number) {
-    if (this.destroyed || (this.crashed && this.driver !== 'player') || (this.driver === 'none' && this.health < 60)) { this.signal = 2; return; }
+    if (this.hazards || this.destroyed || (this.crashed && this.driver !== 'player') || (this.driver === 'none' && this.health < 60)) { this.signal = 2; return; }
     if (this.driver !== 'ai') { this.signal = 0; this.signalHold = 0; return; }
     // AI: use explicit steer intent if the AI provides it, else the turn we're in (yaw rate).
     const intent = Math.abs(this.control.steer) > 0.2 ? Math.sign(this.control.steer) : Math.abs(this.steerAngle) > 0.12 && Math.abs(this.speed) < 14 ? Math.sign(this.steerAngle) : 0;
@@ -493,12 +525,14 @@ export class Vehicle implements VehicleHandle {
   }
 
   private syncVisualFromHandle(dt: number) {
-    this.object.position.copy(this.position);
+    this.updateTrail();
+    const x = this.kx, z = this.kz, h = this.kh;
+    this.object.position.set(x, this.position.y, z);
     const L = this.model.spec.axleR - this.model.spec.axleF;
-    const fx = Math.sin(this.heading), fz = -Math.cos(this.heading);
-    const yf = groundY(this.g, this.position.x + fx * L / 2, this.position.z + fz * L / 2);
-    const yr = groundY(this.g, this.position.x - fx * L / 2, this.position.z - fz * L / 2);
-    _e.set(Math.atan2(yf - yr, L), -this.heading, 0, 'YXZ');
+    const fx = Math.sin(h), fz = -Math.cos(h);
+    const yf = groundY(this.g, x + fx * L / 2, z + fz * L / 2);
+    const yr = groundY(this.g, x - fx * L / 2, z - fz * L / 2);
+    _e.set(Math.atan2(yf - yr, L), -h, 0, 'YXZ');
     this.object.quaternion.setFromEuler(_e);
     this.visual.chassis.rotation.set(this.visPitch, 0, this.visRoll);
     for (let i = 0; i < 4; i++) {
@@ -515,5 +549,6 @@ export class Vehicle implements VehicleHandle {
     if (this.controller) this.g.physics.removeVehicleController(this.controller);
     this.g.physics.removeRigidBody(this.body);
     this.object.removeFromParent();
+    this.visual.dispose();
   }
 }

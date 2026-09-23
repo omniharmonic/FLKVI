@@ -83,7 +83,7 @@ export class FarTrafficBatch {
     if (b.n >= b.body.instanceMatrix.count) this.grow(b, b.n + 1);
     const i = b.n++;
     for (const im of [b.body, b.wheels, b.head, b.tail]) im.setMatrixAt(i, m);
-    b.body.setColorAt(i, this.col.set(model.livery === 'police' || model.livery === 'taxi' ? '#ffffff' : paint));
+    b.body.setColorAt(i, this.col.set(model.livery !== 'plain' ? '#ffffff' : paint));
     b.head.setColorAt(i, this.col.setRGB(head, head, head));
     b.tail.setColorAt(i, this.col.setRGB(tail, tail, tail));
   }

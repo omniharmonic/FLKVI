@@ -1,8 +1,8 @@
 // Per-vehicle scene graph built from a shared CarModel (geometries + materials are shared).
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarModel } from './carModels';
-import { mats, paintMaterial, plateMaterial, beamMaterial, PLATE_CELLS } from './materials';
+import { mats, paintMaterial, beamMaterial, PLATE_CELLS } from './materials';
+import { nearGeometry, createBodyMaterial, createLampMaterial, setBodyPaint, LAMP } from './unified';
 
 export interface VehicleVisual {
   root: THREE.Group;
@@ -16,82 +16,37 @@ export interface VehicleVisual {
   /** Show/hide the seated driver figure. */
   setDriver(on: boolean): void;
   setPaint(color: string): void;
+  /** Release the per-car materials. */
+  dispose(): void;
   readonly far: boolean;
   setFar(f: boolean): void;
 }
 
-let taxiMat: THREE.MeshStandardMaterial | null = null;
-function taxiSignMaterial() {
-  if (taxiMat) return taxiMat;
-  const cv = document.createElement('canvas');
-  cv.width = 256; cv.height = 128;
-  const x = cv.getContext('2d')!;
-  x.fillStyle = '#f7e9a8'; x.fillRect(0, 0, 256, 128);
-  x.fillStyle = '#1a1a1a'; x.font = 'bold 72px Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText('TAXI', 128, 68);
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace;
-  taxiMat = new THREE.MeshStandardMaterial({ map: t, emissive: 0xfff2b0, emissiveMap: t, emissiveIntensity: 0.4, roughness: 0.4 });
-  return taxiMat;
-}
-
-const plateGeoCache = new Map<string, THREE.BufferGeometry>();
-function plateGeo(model: CarModel, cell: number) {
-  const key = `${model.id}-${cell}`;
-  let g = plateGeoCache.get(key);
-  if (!g) {
-    g = model.plate.clone();
-    const uv = g.attributes.uv as THREE.BufferAttribute;
-    const cx = (cell % 4) * 0.25, cy = Math.floor(cell / 4) * 0.25;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) + cx, uv.getY(i) - cy);
-    plateGeoCache.set(key, g);
-  }
-  return g;
-}
-
 export function paintFor(model: CarModel, color: string) {
-  const c = model.livery === 'police' ? '#ffffff' : model.livery === 'taxi' ? '#ffffff' : color;
+  const c = model.livery === 'plain' ? color : '#ffffff';
   return paintMaterial(c, model.paintMap, model.id);
 }
 
+/**
+ * Near visual = 4 draws (see unified.ts): body (opaque + glass groups), misc opaque parts (cabin,
+ * trim, chrome, grille, plate, drivers), lamps. Wheels are drawn by the manager's WheelBatch.
+ */
 export function createVehicleVisual(model: CarModel, color: string, seed: number): VehicleVisual {
   const root = new THREE.Group();
   root.name = `vehicle-${model.id}`;
   const chassis = new THREE.Group();
   root.add(chassis);
-  const paint = paintFor(model, color);
-  const bodyMesh = new THREE.Mesh(model.body, [paint, mats.glass, mats.dark, mats.trim]);
+  const near = nearGeometry(model);
+  const variant = seed % Math.min(3, model.drivers.length);
+  const bodyMat = createBodyMaterial(model, model.livery === 'plain' ? color : '#ffffff', seed % PLATE_CELLS, variant);
+  const lampMat = createLampMaterial(model);
+  const bodyMesh = new THREE.Mesh(near.body, [bodyMat, mats.glass]);
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
-  chassis.add(bodyMesh);
-  const add = (geo: THREE.BufferGeometry | null | undefined, mat: THREE.Material | THREE.Material[], shadow = false) => {
-    if (!geo) return null;
-    const m = new THREE.Mesh(geo, mat);
-    m.castShadow = shadow;
-    m.receiveShadow = false;
-    chassis.add(m);
-    return m;
-  };
-  const paintParts = add(model.paintParts, paint)!;
-  add(model.trim, mats.trim, true);
-  add(model.chrome, mats.chrome);
-  add(model.grille, mats.grille);
-  const head = add(model.head, mats.headOff)!;
-  const tail = add(model.tail, mats.tailOff)!;
-  const rev = add(model.reverse, mats.revOff)!;
-  // Cabin: interior shell alone, or interior + seated driver merged (one draw either way).
-  const cabinGeo = [model.interior, cabinWithDriver(model, seed % model.drivers.length)];
-  const cabin = add(model.interior, mats.interior)!;
-  const sigMats: THREE.Material[] = [mats.amber, mats.amber];
-  add(model.signals, sigMats);
-  add(plateGeo(model, seed % PLATE_CELLS), plateMaterial());
-  let red: THREE.Mesh | null = null, blue: THREE.Mesh | null = null;
-  if (model.lightbar) {
-    add(model.lightbar.base, mats.trim);
-    red = add(model.lightbar.red, mats.redOff);
-    blue = add(model.lightbar.blue, mats.blueOff);
-  }
-  if (model.taxiSign) add(model.taxiSign, taxiSignMaterial());
+  const misc = new THREE.Mesh(near.misc, bodyMat);
+  misc.receiveShadow = true;
+  const lamps = new THREE.Mesh(near.lamps, lampMat);
+  chassis.add(bodyMesh, misc, lamps);
   const wheels: THREE.Group[] = [];
   const wheelMats = [mats.tire, mats.rim, mats.rimDark];
   model.wheelPos.forEach((p, i) => {
@@ -109,6 +64,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   // Far LOD
   const far = new THREE.Group();
   far.visible = false;
+  const paint = paintFor(model, color);
   const farBody = new THREE.Mesh(model.lod.body, [paint, mats.glassFar, mats.dark, mats.trim]);
   farBody.castShadow = true;
   const farWheels = new THREE.Mesh(model.lod.wheels, [mats.tire, mats.rim]);
@@ -124,6 +80,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   root.add(beam);
   let isFar = false;
   const phase = (seed % 7) * 0.13;
+  const I = lampMat.lampI, On = lampMat.lampOn;
   return {
     root, chassis, bodyMesh, wheels,
     get far() { return isFar; },
@@ -134,34 +91,40 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       chassis.visible = !f;
       for (const w of wheels) w.visible = !f;
     },
-    setDriver(on: boolean) { const g = cabinGeo[on ? 1 : 0]; if (cabin.geometry !== g) cabin.geometry = g; },
+    setDriver(on: boolean) { bodyMat.carUniforms.uDriver.value = on ? variant + 1 : 0; },
     setLights(s) {
       beam.visible = !!s.beam && s.head && !isFar;
       const blink = ((s.t + phase) % 0.7) < 0.36;
       const sg = s.signal ?? 0;
-      sigMats[0] = (sg === -1 || sg === 2) && blink ? mats.amberOn : mats.amber;
-      sigMats[1] = (sg === 1 || sg === 2) && blink ? mats.amberOn : mats.amber;
-      head.material = s.head ? mats.headOn : mats.headOff;
-      tail.material = s.brake ? mats.tailBrake : s.head ? mats.tailRun : mats.tailOff;
-      farHead.material = head.material as THREE.MeshPhysicalMaterial;
-      farTail.material = tail.material as THREE.MeshPhysicalMaterial;
-      rev.material = s.reverse ? mats.revOn : mats.revOff;
-      if (red && blue) {
+      const l = (sg === -1 || sg === 2) && blink, r = (sg === 1 || sg === 2) && blink;
+      On[LAMP.sigL] = +l; I[LAMP.sigL] = l ? mats.amberOn.emissiveIntensity : 0;
+      On[LAMP.sigR] = +r; I[LAMP.sigR] = r ? mats.amberOn.emissiveIntensity : 0;
+      let head = s.head;
+      I[LAMP.tail] = s.brake ? mats.tailBrake.emissiveIntensity : s.head ? mats.tailRun.emissiveIntensity : 0;
+      On[LAMP.rev] = +s.reverse; I[LAMP.rev] = s.reverse ? mats.revOn.emissiveIntensity : 0;
+      if (model.lightbar) {
         if (s.siren) {
           const st = strobe(s.t + phase);
-          red.material = st.red ? mats.redOn : mats.redOff;
-          blue.material = st.blue ? mats.blueOn : mats.blueOff;
+          On[LAMP.red] = +st.red; I[LAMP.red] = st.red ? mats.redOn.emissiveIntensity : mats.redOff.emissiveIntensity;
+          On[LAMP.blue] = +st.blue; I[LAMP.blue] = st.blue ? mats.blueOn.emissiveIntensity : mats.blueOff.emissiveIntensity;
           // Wig-wag: headlights alternate with the bar.
-          if (!s.head || st.wig) head.material = st.wig ? mats.headOn : mats.headOff;
-        } else { red.material = mats.redOff; blue.material = mats.blueOff; }
+          if (!s.head || st.wig) head = st.wig;
+        } else {
+          On[LAMP.red] = On[LAMP.blue] = 0;
+          I[LAMP.red] = mats.redOff.emissiveIntensity; I[LAMP.blue] = mats.blueOff.emissiveIntensity;
+        }
       }
+      I[LAMP.head] = head ? mats.headOn.emissiveIntensity : 0;
+      if (model.destSign) I[LAMP.sign] = mats.amberOn.emissiveIntensity * 0.3;
+      farHead.material = head ? mats.headOn : mats.headOff;
+      farTail.material = s.brake ? mats.tailBrake : s.head ? mats.tailRun : mats.tailOff;
     },
     setPaint(c: string) {
-      const p = paintFor(model, c);
-      (bodyMesh.material as THREE.Material[])[0] = p;
-      (farBody.material as THREE.Material[])[0] = p;
-      paintParts.material = p;
+      const col = model.livery === 'plain' ? c : '#ffffff';
+      setBodyPaint(bodyMat, col);
+      (farBody.material as THREE.Material[])[0] = paintFor(model, c);
     },
+    dispose() { bodyMat.dispose(); lampMat.dispose(); },
   };
 }
 
@@ -177,14 +140,6 @@ export function strobe(t: number) {
   const pulse = Math.floor(k * 8) % 2 === 0 && k < 0.78; // 4 quick flashes
   const burst = c > 0.84;
   return { red: (half && pulse) || burst, blue: (!half && pulse) || burst, wig: Math.floor(c / 0.225) % 2 === 1 };
-}
-
-const cabinCache = new Map<string, THREE.BufferGeometry>();
-function cabinWithDriver(model: CarModel, variant: number) {
-  const key = `${model.id}:${variant}`;
-  let g = cabinCache.get(key);
-  if (!g) { g = mergeGeometries([model.interior, model.drivers[variant]], false)!; cabinCache.set(key, g); }
-  return g;
 }
 
 let _beam: THREE.BufferGeometry | null = null;

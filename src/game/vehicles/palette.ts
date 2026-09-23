@@ -6,12 +6,13 @@ import * as THREE from 'three';
 export const PAL = {
   seatDark: 0, seatBeige: 1, seatGrey: 2, dash: 3, headliner: 4, carpet: 5, panel: 6, wheel: 7,
   skin1: 8, skin2: 9, skin3: 10, shirt1: 11, shirt2: 12, shirt3: 13, pants: 14, hair: 15,
-  uniform: 11,
+  uniform: 11, pole: 16, busSeat: 17,
 } as const;
 
 const COLORS = [
   '#262628', '#9c8d77', '#505257', '#131416', '#8e8b85', '#1b1b1d', '#2a2b2e', '#0c0c0d',
   '#c29274', '#7d5236', '#dcb194', '#23324d', '#6e2626', '#cfcfca', '#20242b', '#18130f',
+  '#c9a41f', '#2b3953',
 ];
 
 /** Point every vertex's UV at a palette cell. */

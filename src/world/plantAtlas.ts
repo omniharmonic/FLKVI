@@ -182,7 +182,7 @@ function paintDiamond(ctx: Ctx, w: number, h: number) {
     const x = (c + (r % 2 ? 0.5 : 0)) * dw, y = r * dh;
     const l = 36 + R() * 14;
     const g = ctx.createLinearGradient(x, y, x, y + dh * 1.1);
-    g.addColorStop(0, hsl(32, 30, l + 12)); g.addColorStop(0.55, hsl(28, 30, l)); g.addColorStop(1, hsl(24, 28, l - 16));
+    g.addColorStop(0, hsl(32, 20, l + 12)); g.addColorStop(0.55, hsl(28, 20, l)); g.addColorStop(1, hsl(24, 18, l - 16));
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.moveTo(x + dw / 2, y); ctx.lineTo(x + dw - 3, y + dh * 0.55); ctx.lineTo(x + dw / 2, y + dh * 1.08); ctx.lineTo(x + 3, y + dh * 0.55); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = hsl(30, 20, 60, 0.35); ctx.lineWidth = 1.5;
@@ -350,7 +350,6 @@ function paintBark(ctx: Ctx, w: number, h: number) {
 }
 
 let atlasTex: THREE.DataTexture | null = null;
-let atlasCanvas: HTMLCanvasElement | null = null;
 
 /** Build (once) and return the plant atlas texture. */
 export function plantAtlas(): THREE.Texture {
@@ -400,8 +399,8 @@ export function plantAtlas(): THREE.Texture {
   withCell(ctx, 'shrubB', (w, h) => paintLeafClump(ctx, w, h, 82, 520, 15, 105, 32, true));
   withCell(ctx, 'leafSolid', (w, h) => { ctx.fillStyle = hsl(100, 35, 22); ctx.fillRect(0, 0, w, h); paintLeafClump(ctx, w, h, 83, 900, 8, 100, 30, false, false); });
   withCell(ctx, 'bark', (w, h) => paintBark(ctx, w, h));
-  atlasCanvas = cv;
   atlasTex = freeze(cv);
+  cv.width = cv.height = 0; // release the 2D backing store
   return atlasTex;
 }
 
@@ -426,11 +425,6 @@ function freeze(cv: HTMLCanvasElement): THREE.DataTexture {
   return tex;
 }
 
-/** Debug: data URL of the atlas (for inspection). */
-export function plantAtlasDataURL(): string {
-  plantAtlas();
-  return atlasCanvas!.toDataURL('image/png');
-}
 
 const foliageCache = new Map<string, THREE.Texture>();
 /**
@@ -496,6 +490,7 @@ export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
     }
   }
   const tex = freeze(cv);
+  cv.width = cv.height = 0;
   foliageCache.set(kind, tex);
   return tex;
 }

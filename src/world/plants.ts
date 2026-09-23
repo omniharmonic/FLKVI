@@ -345,7 +345,7 @@ function palmFan(b: PlantBuilder, H: number, R: () => number, lo: boolean, sabal
 
 function palmFeather(b: PlantBuilder, H: number, R: () => number, lo: boolean, sp: 'canary' | 'date' | 'royal' | 'queen' | 'coconut') {
   const S = {
-    canary: { r0: 0.55, r1: 0.42, crownL: 5.2, W: 1.3, n: 60, elev: [1.1, -0.5], droop: 1.1, fold: 0.35, planes: 1, cell: 'trunkDiamond' as CellId, trunkCol: 0xb89a80, tint: 0x9aae70, crownFrac: 0.3, mpr: 1.3 },
+    canary: { r0: 0.55, r1: 0.42, crownL: 5.2, W: 1.3, n: 60, elev: [1.1, -0.5], droop: 1.1, fold: 0.35, planes: 1, cell: 'trunkDiamond' as CellId, trunkCol: 0xa8988a, tint: 0x9aae70, crownFrac: 0.3, mpr: 1.3 },
     date: { r0: 0.3, r1: 0.27, crownL: 4.2, W: 1.0, n: 40, elev: [1.3, -0.4], droop: 0.6, fold: 0.5, planes: 1, cell: 'trunkDiamond' as CellId, trunkCol: 0xa89484, tint: 0xa8b4a0, crownFrac: 0.3, mpr: 1.0 },
     royal: { r0: 0.34, r1: 0.26, crownL: 4.6, W: 1.5, n: 18, elev: [1.0, -0.3], droop: 1.5, fold: 0.9, planes: 2, cell: 'trunkSmooth' as CellId, trunkCol: 0xd8d4cc, tint: 0x8aa868, crownFrac: 0.28, mpr: 1.6 },
     queen: { r0: 0.2, r1: 0.17, crownL: 3.6, W: 1.3, n: 16, elev: [1.1, -0.2], droop: 1.8, fold: 1.05, planes: 2, cell: 'trunkSmooth' as CellId, trunkCol: 0xb8b2a8, tint: 0x94b070, crownFrac: 0.28, mpr: 1.2 },
@@ -378,7 +378,7 @@ function palmFeather(b: PlantBuilder, H: number, R: () => number, lo: boolean, s
     tube(b, (t) => top.clone().add(V(0, t * cs, 0)), { n: 3, segs: 10, cell: 'greenSmooth', mpr: 3, color: () => C(0x9ac080), rad: (t) => S.r1 * (1.02 - 0.15 * t) });
     top = top.clone().add(V(0, cs, 0));
   } else if (sp === 'canary' || sp === 'date') {
-    tube(b, (t) => top.clone().add(V(0, -0.4 + t * 1.2, 0)), { n: 4, segs: 10, cell: 'trunkDiamond', mpr: 1.2, color: () => C(0xc8a888), rad: (t) => S.r1 * (1.05 + 0.4 * Math.sin(Math.PI * t * 0.85)) });
+    tube(b, (t) => top.clone().add(V(0, -0.4 + t * 1.2, 0)), { n: 4, segs: 10, cell: 'trunkDiamond', mpr: 1.2, color: () => C(0xb8a898), rad: (t) => S.r1 * (1.05 + 0.4 * Math.sin(Math.PI * t * 0.85)) });
     top = top.clone().add(V(0, 0.5, 0));
   }
   const crownC = top.clone();

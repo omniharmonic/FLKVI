@@ -79,7 +79,7 @@ export const LANDMARKS: LandmarkDef[] = [
   },
   {
     id: 'washington-square-fountain', city: 'nyc-village', name: 'Washington Square Fountain',
-    match: { areaId: 'w959929617' }, lodDist: 160,
+    match: { areaId: 'w959929617' }, base: 'max', lodDist: 160,
     build: squareFountain,
   },
   // ---------------------------------------------------------------- San Francisco, Mission

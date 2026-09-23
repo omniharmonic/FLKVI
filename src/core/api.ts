@@ -63,6 +63,8 @@ export interface VehicleHandle {
   siren?: boolean;
   flagged?: boolean;
   destroyed?: boolean;
+  /** Optional: hazard lights on (both turn signals blink) — broken down, crashed, pulled over. */
+  hazards?: boolean;
 }
 
 export interface VehiclesAPI {
