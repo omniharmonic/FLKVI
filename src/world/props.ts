@@ -236,6 +236,20 @@ export class PropSystem {
     return [dx / l, dz / l];
   }
 
+  /** Move a point inside a street's sidewalk band to 0.5 m behind the curb (poles, keeps them clear of facades). */
+  private curbSnap(p: Vec2): Vec2 {
+    const h = this.roads.nearestChain(p, 25);
+    if (!h || h.c.bridge || h.c.tunnel) return p;
+    const c = h.c, a = Math.abs(h.off);
+    if (h.s < 0.5 || h.s > c.len - 0.5) return p; // beyond the chain end (junction corner)
+    if (a > c.w + c.s + 3) return p; // back lot / alley pole: leave where mapped
+    const q = sampleAt(c.pts, c.L, h.s);
+    let nx = p[0] - q.x, nz = p[1] - q.z; const l = Math.hypot(nx, nz);
+    if (l < 0.05) { nx = -q.dz; nz = q.dx; } else { nx /= l; nz /= l; }
+    const target = c.w + (c.s > 0 ? Math.min(0.5, c.s * 0.35) : 0.9);
+    return [q.x + nx * target, q.z + nz * target];
+  }
+
   build() {
     const R = this.recipe, M = this.M;
     const kits: Record<string, KitInstances> = {
@@ -281,7 +295,14 @@ export class PropSystem {
         case 'bus-stop': { const yaw = faceRoad(pr.p, pr.rot); kits.busStop.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 2.0, hy: 1.3, hz: 0.1, rot: yaw }); break; }
         case 'bike-rack': { const d = this.towardRoad(pr.p, 18); const yaw = d ? this.yawFace(d[0], d[1]) + Math.PI / 2 : rotYaw(pr.rot); kits.bikeRack.add(this.mat(x, y, z, yaw)); break; }
         case 'bollard': kits.bollard.add(this.mat(x, y, z, 0)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.12, h: 1 }); break;
-        case 'utility-pole': poles.push(new THREE.Vector3(x, y, z)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.17, h: 11 }); break;
+        case 'utility-pole': {
+          // real poles stand just behind the curb, not against facades (NOLA galleries / SF bay windows overhang the walk)
+          const [ux, uz] = this.curbSnap(pr.p);
+          if (this.inBuilding(ux, uz)) break;
+          const uy = this.groundAt(ux, uz);
+          poles.push(new THREE.Vector3(ux, uy, uz)); this.colliders.push({ kind: 'cyl', x: ux, y: uy, z: uz, r: 0.17, h: POLE_H });
+          break;
+        }
         case 'mailbox': kits.mailbox.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;
         case 'newspaper-box': kits.news.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;
         case 'parking-meter': kits.meter.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;

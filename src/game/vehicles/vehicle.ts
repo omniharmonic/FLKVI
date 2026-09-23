@@ -38,6 +38,18 @@ export function tuningFor(model: CarModel): Tuning {
   return t;
 }
 
+/** Drift / stability assist constants (tuned on a flat test pad; see handling notes in fixedUpdate). */
+export const DRIFT = {
+  /** Handbrake: yaw torque per unit steer (× mass), yaw-rate cap (rad/s), rear grip + side stiffness multipliers. */
+  hbKick: 1.0, hbYawCap: 1.3, hbRearGrip: 0.55, hbRearSide: 0.75,
+  /** Held power drift: yaw-damping multiplier, recovery-torque multiplier, lateral-assist multiplier, max slip (rad). */
+  hold: 0.35, holdRecover: 0.45, holdLat: 0.55, betaMax: 0.95,
+  /** Rear grip / side stiffness while a power drift is held (throttle on). */
+  holdRearGrip: 1, holdRearSide: 1,
+  /** Gripping: yaw damping toward the steer-requested yaw, recovery torque per rad of slip. */
+  yawDamp: 0.7, recoverK: 1.6,
+};
+
 /** Top speed of each forward gear as a fraction of the model's max speed (6-speed auto). */
 const GEAR_TOPS = [0.26, 0.44, 0.62, 0.78, 0.92, 1.08];
 
@@ -269,9 +281,10 @@ export class Vehicle implements VehicleHandle {
       const e = (rear && hb) || brakeIn > 0.05 || !driven ? 0 : rwd ? (rear ? ef : 0) : rear ? ef * 0.6 : ef * 0.4;
       vc.setWheelEngineForce(i, e);
       vc.setWheelBrake(i, e !== 0 ? 0 : b);
-      const grip = t.grip * (rear && hb ? 0.55 : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
+      const held = rear && !hb && this.driftT > 0 && throttle > 0.5;
+      const grip = t.grip * (rear && hb ? DRIFT.hbRearGrip : held ? DRIFT.holdRearGrip : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
       vc.setWheelFrictionSlip(i, grip);
-      vc.setWheelSideFrictionStiffness(i, rear && hb ? 0.75 : 1.0);
+      vc.setWheelSideFrictionStiffness(i, rear && hb ? DRIFT.hbRearSide : held ? DRIFT.holdRearSide : 1.0);
     }
     // Speed-sensitive steering with smoothing.
     const steerMax = t.steerMax / (1 + spd / 8);
@@ -306,8 +319,8 @@ export class Vehicle implements VehicleHandle {
       this.slip = spd > 3 ? Math.abs(lat) / Math.max(3, Math.hypot(lat, fwdSpeed)) : 0;
       if (hb && driven && spd > 6) {
         // Handbrake: rotate into the drift, but cap the yaw rate so it stays controllable.
-        const kick = ctl.steer * -1.0 * mass * Math.min(1, spd / 15);
-        const cap = Math.abs(yawRate) > 1.3 ? -Math.sign(yawRate) * (Math.abs(yawRate) - 1.3) * 4 * mass : 0;
+        const kick = ctl.steer * -DRIFT.hbKick * mass * Math.min(1, spd / 15);
+        const cap = Math.abs(yawRate) > DRIFT.hbYawCap ? -Math.sign(yawRate) * (Math.abs(yawRate) - DRIFT.hbYawCap) * 4 * mass : 0;
         const k = kick + cap;
         body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
       } else if (driven) {
@@ -315,20 +328,20 @@ export class Vehicle implements VehicleHandle {
         // handbrake entry can be held through the corner; lifting off lets the car straighten itself.
         const drifting = this.slip > 0.16 && spd > 8 && throttle > 0.5;
         this.driftT = drifting ? Math.min(3, this.driftT + dt) : Math.max(0, this.driftT - dt * 2);
-        const hold = drifting ? 0.35 : 1;
+        const hold = drifting ? DRIFT.hold : 1;
         // Counter excessive yaw not asked for by steering (prevents spin-outs), weak so drifts can be held.
         const wantYaw = -this.steerAngle * fwdSpeed / 2.8;
-        let k = -(yawRate - wantYaw) * 0.7 * mass * clamp(spd / 10, 0, 1) * hold;
+        let k = -(yawRate - wantYaw) * DRIFT.yawDamp * mass * clamp(spd / 10, 0, 1) * hold;
         // Drift recovery: swing the nose back toward the direction of travel (auto counter-steer).
         if (fwdSpeed > 4 && this.slip > 0.15) {
           const beta = Math.atan2(lat, fwdSpeed); // + = sliding right
-          k += -beta * 1.6 * mass * clamp(spd / 12, 0, 1) * (drifting ? 0.45 : 1);
+          k += -beta * DRIFT.recoverK * mass * clamp(spd / 12, 0, 1) * (drifting ? DRIFT.holdRecover : 1);
           // Never let a held drift exceed ~55° of slip: beyond that, recover hard.
-          if (Math.abs(beta) > 0.95) k += -Math.sign(beta) * (Math.abs(beta) - 0.95) * 6 * mass;
+          if (Math.abs(beta) > DRIFT.betaMax) k += -Math.sign(beta) * (Math.abs(beta) - DRIFT.betaMax) * 6 * mass;
         }
         body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
         // Lateral grip assist at speed: bleed sideways velocity a bit.
-        const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1) * (drifting ? 0.55 : 1);
+        const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1) * (drifting ? DRIFT.holdLat : 1);
         body.addForce({ x: _right.x * latF, y: 0, z: _right.z * latF }, true);
         // High-speed stability: a little extra steering-independent yaw damping above ~25 m/s.
         if (!drifting && spd > 25) {

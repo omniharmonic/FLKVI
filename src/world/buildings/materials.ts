@@ -2,7 +2,7 @@
 // signage, and the window glass with interior mapping + night occupancy.
 import * as THREE from 'three';
 import { textureSet, textureSetReady, type TextureId } from '../../assets/library';
-import { procTexture, clearProcCache, TEX_RES } from './textures';
+import { procTexture, procParams, clearProcCache, TEX_RES } from './textures';
 import { SHOP_GLSL } from './shopGlsl';
 
 /** Shared uniforms: night factor drives window occupancy and signage glow. */
@@ -165,9 +165,9 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
         usingLibraryTextures = true;
         n = lib.maps.normalMap?.image ? drawToCanvas(lib.maps.normalMap.image, R) : null;
         sizeM = SIZE_FIX[id] ?? (lib.sizeM || 2);
-        const pt = procTexture(id);
-        rgh = pt.roughness; mtl = pt.metalness;
-        if (!n) n = pt.nrm;
+        const pp = procParams(id);
+        rgh = pp.roughness; mtl = pp.metalness;
+        if (!n) n = procTexture(id).nrm;
       }
     }
     if (id === 'ghost' || id === 'plaque') {

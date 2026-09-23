@@ -20,7 +20,7 @@ import { buildUnderstory, paintPlantingBeds } from './understory';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
 import { resolveLandmarks, buildLandmarks, type LandmarksResult } from './landmarks';
-import { releaseAfterUpload } from '../render/memory';
+import { releaseAfterUpload, uploadNow } from '../render/memory';
 import { registerShadowDistance, registerInstancedShadowLod, registerShadowProxy, setShadowCascades } from '../render/shadowProxy';
 
 export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups } from './physics';
@@ -251,6 +251,9 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   releaseAfterUpload(terrainGroup);
   releaseAfterUpload(roadGroup);
   releaseAfterUpload(waterGroup);
+  // push static geometry to the GPU now (behind the loading screen) so the CPU copies are freed even
+  // for chunks that are off-screen at spawn
+  try { uploadNow(g.renderer, root); } catch (e) { console.warn('[world] upload failed', e); }
 
   setNight(0);
   g.addSystem({

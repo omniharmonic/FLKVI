@@ -321,6 +321,23 @@ function concrete(color: string, seed: number, formwork: boolean): ProcTex {
 }
 
 const cache = new Map<string, ProcTex>();
+/** Roughness/metalness of each procedural material (same values gen() bakes), so layers that use a
+ *  library texture don't have to generate the whole procedural texture just to read two numbers. */
+const PARAMS: Record<string, [number, number]> = {
+  'brick-red': [0.88, 0], 'brick-brown': [0.88, 0], 'brick-tan': [0.88, 0], 'brick-painted': [0.75, 0],
+  'lap-siding': [0.7, 0], 'board-batten': [0.7, 0], 'wood-shingle': [0.9, 0], stucco: [0.95, 0], plaster: [0.8, 0],
+  adobe: [0.97, 0], stone: [0.85, 0], sandstone: [0.85, 0], concrete: [0.92, 0], 'concrete-plain': [0.92, 0],
+  'metal-panel': [0.45, 0.5], 'glass-curtain': [0.2, 0.7], 'roof-asphalt-shingle': [0.9, 0], 'roof-wood-shingle': [0.9, 0],
+  'roof-slate': [0.6, 0], 'roof-clay-tile': [0.75, 0], 'roof-standing-seam': [0.38, 0.35], 'roof-membrane': [0.85, 0],
+  'roof-gravel': [0.95, 0], 'wood-planks': [0.8, 0],
+};
+export function procParams(id: string): { roughness: number; metalness: number } {
+  const p = PARAMS[id];
+  if (p) return { roughness: p[0], metalness: p[1] };
+  const t = procTexture(id);
+  return { roughness: t.roughness, metalness: t.metalness };
+}
+
 /** Drop cached procedural canvases (after they were copied into the layer texture arrays). */
 export function clearProcCache() { cache.clear(); }
 

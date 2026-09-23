@@ -47,6 +47,9 @@ const col = (h: string) => new THREE.Color(h);
 
 export interface Floor { y0: number; y1: number; k: number }
 
+/** Height (m above the street) above which window openings are built flush at every LOD. */
+const FLUSH_ABOVE = 45;
+
 export interface BCtx {
   B: Buckets;
   b: RecipeBuilding;
@@ -187,20 +190,26 @@ function emitOpening(c: BCtx, f: Frame, o: Op, wallId: string) {
   const w = o.s1 - o.s0;
   const r = o.r;
   // ---- LOD1 (flush) ----
-  if (o.t === 'garage' || o.t === 'loading') {
-    const mb = surf(B, 1, o.t === 'loading' ? 'lap-siding' : 'paint', o.color ?? st.trim);
-    mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, o.y1, 0.01), f.pt(o.s0, o.y1, 0.01), [f.u0 + o.s0, o.y0, f.u0 + o.s1, o.y0, f.u0 + o.s1, o.y1, f.u0 + o.s0, o.y1], 0.85);
-  } else if (o.t === 'door') {
-    const mb = surf(B, 1, 'paint', o.color ?? DARK);
-    mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, o.y1, 0.01), f.pt(o.s0, o.y1, 0.01), [0, 0, 1, 0, 1, 1, 0, 1], 0.8);
-  } else {
-    const gy0 = o.t === 'store' ? o.y0 + 0.5 : o.y0;
-    if (o.t === 'store') {
-      const mb = surf(B, 1, 'paint', st.trim);
-      mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, gy0, 0.01), f.pt(o.s0, gy0, 0.01), [0, 0, 1, 0, 1, 1, 0, 1], 0.7);
+  // Openings high up a tower (> FLUSH_ABOVE m over the street) are flush at both LODs: their reveals,
+  // frames and sills are a pixel or two from the street, yet cost ~60 tris per window × hundreds of floors.
+  const flushOnly = o.y0 - c.groundY > FLUSH_ABOVE;
+  for (const L of (flushOnly ? [1, 0] : [1]) as Lod[]) {
+    if (o.t === 'garage' || o.t === 'loading') {
+      const mb = surf(B, L, o.t === 'loading' ? 'lap-siding' : 'paint', o.color ?? st.trim);
+      mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, o.y1, 0.01), f.pt(o.s0, o.y1, 0.01), [f.u0 + o.s0, o.y0, f.u0 + o.s1, o.y0, f.u0 + o.s1, o.y1, f.u0 + o.s0, o.y1], 0.85);
+    } else if (o.t === 'door') {
+      const mb = surf(B, L, 'paint', o.color ?? DARK);
+      mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, o.y1, 0.01), f.pt(o.s0, o.y1, 0.01), [0, 0, 1, 0, 1, 1, 0, 1], 0.8);
+    } else {
+      const gy0 = o.t === 'store' ? o.y0 + 0.5 : o.y0;
+      if (o.t === 'store') {
+        const mb = surf(B, L, 'paint', st.trim);
+        mb.quad(f.pt(o.s0, o.y0, 0.01), f.pt(o.s1, o.y0, 0.01), f.pt(o.s1, gy0, 0.01), f.pt(o.s0, gy0, 0.01), [0, 0, 1, 0, 1, 1, 0, 1], 0.7);
+      }
+      glassQuad(B.g[L], f, o.s0, o.s1, gy0, o.y1, 0.012, o, st.sash);
     }
-    glassQuad(B.g[1], f, o.s0, o.s1, gy0, o.y1, 0.012, o, st.sash);
   }
+  if (flushOnly) return;
 
   // ---- LOD0 (detail) ----
   const s0 = B.s[0];

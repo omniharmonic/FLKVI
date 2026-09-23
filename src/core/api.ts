@@ -17,7 +17,7 @@ export interface WorldAPI {
   route(fromNode: number, toNode: number): number[];
   /** Random point on a sidewalk / pedestrian area near p within radius (for peds). */
   randomSidewalkPoint(near: Vec2, radius: number, rnd?: () => number): Vec2 | null;
-  /** Meshes to raycast against (buildings, terrain), for camera collision etc. */
+  /** Static world meshes. NOTE: CPU vertex arrays are freed after GPU upload, so THREE raycasts against these do NOT work — use g.physics.castRay (Rapier) or losBlocked instead. */
   staticMeshes: THREE.Object3D[];
   /** Night-light hook: set 0..1 for emissive windows/streetlights. */
   setNightFactor(f: number): void;

@@ -61,6 +61,13 @@ interface Chunk {
   subs: Sub[];
   /** bitmask of quarters currently drawn from lod1 (-1 = not set yet) */
   mask1: number;
+  key: string;
+  /** detailed shadow casters of this chunk (surface meshes; glass/signs never cast) */
+  casters: THREE.Mesh[];
+  /** this chunk's footprint prism (shadow-only) */
+  hull: THREE.Mesh | null;
+  /** detailed meshes cast (near cascade) vs. the hull covering both cascades */
+  shadowDetail: boolean | null;
 }
 
 export async function buildBuildings(g: Game, onProgress: Progress, opts: BuildOptions = {}): Promise<BuildingsResult> {
@@ -151,6 +158,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     }
     for (const su of subs) su.dNear = nearDistance(su.tris0, lodD, minD);
     const ch = makeChunk(e.cx, e.cz, e.y, CH, B, surfM, glassM, signM, stats, subs);
+    ch.key = e.i + ',' + e.j;
     if (want0) {
       // quarters near the spawn get their detail right away (sliced out of this chunk's lod0 buckets)
       for (let q = 0; q < 4; q++) {
@@ -195,7 +203,18 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     if (!registerShadowProxy(g, grp)) { group.remove(grp); return; }
     setShadowCascades(g, grp, 2);
     hulls = true;
-    for (const c of chunks) setShadowCascades(g, c.group, 1);
+    const byKey = new Map<string, THREE.Mesh>();
+    for (const m of grp.children as THREE.Mesh[]) byKey.set(m.name.slice(6), m); // bhull_<i,j>
+    for (const c of chunks) { setShadowCascades(g, c.group, 1); c.hull = byKey.get(c.key) ?? null; }
+  };
+  // perf: only chunks near the camera cast detailed shadows (near cascade); the rest cast their
+  // footprint prism into both cascades (their shadows land ≥ 60 m away, where facade relief is sub-texel)
+  const SHADOW_DETAIL_D = 60;
+  const setShadowDetail = (c: Chunk, on: boolean) => {
+    c.shadowDetail = on;
+    for (const m of c.casters) m.castShadow = on;
+    for (const su of c.subs) for (const m of su.lod0.children as THREE.Mesh[]) if (m.material === surfM) m.castShadow = on;
+    if (c.hull) c.hull.userData.shadowCascades = on ? 2 : 3;
   };
   const setLod = (cam: THREE.Camera) => {
     cam.getWorldPosition(camPos);
@@ -217,7 +236,10 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
           }
           if (job.i >= su.list.length) {
             addLod0(su, job.B.s[0].build(), job.B.g[0].build(), surfM, glassM, null);
-            if (hulls && gRef) setShadowCascades(gRef, su.lod0, 1);
+            if (hulls && gRef) {
+              setShadowCascades(gRef, su.lod0, 1);
+              if (c.shadowDetail === false) for (const m of su.lod0.children as THREE.Mesh[]) m.castShadow = false;
+            }
             su.job = null;
             su.built = true;
             refreshSigns();
@@ -229,6 +251,11 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
         if (!show0) mask |= 1 << q;
       }
       if (mask !== c.mask1) { c.mask1 = mask; setLod1Mask(c, mask); }
+      if (hulls && c.hull) {
+        const dc = Math.hypot(Math.max(0, Math.abs(camPos.x - c.cx) - c.radius), Math.max(0, Math.abs(camPos.z - c.cz) - c.radius));
+        const want = c.shadowDetail ? dc < SHADOW_DETAIL_D + 15 : dc < SHADOW_DETAIL_D - 15;
+        if (want !== c.shadowDetail) setShadowDetail(c, want);
+      }
     }
   };
   let lastNight = -1;
@@ -292,6 +319,7 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
   const lod1 = new THREE.Group(); lod1.name = 'lod1';
   const common = new THREE.Group(); common.name = 'common';
   const lod1Meshes: THREE.Mesh[] = [];
+  const casters: THREE.Mesh[] = [];
   const add = (parent: THREE.Group, geo: THREE.BufferGeometry | null, mat: THREE.Material, shadow: boolean, which: 'l1' | 'c', glass = false) => {
     if (!geo) return;
     releaseGeometryAfterUpload(geo); // memory: GPU-only after upload
@@ -305,6 +333,7 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
     stats.meshes++;
     const t = (geo.index?.count ?? 0) / 3;
     if (which === 'l1') { stats.trisLod1 += t; m.userData.glass = glass; lod1Meshes.push(m); } else stats.trisCommon += t;
+    if (shadow) casters.push(m);
   };
   add(lod1, B.s[1].build(), surfM, true, 'l1');
   add(lod1, B.g[1].build(), glassM, false, 'l1', true);
@@ -313,7 +342,7 @@ function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Bucke
   add(common, B.sign.build(), signM, false, 'c');
   for (const su of subs) lod0.add(su.lod0);
   group.add(lod0, lod1, common);
-  return { cx, cz, groundY, radius: CH / 2, group, lod0, lod1, lod1Meshes, subs, mask1: -1 };
+  return { cx, cz, groundY, radius: CH / 2, group, lod0, lod1, lod1Meshes, subs, mask1: -1, key: '', casters, hull: null, shadowDetail: null };
 }
 
 function addLod0(su: Sub, sGeo: THREE.BufferGeometry | null, gGeo: THREE.BufferGeometry | null, surfM: THREE.Material, glassM: THREE.Material, stats: BuildStats | null) {

@@ -43,3 +43,40 @@ export function releaseAfterUpload(obj: THREE.Object3D) {
     if (Array.isArray(lods)) for (const a of lods) if (a?.isBufferAttribute) a.onUpload(drop);
   });
 }
+
+/**
+ * Upload every (non-instanced) mesh geometry under `root` to the GPU now, without drawing anything:
+ * shadow-less, off-screen chunks would otherwise keep their CPU arrays until they first enter the view.
+ * (three uploads geometry while projecting an object, before it checks material.visible.)
+ */
+export function uploadNow(renderer: THREE.WebGLRenderer, root: THREE.Object3D) {
+  const scene = new THREE.Scene();
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  const seen = new Set<THREE.BufferGeometry>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || (m as unknown as THREE.InstancedMesh).isInstancedMesh || (m as unknown as THREE.SkinnedMesh).isSkinnedMesh) return;
+    if (seen.has(m.geometry)) return;
+    seen.add(m.geometry);
+    const p = new THREE.Mesh(m.geometry, hidden);
+    p.frustumCulled = false;
+    p.matrixAutoUpdate = false;
+    scene.add(p);
+  });
+  if (!seen.size) return;
+  const rt = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+  const prev = renderer.getRenderTarget();
+  const cam = new THREE.OrthographicCamera();
+  const shadowAuto = renderer.shadowMap.autoUpdate;
+  renderer.shadowMap.autoUpdate = false;
+  try {
+    renderer.setRenderTarget(rt);
+    renderer.render(scene, cam);
+  } finally {
+    renderer.setRenderTarget(prev);
+    renderer.shadowMap.autoUpdate = shadowAuto;
+    rt.dispose();
+    hidden.dispose();
+    scene.clear();
+  }
+}

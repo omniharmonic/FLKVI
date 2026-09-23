@@ -7,7 +7,7 @@ import type { Vec2 } from '../../core/types';
 import { hashString } from '../../core/geo';
 import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
 import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
-import { Vehicle } from './vehicle';
+import { Vehicle, DRIFT } from './vehicle';
 import { strobe } from './visual';
 import { ParkingSystem, type ParkedSlot } from './parked';
 import { CarShadows } from './shadows';
@@ -35,6 +35,8 @@ export interface SpawnOptions {
 export class VehicleSystem implements VehiclesAPI, System {
   name = 'vehicles';
   order = 20;
+  /** Drift-assist tuning (debug / dev harness). */
+  readonly drift = DRIFT;
   readonly group = new THREE.Group();
   readonly vehicles = new Map<string, Vehicle>();
   readonly colliderMap = new Map<number, Vehicle>();
