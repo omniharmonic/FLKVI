@@ -59,6 +59,8 @@ export interface LandmarkDef {
   base?: 'min' | 'max' | 'center';
   /** Distance (m) where the simplified LOD takes over. */
   lodDist?: number;
+  /** Radius (m) around the landmark kept free of trees (plazas). */
+  clear?: number;
   /** Far skyline element: no shadows, no collider needed. */
   backdrop?: boolean;
   build(ctx: LandmarkCtx): { kit: Kit; extra?: THREE.Object3D };
@@ -74,7 +76,7 @@ export const LANDMARKS: LandmarkDef[] = [
   // ---------------------------------------------------------------- New York, Greenwich Village
   {
     id: 'washington-square-arch', city: 'nyc-village', name: 'Washington Square Arch',
-    match: { osmIds: ['w248166269'] }, front: { road: '5th Avenue' }, lodDist: 260,
+    match: { osmIds: ['w248166269'] }, front: { road: '5th Avenue' }, lodDist: 260, clear: 9,
     build: washingtonArch,
   },
   {
@@ -107,7 +109,7 @@ export const LANDMARKS: LandmarkDef[] = [
   // ---------------------------------------------------------------- Chicago, Loop
   {
     id: 'cloud-gate', city: 'chicago-loop', name: 'Millennium Park mirror sculpture',
-    match: { osmIds: ['w137060274'] }, front: 'long', base: 'center', lodDist: 400,
+    match: { osmIds: ['w137060274'] }, front: 'long', base: 'center', lodDist: 400, clear: 26,
     build: cloudGate,
   },
   // ---------------------------------------------------------------- Seattle, Capitol Hill (backdrop)
@@ -125,7 +127,7 @@ export const LANDMARKS: LandmarkDef[] = [
   // ---------------------------------------------------------------- Savannah, Historic District
   {
     id: 'savannah-city-hall', city: 'savannah', name: 'Savannah City Hall',
-    match: { osmIds: ['w208324776', 'w533821152', 'w1547707860'] }, front: { road: 'Bull Street' }, lodDist: 300,
+    match: { osmIds: ['w208324776', 'w533821152', 'w1547707860'] }, front: { dir: [0, 1] }, lodDist: 300,
     build: savannahCityHall,
   },
   // ---------------------------------------------------------------- Phoenix, Downtown

@@ -81,8 +81,8 @@ export function boulderCourthouse(ctx: LandmarkCtx) {
 // with a rusticated base, columned central bay facing Bull St, and a gilded (23k gold leaf) dome to 42.7 m.
 export function savannahCityHall(ctx: LandmarkCtx) {
   const kit = new Kit({
-    stone: stoneMat('stone', { tint: '#e6e1d6', uvScale: 0.7 }, { strength: 0.65, falloff: 16 }),
-    base: stoneMat('stone', { tint: '#b9b2a4', uvScale: 0.5 }, { strength: 0.6 }),
+    stone: stoneMat('plaster', { tint: '#e4dfd4', uvScale: 0.7 }, { strength: 0.55, falloff: 16 }),
+    base: stoneMat('concrete-precast', { tint: '#c9c2b4', uvScale: 0.5 }, { strength: 0.55 }),
     gold: flatMat('#e7b454', 0.26, 1, { color: '#ffd9a0', strength: 0.55, falloff: 30, top: 0.6 }, { envMapIntensity: 1.4 }),
     copper: flatMat('#6f9c86', 0.55, 0.5),
     lit: lampMat('#23282b', '#ffd49a', 0, 0.36, ctx.lamps, 0.12, 0.7),

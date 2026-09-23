@@ -24,7 +24,12 @@ export interface Placement {
   buildings: RecipeBuilding[];
 }
 
-export interface ResolvedLandmarks { skip: Set<string>; placements: Placement[] }
+export interface ResolvedLandmarks {
+  skip: Set<string>;
+  placements: Placement[];
+  /** True inside a landmark's clear zone (plaza): no trees there. */
+  clearAt(x: number, z: number): boolean;
+}
 
 /** Match the registry against a recipe. Cheap; call before buildings so they can skip covered ids. */
 export function resolveLandmarks(recipe: Recipe): ResolvedLandmarks {
@@ -60,7 +65,8 @@ export function resolveLandmarks(recipe: Recipe): ResolvedLandmarks {
     } catch (e) { console.warn('[landmarks] resolve failed', def.id, e); }
   }
   if (placements.length) console.info(`[landmarks] ${placements.map((p) => p.def.id).join(', ')} (replacing ${skip.size} OSM buildings)`);
-  return { skip, placements };
+  const clears = placements.filter((p) => p.def.clear).map((p) => ({ x: p.x, z: p.z, r: p.def.clear! }));
+  return { skip, placements, clearAt: (x, z) => clears.some((c) => Math.hypot(x - c.x, z - c.z) < c.r) };
 }
 
 export interface LandmarksResult { group: THREE.Group; update(g: Game): void }

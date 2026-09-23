@@ -387,6 +387,17 @@ export class PropSystem {
     }
 
     for (const k of Object.values(kits)) k.build(this.group, M);
+    // perf: city-wide instanced furniture draws only the instances near the camera (small props
+    // vanish below a pixel long before 150 m; lamps/signals stay out to ~450 m for the night skyline)
+    for (const k of Object.values(kits)) {
+      const dist = /^(streetlight|signalPole|mastArm|signalHead|utility)$/.test(k.name) ? 450 : k.name === 'busStop' ? 240 : 160;
+      for (const im of k.meshes) {
+        const n = im.count, src = im.instanceMatrix.array as Float32Array;
+        const all = src.slice(0, n * 16), xs = new Float32Array(n), zs = new Float32Array(n);
+        for (let i = 0; i < n; i++) { xs[i] = all[i * 16 + 12]; zs[i] = all[i * 16 + 14]; }
+        this.culled.push({ im, all, xs, zs, n, d2: dist * dist });
+      }
+    }
 
     this.buildManholes(manholes);
     this.buildHedges(hedges);
@@ -556,7 +567,30 @@ export class PropSystem {
   }
 
   private tmpCol = new THREE.Color();
+  private culled: { im: THREE.InstancedMesh; all: Float32Array; xs: Float32Array; zs: Float32Array; n: number; d2: number }[] = [];
+  private cullAt = { x: 1e9, z: 1e9 };
+  /** Keep only instances within their draw distance (re-picked after the camera moved 12 m). */
+  private cullInstances(camera: THREE.Camera) {
+    const cx = camera.position.x, cz = camera.position.z;
+    if ((cx - this.cullAt.x) ** 2 + (cz - this.cullAt.z) ** 2 < 144) return;
+    this.cullAt.x = cx; this.cullAt.z = cz;
+    for (const e of this.culled) {
+      const dst = e.im.instanceMatrix.array as Float32Array;
+      let k = 0;
+      for (let i = 0; i < e.n; i++) {
+        const dx = e.xs[i] - cx, dz = e.zs[i] - cz;
+        if (dx * dx + dz * dz > e.d2) continue;
+        dst.set(e.all.subarray(i * 16, i * 16 + 16), k * 16);
+        k++;
+      }
+      e.im.count = k;
+      e.im.instanceMatrix.clearUpdateRanges();
+      e.im.instanceMatrix.addUpdateRange(0, Math.max(16, k * 16));
+      e.im.instanceMatrix.needsUpdate = true;
+    }
+  }
   update(t: number, camera: THREE.Camera) {
+    this.cullInstances(camera);
     // signal lenses
     if (this.heads.length && this.lensMeshes.length === 3) {
       const [rm, ym, gm] = this.lensMeshes;

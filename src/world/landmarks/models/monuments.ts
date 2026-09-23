@@ -199,6 +199,10 @@ export function cloudGate(ctx: LandmarkCtx) {
   }
   g.computeVertexNormals();
   kit.add('mirror', g, { collide: true });
+  // granite plaza (the sculpture sits on an open paved plaza) — also what the mirror mostly reflects
+  const plaza = new THREE.CircleGeometry(1, 48);
+  plaza.rotateX(-Math.PI / 2);
+  kit.put('granite', plaza, 0, 0.04, 0, [0, 0, 0], {}, [23, 1, 17]);
   // cube camera lives in the scene (unrotated) at the sculpture's center
   const cam = new THREE.CubeCamera(0.5, 1500, cube);
   const w = ctx.toWorld(0, 0);

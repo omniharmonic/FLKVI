@@ -111,8 +111,8 @@ const SPECS: Record<'sedan' | 'hatchback' | 'suv' | 'pickup' | 'van' | 'sports' 
   bus: {
     L: 12.2, W: 1.27, axleF: 2.6, axleR: 9.35, wheelR: 0.5, tireW: 0.3,
     bottom: [[0, 0.52], [0.25, 0.38], [0.6, 0.33], [11.6, 0.35], [12.0, 0.44], [12.2, 0.56]],
-    top: [[0, 0.98], [0.35, 1.02], [1.2, 1.16], [2.0, 1.2], [12.2, 1.22]],
-    roof: [[0, 0.98], [0.34, 2.62], [0.46, 2.86], [0.8, 2.98], [1.4, 3.02], [11.7, 3.02], [12.06, 2.96], [12.2, 1.22]],
+    top: [[0, 0.98], [0.35, 1.02], [0.9, 1.2], [1.8, 1.36], [2.4, 1.4], [12.2, 1.42]],
+    roof: [[0, 0.98], [0.34, 2.62], [0.46, 2.86], [0.8, 2.98], [1.4, 3.02], [11.7, 3.02], [12.06, 2.96], [12.2, 1.42]],
     cabin: 0.985, tumble: 0.035,
     windshield: [0, 0.3],
     sideGlass: [[0, 0.3], [0.5, 2.25], [2.38, 3.6], [3.72, 4.95], [5.07, 6.3], [6.42, 7.65], [7.77, 9.0], [9.12, 10.35], [10.47, 11.5]],
@@ -1339,10 +1339,6 @@ function buildBusModel(): CarModel {
   const intake = rbox(1.6, 0.3, 0.9, 0.08, 2);
   intake.translate(0, 3.02 + 0.13, Z(s.L - 0.8));
   paintParts.push(intake);
-  // Bike rack (folded) on the front bumper.
-  const rack = rbox(1.1, 0.35, 0.08, 0.02);
-  rack.translate(0, 0.72, Z(0) - 0.12);
-  chromeParts.push(rack);
   // Plates.
   const plateParts: THREE.BufferGeometry[] = [];
   const mkPlate = (y: number, rear: boolean) => {

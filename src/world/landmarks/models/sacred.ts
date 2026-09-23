@@ -136,7 +136,7 @@ export function missionDolores(ctx: LandmarkCtx) {
 export function missionBasilica(ctx: LandmarkCtx) {
   const kit = new Kit({
     wall: stoneMat('stucco', { tint: '#ece0c9', uvScale: 0.7 }, { strength: 0.65, falloff: 16, top: 0.4 }),
-    orn: stoneMat('sandstone', { tint: '#e8d5b5' }, { strength: 0.65, falloff: 16, top: 0.4 }),
+    orn: stoneMat('stucco', { tint: '#f6ecd8' }, { strength: 0.65, falloff: 16, top: 0.4 }),
     tile: stoneMat('roof-clay-tile', { tint: '#b36746' }, null),
     dome: stoneMat('tiles-terracotta', { tint: '#c07a55' }, { strength: 0.3, falloff: 40, top: 0.6 }),
     door: flatMat('#3a2a1e', 0.7, 0),

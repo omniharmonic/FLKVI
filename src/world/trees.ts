@@ -53,11 +53,11 @@ const PROFILES: Record<string, Profile> = {
   // --- southern
   liveoak: {
     kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', foliage: 'small', trunkK: 0.035,
-    tweak: (o) => { o.branch.start[1] = 0.16; o.branch.angle[1] = 84; o.branch.angle[2] = 55; o.branch.children[0] = 7; o.branch.length[1] *= 1.45; o.branch.force.strength = -0.035; o.branch.gnarliness[1] = 0.28; o.leaves.size *= 0.95; o.leaves.count = Math.round(o.leaves.count * 2.4); o.branch.radius[0] *= 1.35; },
+    tweak: (o) => { o.branch.start[1] = 0.16; o.branch.angle[1] = 84; o.branch.angle[2] = 55; o.branch.children[0] = 7; o.branch.length[1] *= 1.45; o.branch.force.strength = -0.035; o.branch.gnarliness[1] = 0.28; o.leaves.size *= 1.0; o.leaves.count = Math.round(o.leaves.count * 2.0); o.branch.radius[0] *= 1.35; },
   },
   liveoakmoss: {
     kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', foliage: 'small', extra: 'moss', trunkK: 0.035, fallback: 'liveoak',
-    tweak: (o) => { o.branch.start[1] = 0.16; o.branch.angle[1] = 84; o.branch.angle[2] = 55; o.branch.children[0] = 7; o.branch.length[1] *= 1.45; o.branch.force.strength = -0.035; o.branch.gnarliness[1] = 0.28; o.leaves.size *= 0.95; o.leaves.count = Math.round(o.leaves.count * 2.4); o.branch.radius[0] *= 1.35; },
+    tweak: (o) => { o.branch.start[1] = 0.16; o.branch.angle[1] = 84; o.branch.angle[2] = 55; o.branch.children[0] = 7; o.branch.length[1] *= 1.45; o.branch.force.strength = -0.035; o.branch.gnarliness[1] = 0.28; o.leaves.size *= 1.0; o.leaves.count = Math.round(o.leaves.count * 2.0); o.branch.radius[0] *= 1.35; },
   },
   magnolia: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x7a9860, barkTint: 0x7a746e, bark: 'lib', leafType: 'aspen', foliage: 'small', leafRough: 0.6, tweak: (o) => { o.branch.angle[1] = 50; lowBranch(o, 0.12); o.leaves.size *= 1.25; o.leaves.count = Math.round(o.leaves.count * 1.5); o.branch.length[1] *= 0.8; }, fallback: 'broadleaf' },
   crape: { kind: 'ez', preset: 'Aspen Small', leafTint: 0x98b474, barkTint: 0xc8a898, bark: 'birch', barkRep: [1, 0.5], leafType: 'oak', foliage: 'small', extra: 'blossom', extraTint: 0xf07ab0, tweak: (o) => { o.branch.angle[1] = 35; lowBranch(o, 0.1); o.branch.children[0] = 6; o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'ornamental' },
@@ -333,7 +333,7 @@ function makeEzVariant(key: string, P: EzProfile, seed: number): Omit<Variant, '
     leafMatCache.set(lk, leafMat);
   }
   let extra: THREE.BufferGeometry | null = null;
-  if (P.extra === 'moss') extra = mossFor(g0.bark, seed, 110, 0.1);
+  if (P.extra === 'moss') extra = mossFor(g0.bark, seed, 90, 0.1);
   else if (P.extra === 'blossom') extra = blossomsFor(g0.leaves, seed, 70, 0.14, new THREE.Color([0xf07ab0, 0xd04890, 0xfff0f6, 0xc8a0e8][seed % 4]));
   return { key, bark: g0.bark, leaves: g0.leaves, extra, ratio, uniform: false, refH: 0, barkMat, leafMat, extraMat: extra ? proceduralMaterial() : null, bark1, leaves1 };
 }
@@ -410,6 +410,8 @@ export class TreeSystem {
   nearDist = 150;
   /** Sun direction (world, toward the sun) — optional, dims back-lighting at night. */
   sunDir: THREE.Vector3 | null = null;
+  /** Spanish moss on live oaks (humid Gulf / Southeast coast; off for Texas Hill Country, Florida, …). */
+  spanishMoss = true;
   /** Trunk cylinders for physics: x,z,y,radius,height */
   trunks: { x: number; z: number; y: number; r: number; h: number }[] = [];
 
@@ -418,7 +420,7 @@ export class TreeSystem {
   async build(trees: RecipeTree[], renderer: THREE.WebGLRenderer | undefined, onProgress?: (f: number) => void) {
     // profiles used (rare profiles fold into their fallback to keep draw calls bounded)
     const used = new Map<string, number>();
-    const prof = trees.map((t) => profileFor(t.species));
+    const prof = trees.map((t) => { const p = profileFor(t.species); return p === 'liveoakmoss' && !this.spanishMoss ? 'liveoak' : p; });
     for (const p of prof) used.set(p, (used.get(p) ?? 0) + 1);
     const remap = new Map<string, string>();
     for (let pass = 0; pass < 3; pass++) {

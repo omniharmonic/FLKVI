@@ -93,7 +93,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   const byChunk = new Map<string, { i: number; j: number; cx: number; cz: number; list: RecipeBuilding[]; y: number }>();
   const quarterOf = new Map<RecipeBuilding, number>();
   for (const b of recipe.buildings ?? []) {
-    if (!b.footprint || b.footprint.length < 3) continue;
+    if (!b.footprint || b.footprint.length < 3 || opts.skip?.has(b.id)) continue;
     const [x, z] = centroid(b.footprint);
     const i = Math.floor(x / CH), j = Math.floor(z / CH);
     const key = i + ',' + j;
@@ -190,7 +190,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   const initHulls = (g: Game) => {
     const grp = new THREE.Group();
     grp.name = 'building-shadow-hulls';
-    try { for (const m of buildShadowHulls(recipe.buildings ?? [], CH)) { releaseGeometryAfterUpload(m.geometry); grp.add(m); } } catch (e) { console.warn('[buildings] shadow hulls failed', e); return; }
+    try { for (const m of buildShadowHulls((recipe.buildings ?? []).filter((b) => !opts.skip?.has(b.id)), CH)) { releaseGeometryAfterUpload(m.geometry); grp.add(m); } } catch (e) { console.warn('[buildings] shadow hulls failed', e); return; }
     group.add(grp);
     if (!registerShadowProxy(g, grp)) { group.remove(grp); return; }
     setShadowCascades(g, grp, 2);

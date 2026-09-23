@@ -909,6 +909,23 @@ function fireEscape(c: BCtx, f: Frame, L: number) {
   const w = Math.min(4.2, L * 0.45);
   const s0 = L / 2 - w / 2, s1 = L / 2 + w / 2, d = 1.25;
   const fls = c.floors.filter((x) => x.k > 0);
+  // far version (lod1): platforms, top rail + posts and a slanted stair slab per floor (~60 tris
+  // instead of ~2k), so fire escapes don't vanish when a dense block drops its near detail
+  const m1 = surf(B, 1, 'metal', col('#1c1c1c'));
+  fls.forEach((fl, idx) => {
+    const y = fl.y0, hr = y + 1.0;
+    m1.box(f, s0, s1, y - 0.05, y, 0, d, 1 | 4 | 8 | 16 | 32);
+    m1.box(f, s0, s1, hr - 0.05, hr, d - 0.05, d, 1 | 16 | 32);
+    m1.box(f, s0, s0 + 0.05, y, hr, d - 0.05, d, 1 | 8);
+    m1.box(f, s1 - 0.05, s1, y, hr, d - 0.05, d, 1 | 4);
+    const nx = fls[idx + 1];
+    if (nx) {
+      const xa = s1 - 0.2, xb = s0 + 0.6, dd0 = d - 0.75, dd1 = d - 0.1;
+      const p0 = f.pt(xa, y, dd1), p1 = f.pt(xb, nx.y0, dd1), p2 = f.pt(xb, nx.y0, dd0), p3 = f.pt(xa, y, dd0);
+      m1.quad(p0, p1, p2, p3, [0, 0, 1, 0, 1, 1, 0, 1], 0.8);
+      m1.quad(p3, p2, p1, p0, [0, 0, 1, 0, 1, 1, 0, 1], 0.6);
+    }
+  });
   fls.forEach((fl, idx) => {
     const y = fl.y0;
     m.box(f, s0, s1, y - 0.05, y, 0, d, 63);
