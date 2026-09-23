@@ -6,17 +6,18 @@ import type { VehiclesAPI, VehicleHandle } from '../../core/api';
 import type { Vec2 } from '../../core/types';
 import { hashString } from '../../core/geo';
 import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
-import { CAR_COLORS, updateSharedLightMaterials } from './materials';
+import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
 import { Vehicle } from './vehicle';
 import { ParkingSystem, type ParkedSlot } from './parked';
 import { CarShadows } from './shadows';
+import { FarTrafficBatch, WheelBatch } from './farBatch';
 import { Smoke } from '../effects';
 import { clamp, nightFactor, playSound, v3 } from '../util';
 
 const PROMOTE_RADIUS = 32;
 const DEMOTE_RADIUS = 60;
 const MAX_PROMOTED = 18;
-const LOD_FAR = 60;
+const LOD_FAR = 45; // matches the parked-car near/far switch (perf)
 
 export interface SpawnOptions {
   kind: 'civilian' | 'police';
@@ -39,6 +40,10 @@ export class VehicleSystem implements VehiclesAPI, System {
   parking: ParkingSystem;
   /** Shared instanced hull shadow casters for every car (perf). */
   readonly shadows: CarShadows;
+  /** Far-LOD civilian traffic drawn as per-model instances (perf). */
+  readonly farBatch = new FarTrafficBatch();
+  /** Near-LOD wheels of live vehicles, instanced per model (perf). */
+  readonly wheelBatch = new WheelBatch();
   smoke = new Smoke();
   private nextId = 1;
   private promoteTimer = 0;
@@ -50,6 +55,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.group.name = 'vehicles';
     g.scene.add(this.group);
     this.shadows = new CarShadows(g);
+    g.scene.add(this.farBatch.group, this.wheelBatch.group);
     this.parking = new ParkingSystem(g, this.shadows);
     g.scene.add(this.parking.group);
     g.scene.add(this.smoke.points);
@@ -166,6 +172,29 @@ export class VehicleSystem implements VehiclesAPI, System {
 
   // ------------------------------------------------------------------ loop
 
+  /**
+   * perf: a promoted parked car that is still asleep, upright and undamaged keeps being drawn by
+   * the parked-car instancing (1 batch per model) instead of its own ~24-draw visual. Any wake-up,
+   * driver, damage or tilt hands it straight back to the full Vehicle visual.
+   */
+  private sleepyParked(v: Vehicle): boolean {
+    if (!v.parkedSlot) return false;
+    const slot = this.parking.slots[v.parkedSlot.index];
+    if (!slot) return false;
+    const q = v.object.quaternion;
+    const upright = 1 - 2 * (q.x * q.x + q.z * q.z) > 0.995; // local up · world up
+    const sleepy = v.driver === 'none' && v.physicsMode === 'dynamic' && v.body.isSleeping() && !v.destroyed && v.health >= 100 && upright
+      && this.g.player?.vehicleId !== v.id;
+    if (sleepy !== !!slot.sleepy) {
+      const p = v.object.position;
+      const dh = Math.abs(Math.atan2(Math.sin(v.heading - slot.heading), Math.cos(v.heading - slot.heading)));
+      const moved = (p.x - slot.x) ** 2 + (p.z - slot.z) ** 2 > 0.09 || dh > 0.05;
+      if (moved) this.parking.setSleepy(slot, sleepy, p.x, p.y, p.z, v.heading);
+      else this.parking.setSleepy(slot, sleepy); // untouched since promotion: keep the exact slot pose
+    }
+    return sleepy;
+  }
+
   fixedUpdate(dt: number) {
     for (const v of this.vehicles.values()) {
       if (v.physicsMode === 'dynamic' && v.body.isSleeping() && v.driver === 'none') continue;
@@ -266,20 +295,43 @@ export class VehicleSystem implements VehiclesAPI, System {
     const playerVid = g.player?.vehicleId;
     let sirenCar: Vehicle | null = null, sirenD = 1e9;
     this.shadows.begin();
+    this.farBatch.begin();
+    this.wheelBatch.begin();
     for (const v of this.vehicles.values()) {
       v.sync(dt);
+      const sleepy = this.sleepyParked(v);
       const d = v.position.distanceTo(cam);
       v.visual.setFar(d > LOD_FAR && v.id !== playerVid);
-      if (v.object.visible && v.object.parent) {
+      v.headlights = v.driver !== 'none' && !v.destroyed && (night > 0.15 || v.kind === 'police' && !!v.siren);
+      // far civilian cars render through the per-model far batch (perf)
+      const batched = !sleepy && v.visual.far && v.kind !== 'police' && !v.destroyed && !!v.object.parent;
+      v.object.visible = !sleepy && !batched;
+      if (!sleepy && v.object.parent) {
         const ch = v.visual.chassis;
         ch.updateWorldMatrix(true, false);
         this.shadows.add(v.model, ch.matrixWorld);
+        if (v.object.visible && !v.visual.far) {
+          // wheels: pivot > spin > mesh; parents are fresh after the chassis update above
+          for (const pv of v.visual.wheels) {
+            const w = pv.children[0]?.children[0] as THREE.Mesh | undefined;
+            if (!w?.isMesh) continue;
+            pv.updateWorldMatrix(false, true);
+            if (w.visible) w.visible = false;
+            this.wheelBatch.add(v.model, w);
+          }
+        }
+        if (batched) {
+          const head = v.headlights ? mats.headOn.emissiveIntensity : 0;
+          const tail = v.braking ? mats.tailBrake.emissiveIntensity : v.headlights ? mats.tailRun.emissiveIntensity : 0;
+          this.farBatch.add(v.model, v.object.matrixWorld, v.color, head, tail);
+        }
       }
-      v.headlights = v.driver !== 'none' && !v.destroyed && (night > 0.15 || v.kind === 'police' && !!v.siren);
       if (v.siren && d < sirenD) { sirenD = d; sirenCar = v; }
       this.effects(v, dt, d);
     }
     this.shadows.end();
+    this.farBatch.end();
+    this.wheelBatch.end();
     this.smoke.update(dt, 0.35 + 0.65 * (1 - night), g.renderer?.domElement?.height ?? 800);
     // Player headlights
     const pv = playerVid ? this.vehicles.get(playerVid) : undefined;

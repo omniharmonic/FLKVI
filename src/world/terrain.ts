@@ -86,6 +86,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     }
   }
   const tex = new THREE.CanvasTexture(c);
+  tex.flipY = false; // canvas row 0 = min z (sampled with v = (z - oz) / size)
   tex.colorSpace = THREE.NoColorSpace;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   // hardscape: paved aprons around non-residential buildings + plazas
@@ -102,6 +103,23 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     b.footprint.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
     hx.closePath(); hx.fill(); hx.stroke();
   }
+  // downtown frontage: storefront buildings get a deep paved apron (sidewalk continues to the face)
+  hx.lineWidth = 20 / res;
+  for (const b of recipe.buildings) {
+    if (!b.storefront || !b.footprint?.length) continue;
+    hx.beginPath();
+    b.footprint.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
+    hx.closePath(); hx.stroke();
+  }
+  // commercial / retail landuse is hardscape (no lawn strips between sidewalk and shopfronts)
+  hx.fillStyle = 'rgb(210,210,210)';
+  for (const a of recipe.areas) {
+    if (a.kind !== 'commercial') continue;
+    hx.beginPath();
+    a.poly.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
+    hx.closePath(); hx.fill();
+  }
+  hx.fillStyle = '#fff';
   for (const a of recipe.areas) {
     if (a.kind !== 'pedestrian' && a.kind !== 'plaza' && a.kind !== 'parking') continue;
     hx.lineWidth = 2 / res;
@@ -118,6 +136,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     hx.closePath(); hx.fill();
   }
   const hard = new THREE.CanvasTexture(hc);
+  hard.flipY = false;
   hard.colorSpace = THREE.NoColorSpace;
   hard.wrapS = hard.wrapT = THREE.ClampToEdgeWrapping;
   return { tex, hard, origin: new THREE.Vector2(hf.ox, hf.oz), size: new THREE.Vector2(cw * res, ch * res) };

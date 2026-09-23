@@ -422,3 +422,63 @@ export function fillSidewalksToFacades(infos: RoadInfo[], outlines: { outer: Vec
     else { delete r.sidewalkL; delete r.sidewalkR; }
   }
 }
+
+/**
+ * Divided roads are mapped as two one-way ways. The side of each that faces its twin is a median, not a
+ * sidewalk: drop that side's sidewalk (spawn, peds and furniture then stay on the real curbs).
+ */
+export function dropMedianSidewalks(infos: RoadInfo[]) {
+  const segs: { a: Vec2; b: Vec2; inf: RoadInfo }[] = [];
+  const grid = new GridIndex<number>(24);
+  for (const inf of infos) {
+    const r = inf.road;
+    if (!r.oneway || !DRIVABLE.has(r.cls) || r.cls === 'service') continue;
+    for (let i = 1; i < r.pts.length; i++) {
+      const a = r.pts[i - 1], b = r.pts[i];
+      grid.insert(segs.length, Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]));
+      segs.push({ a, b, inf });
+    }
+  }
+  for (const inf of infos) {
+    const r = inf.road;
+    if (!r.oneway || !PUBLIC_STREET.has(r.cls) || r.sidewalk <= 0) continue;
+    let swL = swOf(r, -1), swR = swOf(r, 1);
+    for (const side of [-1, 1]) {
+      if ((side < 0 ? swL : swR) <= 0) continue;
+      let n = 0, twin = 0;
+      walkPts(r.pts, 8, (p, dir) => {
+        n++;
+        const nx = -dir[1] * side, nz = dir[0] * side;
+        const reach = r.width / 2 + 16; // medians are rarely wider than ~14 m; couplets a block apart are not twins
+        const ex = p[0] + nx * reach, ez = p[1] + nz * reach;
+        for (const k of grid.query(Math.min(p[0], ex) - 1, Math.min(p[1], ez) - 1, Math.max(p[0], ex) + 1, Math.max(p[1], ez) + 1)) {
+          const s = segs[k];
+          if (s.inf === inf) continue;
+          const sx = s.b[0] - s.a[0], sz = s.b[1] - s.a[1];
+          const sl = Math.hypot(sx, sz); if (sl < 1e-6) continue;
+          if ((sx * dir[0] + sz * dir[1]) / sl > -0.85) continue; // twin runs the opposite way
+          // ray p + n*t hits segment?
+          const den = nx * sz - nz * sx; if (Math.abs(den) < 1e-9) continue;
+          const t = ((s.a[0] - p[0]) * sz - (s.a[1] - p[1]) * sx) / den;
+          const u = ((s.a[0] - p[0]) * nz - (s.a[1] - p[1]) * nx) / den;
+          if (t > r.width / 2 && t < reach && u >= 0 && u <= 1) { twin++; break; }
+        }
+      });
+      if (n > 0 && twin >= Math.max(1, n * 0.5)) { if (side < 0) swL = 0; else swR = 0; }
+    }
+    r.sidewalk = +Math.max(swL, swR).toFixed(2);
+    if (Math.abs(swL - swR) > 0.05) { r.sidewalkL = +swL.toFixed(2); r.sidewalkR = +swR.toFixed(2); }
+    else { delete r.sidewalkL; delete r.sidewalkR; }
+  }
+}
+
+function walkPts(pts: Vec2[], step: number, fn: (p: Vec2, dir: Vec2) => void) {
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 1e-6) continue;
+    const dir: Vec2 = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    for (let s = (step - (acc % step)) % step || step / 2; s < L; s += step) fn([a[0] + dir[0] * s, a[1] + dir[1] * s], dir);
+    acc += L;
+  }
+}

@@ -35,6 +35,7 @@ export async function makeElevationSampler(
           const o = i * channels;
           h[i] = data[o] * 256 + data[o + 1] + data[o + 2] / 256 - 32768;
         }
+        despike(h, width, height);
         tiles.set(`${tx}/${ty}`, h);
       })());
     }
@@ -58,6 +59,30 @@ export async function makeElevationSampler(
     const a = px(ix, iy), b = px(ix + 1, iy), c = px(ix, iy + 1), d = px(ix + 1, iy + 1);
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
   };
+}
+
+/**
+ * Terrarium tiles carry occasional bogus pixels (nodata pits of −100 m and worse, isolated spikes).
+ * Replace any pixel that differs from the median of its 8 neighbours by more than `tol` m.
+ */
+export function despike(h: Float32Array, w: number, ht: number, tol = 25) {
+  const nb = new Float32Array(8);
+  const fixes: [number, number][] = [];
+  for (let y = 0; y < ht; y++) for (let x = 0; x < w; x++) {
+    let k = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= w || yy >= ht) continue;
+      nb[k++] = h[yy * w + xx];
+    }
+    if (k < 3) continue;
+    const a = Array.from(nb.subarray(0, k)).sort((p, q) => p - q);
+    const med = k % 2 ? a[(k - 1) / 2] : (a[k / 2 - 1] + a[k / 2]) / 2;
+    const v = h[y * w + x];
+    if (Math.abs(v - med) > tol || v < -500) fixes.push([y * w + x, med]);
+  }
+  for (const [i, m] of fixes) h[i] = m;
 }
 
 /** Terrarium z at which pixel size ≈ target meters. */

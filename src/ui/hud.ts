@@ -197,6 +197,12 @@ export class HUD {
     const warn = am > 0.12 && !g.paused;
     this.arrestWarn.classList.toggle('on', warn);
     this.arrestWarn.style.setProperty('--a', String(Math.min(1, am)));
+    if (warn) {
+      const inCar = !!safe(() => g.player.vehicleId, null);
+      const sub = inCar ? 'DRIVE! GET MOVING BEFORE THEY BOX YOU IN' : 'RUN! BREAK AWAY FROM THE OFFICERS';
+      const span = this.arrestWarn.lastElementChild as HTMLElement;
+      if (span.textContent !== sub) span.textContent = sub;
+    }
     this.arrest.classList.toggle('hi', am > 0.5);
     if (warn) {
       // heartbeat speeds up as the meter fills

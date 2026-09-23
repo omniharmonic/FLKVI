@@ -13,6 +13,7 @@ import { newBuckets, type Buckets } from './facade';
 import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, prepareBuildingTextures, U } from './materials';
 import { centroid } from './poly';
 import { registerShadowProxy, unregisterShadowProxy, setShadowCascades } from '../../render/shadowProxy';
+import { buildShadowHulls } from './shadowHulls';
 
 export interface BuildingsResult {
   group: THREE.Group;
@@ -126,6 +127,17 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   // the far cascade gets their flat lod1 walls instead, drawn in the shadow pass only (same
   // silhouette and window apertures — the far cascade can't resolve sills/frames anyway).
   let gRef: Game | null = null;
+  // Preferred: far cascade from extruded footprint hulls; every detailed chunk mesh casts near only.
+  let hulls: THREE.Group | null = null;
+  const initHulls = (g: Game) => {
+    const grp = new THREE.Group();
+    grp.name = 'building-shadow-hulls';
+    try { for (const m of buildShadowHulls(recipe.buildings ?? [], CH)) grp.add(m); } catch (e) { console.warn('[buildings] shadow hulls failed', e); return; }
+    group.add(grp);
+    if (!registerShadowProxy(g, grp)) { group.remove(grp); return; }
+    setShadowCascades(g, grp, 2);
+    hulls = grp;
+  };
   const setLod = (cam: THREE.Camera) => {
     cam.getWorldPosition(camPos);
     const budgetEnd = performance.now() + 6;
@@ -150,6 +162,12 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       else if (!c.near && c.built && d > lodD * 2.2 + 200) disposeLod0(c);
       const show0 = c.near && c.built;
       c.lod0.visible = show0;
+      if (hulls) {
+        // all detail casts into the near cascade only (lazily built lod0 meshes included)
+        setShadowCascades(gRef!, c.group, 1);
+        c.lod1.visible = !show0;
+        continue;
+      }
       const proxy = !!gRef && show0;
       if (proxy !== !!c.lod1Shadow) {
         c.lod1Shadow = proxy && registerShadowProxy(gRef!, c.lod1);
@@ -175,6 +193,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     stats,
     setNightFactor,
     update(_dt: number, g: Game) {
+      if (!gRef) initHulls(g);
       gRef = g;
       setLod(g.camera);
     },

@@ -28,6 +28,7 @@ export function generateBuilding(B: Buckets, b: RecipeBuilding, region: Region):
   const streetSet = new Set<number>();
   cl.src.forEach((e, i) => { if (streetSrc.has(e)) streetSet.add(i); });
 
+  for (const mb of B.s) mb.groundY = b.baseY;
   const st = resolveStyle(b, region);
   const r = rng(b.seed ^ 0x9e3779b9);
   const isPart = (b.minHeight ?? 0) > 0.5;

@@ -32,7 +32,7 @@ export const POLICE_TUNING = {
   arrestFootDist: 1.8,
   arrestFootTime: 2.0,
   arrestCarDist: 6,
-  arrestCarTime: 3,
+  arrestCarTime: 4,
   arrestCarSpeed: 2,
   roadblockLevel: 3,
   ramLevel: 4,
@@ -1019,6 +1019,8 @@ export class PoliceSystem {
       }
       if (!rate) for (const o of this.officers) if (dist2(o.x, o.z, P.x, P.z) < 9) { rate = 1 / T.arrestCarTime; break; }
     }
+    // low heat (a single patrol, early in a run) gives a little more time to react
+    if (this.heat.level <= 1) rate *= 0.75;
     if (rate > 0) this.arrestMeter += rate * dt;
     else this.arrestMeter = Math.max(0, this.arrestMeter - dt * 0.9);
     this.heat.arrestMeter = Math.min(1, this.arrestMeter);

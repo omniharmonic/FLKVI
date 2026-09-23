@@ -179,7 +179,7 @@ function materialFor(kit: StyleKit, i: StyleInput, r: () => number): FacadeMater
     if (m[t]) return m[t];
   }
   if (i.locale === 'creole') {
-    if (kit === 'main-street-block') return pick<FacadeMaterial>([['stucco', 3], ['brick-painted', 2], ['brick-red', 1.2]], r());
+    if (kit === 'main-street-block') return pick<FacadeMaterial>([['stucco', 3], ['brick-painted', 2], ['brick-red', 0.6]], r());
     if (kit === 'colonial') return pick<FacadeMaterial>([['stucco', 2], ['lap-siding', 2], ['brick-painted', 0.6]], r());
     if (kit === 'victorian') return 'lap-siding';
   }

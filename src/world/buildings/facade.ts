@@ -7,6 +7,7 @@ import { layer, relTint, signSlot } from './materials';
 import type { Style } from './kits';
 import { signWord } from './kits';
 import { shopCategory } from './shopGlsl';
+import { wallLantern, wallPack, plaque, downLens, ghostSign, storefrontClutter } from './streetDetail';
 
 export interface Buckets {
   /** surface buckets: [lod0 detail, lod1 far, common] */
@@ -62,6 +63,10 @@ export interface BCtx {
   winCount: number;
   /** position of the front door along the front edge (set by the ground-floor grammar) */
   doorS?: number;
+  /** y where rain streaks start on the upper wall (under the cornice / coping) */
+  streakTop?: number;
+  /** a painted ghost sign was placed on this building */
+  ghostDone?: boolean;
 }
 
 export function aoAt(c: BCtx, y: number): number {
@@ -104,23 +109,40 @@ function wallGrid(c: BCtx, mb: MB, f: Frame, sA: number, sB: number, yA: number,
   const X = xs.filter((v, i) => i === 0 || v - xs[i - 1] > 1e-4);
   const Y = ys.filter((v, i) => i === 0 || v - ys[i - 1] > 1e-4);
   const u0 = f.u0;
+  const topY = c.streakTop ?? Infinity;
   for (let j = 0; j < Y.length - 1; j++) {
     const ya = Y[j], yb = Y[j + 1], cy = (ya + yb) / 2;
     const aa = aoAt(c, ya), ab = aoAt(c, yb);
-    let run = -1;
+    let run = -1, runKey = -1;
+    // rain-streak source per cell: the window sill directly above (key = op index), else none (-1)
+    const keyOf = (i: number) => {
+      for (let k = 0; k < ops.length; k++) {
+        const o = ops[k];
+        if (o.t === 'win' && Math.abs(o.y0 - yb) < 1e-3 && X[i] >= o.s0 - 1e-4 && X[i + 1] <= o.s1 + 1e-4) return k;
+      }
+      return -1;
+    };
+    const emit = (xa: number, xb: number, key: number) => {
+      if (key >= 0) {
+        const h = yb - ya;
+        mb.wxq = [1, h, 0, 0, 1, h, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+      } else if (topY - yb < 1.8 && topY >= yb - 1e-3) {
+        const va = topY - ya, vb = topY - yb;
+        mb.wxq = [0.8, va, 0, 0, 0.8, va, 0, 0, 0.8, vb, 0, 0, 0.8, vb, 0, 0];
+      }
+      mb.quad(f.pt(xa, ya, d), f.pt(xb, ya, d), f.pt(xb, yb, d), f.pt(xa, yb, d), [u0 + xa, ya, u0 + xb, ya, u0 + xb, yb, u0 + xa, yb], [aa, aa, ab, ab]);
+      mb.wxq = null;
+    };
     for (let i = 0; i <= X.length - 1; i++) {
-      let filled = false;
+      let filled = false, key = -1;
       if (i < X.length - 1) {
         const cx = (X[i] + X[i + 1]) / 2;
         filled = true;
         for (const o of ops) if (cx > o.s0 && cx < o.s1 && cy > o.y0 && cy < o.y1) { filled = false; break; }
+        if (filled && ops.length) key = keyOf(i);
       }
-      if (filled && run < 0) run = i;
-      if (!filled && run >= 0) {
-        const xa = X[run], xb = X[i];
-        mb.quad(f.pt(xa, ya, d), f.pt(xb, ya, d), f.pt(xb, yb, d), f.pt(xa, yb, d), [u0 + xa, ya, u0 + xb, ya, u0 + xb, yb, u0 + xa, yb], [aa, aa, ab, ab]);
-        run = -1;
-      }
+      if (run >= 0 && (!filled || key !== runKey)) { emit(X[run], X[i], runKey); run = -1; }
+      if (filled && run < 0) { run = i; runKey = key; }
     }
   }
 }
@@ -243,6 +265,16 @@ function emitOpening(c: BCtx, f: Frame, o: Op, wallId: string) {
       // knob
       surf(B, 0, 'metal', col('#b8a060')).box(f, x1 - 0.12, x1 - 0.07, o.y0 + 0.95, o.y0 + 1.0, dz - 0.04, dz + 0.0, 1 | 4 | 8 | 16);
       lintel(c, f, o);
+      {
+        // porch lantern(s) + house number
+        const cw = st.win.casing ? 0.12 : 0.02;
+        if (o.kind === 3) wallPack(c, f, (o.s0 + o.s1) / 2, o.y1 + 0.3);
+        else {
+          if (o.s0 - cw - 0.35 > 0.1) wallLantern(c, f, o.s0 - cw - 0.2, o.y0 + 1.72);
+          if (o.seed & 1) wallLantern(c, f, o.s1 + cw + 0.2, o.y0 + 1.72);
+          else plaque(c, f, o.s1 + cw + 0.08, o.y0 + 1.55, o.seed >>> 3);
+        }
+      }
       if (st.win.casing) {
         const tm = surf(B, 0, 'paint', st.trim);
         tm.box(f, o.s0 - 0.12, o.s0, o.y0, o.y1, 0, 0.03, 1 | 8, [0.9, 1]);
@@ -376,6 +408,7 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
   const wallId = st.wallTex;
   const r = c.r;
   seedCounter = (b.seed ^ (e.i * 7919)) >>> 0;
+  c.streakTop = c.top - (st.cornice !== 'none' ? st.corniceH : c.flat && st.coping ? 0 : 0.2);
   const nextSeed = () => (seedCounter = (Math.imul(seedCounter, 1664525) + 1013904223) >>> 0);
 
   // foundation band (residential raised floor / civic plinth)
@@ -463,6 +496,11 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
     }
     // podium/modern accent panels: vertical accent strip panels on upper floors
     if (st.accentTex && c.floors.length > 1 && L > 8) accentPanels(c, e, nb, bay, margin);
+    // faded painted advertising on blank side walls of old brick buildings
+    if (!hasWin && !c.ghostDone && !c.isPart && wallId.startsWith('brick') && (b.era === 'pre-1900' || b.era === '1900-1939') && (b.seed % 5) < 3 && L > 6) {
+      ghostSign(c, surf, f, L, (c.streakTop ?? c.top) - 0.7, b.seed >>> 2);
+      c.ghostDone = true;
+    }
   }
 
   // frieze / parapet band above top floor (identical at both LODs)
@@ -575,12 +613,15 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
       const a = 0.4 + i * sb + 0.22, z = 0.4 + (i + 1) * sb - 0.22;
       const sd = nextSeed();
       // interior category (encoded in the muntin fraction): shared by a building's bays, occasionally varied
-      const cat = shopCategory(i > 0 && (sd & 7) === 0 ? undefined : b.signage, (b.seed + (i > 0 && (sd & 7) === 0 ? i : 0)) >>> 0) * 0.05;
+      const catI = shopCategory(i > 0 && (sd & 7) === 0 ? undefined : b.signage, (b.seed + (i > 0 && (sd & 7) === 0 ? i : 0)) >>> 0);
+      const cat = catI * 0.05;
       const entryHere = sb > 3.2 && (i % 2 === 0 || nS === 1);
+      let entryS: number | null = null;
       if (entryHere) {
         const ew = Math.min(1.8, sb * 0.38);
         const left = (sd & 1) === 1;
         const ea = left ? a : z - ew, ez = left ? a + ew : z;
+        entryS = (ea + ez) / 2;
         ops.push({ s0: ea, s1: ez, y0: fl.y0, y1: top, t: 'entry', r: 1.1, muntin: cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd + 7 });
         const da = left ? ez : a, dz = left ? z : ea;
         if (dz - da > 0.8) ops.push({ s0: da, s1: dz, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7 + cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
@@ -588,6 +629,7 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
         ops.push({ s0: a, s1: z, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7 + cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
       }
       storefrontDress(c, f, a - 0.22, z + 0.22, fl.y0, top, fl.y1, i, sd, L < 16 && nS > 1);
+      storefrontClutter(c, f, a, z, catI, sd, entryS);
     }
     if (L < 16 && nS > 1) storefrontSign(c, f, 0.6, L - 0.6, top, fl.y1, 0, nextSeed());
     // pilasters between bays (+ends)
@@ -708,6 +750,7 @@ function storefrontSign(c: BCtx, f: Frame, a: number, z: number, top: number, fl
     for (const lx of [sx + sw * 0.2, sx + sw * 0.8]) {
       lm.box(f, lx - 0.02, lx + 0.02, sy + sh + 0.05, sy + sh + 0.1, 0, 0.35, 63);
       lm.box(f, lx - 0.07, lx + 0.07, sy + sh - 0.02, sy + sh + 0.08, 0.3, 0.42, 63);
+      downLens(c, f, lx, sy + sh - 0.025, 0.36, 0.05);
     }
   }
 }

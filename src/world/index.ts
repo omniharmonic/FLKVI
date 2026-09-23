@@ -6,6 +6,7 @@ import type { WorldAPI } from '../core/api';
 import type { Vec2, Vec3, RecipeTree } from '../core/types';
 import { preloadLibrary } from '../assets/library';
 import { buildBuildings, type BuildingsResult } from './buildings';
+import { setFrontInfo } from './buildings/streetDetail';
 import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, buildFarTerrain, updateTerrainLod } from './terrain';
 import { RoadNetwork } from './roads';
 import { buildAreas, waterUniforms } from './areas';
@@ -199,11 +200,20 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // ---- buildings (owned by buildings agent)
   P('Raising buildings', 0.66);
   await yieldFrame();
+  // sidewalk depth in front of facades (storefront clutter placement)
+  setFrontInfo((x, z) => {
+    const h = roads.nearestChain([x, z], 30);
+    const y = groundAt(x, z);
+    if (!h) return { clear: 5, y };
+    if (h.c.cls === 'pedestrian' || h.c.cls === 'footway' || h.c.cls === 'path') return { clear: 8, y };
+    return { clear: Math.abs(h.off) + 1.2 - h.c.w - 0.6, y };
+  });
   try {
     buildings = await buildBuildings(g, (s, f) => P(s, 0.66 + f * 0.24));
     root.add(buildings.group);
     staticMeshes.push(buildings.group);
   } catch (e) { console.error('[world] buildings failed', e); }
+  setFrontInfo(null);
 
   // ---- physics
   P('Solidifying the city', 0.92);

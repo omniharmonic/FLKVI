@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Vec2 } from '../core/types';
 import { rng } from '../core/geo';
+import { setShadowCascades } from '../render/shadowProxy';
 import { signalState } from '../core/signals';
 import { RoadNet, samplePoly, segIntersect, type Sample } from './roadnet';
 import { CharacterFactory, Character } from './characters';
@@ -44,20 +45,21 @@ const tmpS: Sample = { x: 0, z: 0, h: 0 };
 /** Peds closer than this stay drawn even off-screen (their shadows can fall into view). */
 const PED_KEEP = 14;
 /** Beyond this distance from the camera peds don't cast sun shadows. */
-const PED_SHADOW = 40;
+const PED_SHADOW = 32;
 /** Beyond this distance peds aren't drawn at all (they're a few pixels tall, mostly occluded). */
 const PED_DRAW = 120;
 const pedMeshes = new WeakMap<Character, { meshes: THREE.Mesh[]; shadow: boolean }>();
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sph = new THREE.Sphere();
-function pedRenderLod(ch: Character, camD2: number, inView: boolean, flagged = false): boolean {
+function pedRenderLod(g: Game, ch: Character, camD2: number, inView: boolean, flagged = false): boolean {
   let st = pedMeshes.get(ch);
   if (!st) {
     const meshes: THREE.Mesh[] = [];
     ch.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.castShadow) meshes.push(o as THREE.Mesh); });
     st = { meshes, shadow: true };
     pedMeshes.set(ch, st);
+    setShadowCascades(g, ch.root, 1); // peds only cast within PED_SHADOW: the near cascade covers that
   }
   const vis = camD2 < PED_KEEP * PED_KEEP || (inView && (flagged || camD2 < PED_DRAW * PED_DRAW));
   ch.root.visible = vis;
@@ -784,7 +786,7 @@ export class PedSystem {
       p.animAcc += dt;
       const camD2 = dist2(p.x, p.z, cx, cz);
       _sph.center.set(p.x, p.y + 0.9, p.z); _sph.radius = 1.4;
-      const drawn = pedRenderLod(p.ch, camD2, _frustum.intersectsSphere(_sph), !!p.icon.kind);
+      const drawn = pedRenderLod(g, p.ch, camD2, _frustum.intersectsSphere(_sph), !!p.icon.kind);
       const animEvery = !drawn ? 12 : d2 < 40 * 40 ? 1 : d2 < 80 * 80 ? 3 : 6;
       if ((this.frame + p.id) % animEvery === 0) { p.ch.update(p.animAcc); p.animAcc = 0; }
       // obstacle for cars

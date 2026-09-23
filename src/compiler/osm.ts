@@ -178,6 +178,7 @@ export async function fetchOverpass(query: string, opts: FetchOpts = {}): Promis
               if (e.kind === 'busy') { sawBusy = true; retryAfter = Math.max(retryAfter, e.retryAfterS); }
               if (e.kind === 'net') sawNet = true;
               if (/memory|maxsize/i.test(e.message)) sawMemory = true;
+              opts.onStatus?.(`Map server busy (${e.message.slice(0, 90)})`);
               if (next < order.length) launch();
               else if (pending === 0) finish(() => reject(e));
             });

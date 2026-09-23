@@ -14,7 +14,10 @@ export const U = {
   uLamp: { value: 0.45 }, // look-dev: 0.75 clipped storefronts/windows at night exposure
   /** Scale of the env-map reflection on clear glass. */
   uGlassEnv: { value: 1.0 },
+  /** debug: 0 off, 1 interior only, 2 reflection only, 3 fresnel */
+  uGDbg: { value: 0 },
 };
+(globalThis as unknown as { __bldgU: typeof U }).__bldgU = U;
 
 /** GLSL: cheap hash noise used for grime streaks. */
 const NOISE_GLSL = /* glsl */ `
@@ -33,6 +36,8 @@ export const LAYER_IDS = [
   'concrete', 'glass-curtain', 'metal-panel', 'adobe', 'wood-shingle', 'plaster',
   'roof-asphalt-shingle', 'roof-clay-tile', 'roof-standing-seam', 'roof-slate', 'roof-membrane', 'roof-gravel',
   'paint', 'fabric', 'metal', 'concrete-plain', 'wood-planks', 'dark', 'trim-stone',
+  // overlays / atlases (canvas-generated): faded painted wall signs (alpha = paint), address plaques
+  'ghost', 'plaque',
 ] as const;
 export type LayerId = (typeof LAYER_IDS)[number];
 
@@ -44,7 +49,71 @@ const GRIME: Partial<Record<LayerId, number>> = {
 };
 /** Corrections for library tile sizes that measure wrong against their brick/shingle modules. */
 const SIZE_FIX: Record<string, number> = { 'brick-tan': 1.35, 'roof-asphalt-shingle': 5.0 };
-const NO_LIB = new Set(['trim-stone', 'paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain']);
+const NO_LIB = new Set(['trim-stone', 'paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain', 'ghost', 'plaque']);
+/** Normal-map strength per layer (mortar joints / stone relief read at street level). */
+const NRM: Partial<Record<LayerId, number>> = {
+  'brick-red': 1.7, 'brick-brown': 1.7, 'brick-tan': 1.6, 'brick-painted': 1.4, stone: 1.5, sandstone: 1.5, 'trim-stone': 1.2,
+  stucco: 1.3, adobe: 1.3, 'lap-siding': 1.3, 'board-batten': 1.3, 'wood-shingle': 1.3,
+};
+/** Index offset in aLayer marking a painted-sign overlay quad (base layer + OVERLAY). */
+export const OVERLAY = 64;
+
+const GHOST_TEXTS = [
+  ['GENERAL MERCHANDISE', '#e9dfc6', '#5a2b22'], ['HOTEL · ROOMS', '#f1e8d2', null], ['HARDWARE & FEED', '#1f1d1a', '#d9cfb4'], ['DRY GOODS · NOTIONS', '#efe3c4', '#2b3a4a'],
+] as const;
+/** Ghost-sign atlas: 4 rows (4:1 cells) of weathered painted lettering; alpha = paint coverage. */
+function ghostCanvas(R: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = R;
+  const x = c.getContext('2d')!;
+  const H = R / 4;
+  GHOST_TEXTS.forEach(([t, fg, bg], i) => {
+    const y = i * H;
+    if (bg) { x.fillStyle = bg; x.fillRect(4, y + 4, R - 8, H - 8); }
+    x.fillStyle = fg; x.strokeStyle = fg;
+    let size = H * 0.55;
+    x.font = `700 ${size}px Georgia, "Times New Roman", serif`;
+    while (x.measureText(t).width > R - 30 && size > 8) { size -= 2; x.font = `700 ${size}px Georgia, "Times New Roman", serif`; }
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(t, R / 2, y + H / 2 + 2);
+    if (!bg) { x.lineWidth = 3; x.strokeRect(10, y + 10, R - 20, H - 20); }
+  });
+  // weathering: flaking paint + fade toward the bottom of each panel
+  const d = x.getImageData(0, 0, R, R);
+  let s = 1234567;
+  const rnd = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 4294967296);
+  const flake = new Float32Array((R / 8) * (R / 8)).map(() => rnd());
+  for (let py = 0; py < R; py++) for (let px = 0; px < R; px++) {
+    const i = (py * R + px) * 4;
+    const f = flake[(py >> 3) * (R / 8) + (px >> 3)];
+    const n = 0.55 + 0.45 * rnd();
+    const k = f < 0.18 ? 0.15 : n * (0.7 + 0.3 * f);
+    d.data[i + 3] = Math.round(d.data[i + 3] * k * 0.8);
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+/** Address-plaque atlas: 4x4 cells of house numbers on enamel / brass / black plates. */
+function plaqueCanvas(R: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = R;
+  const x = c.getContext('2d')!;
+  const S = R / 4;
+  const styles = [['#1e2430', '#f2efe6'], ['#b08d4a', '#2a2116'], ['#f1eee6', '#1a1a1a'], ['#2a2a2a', '#d9c690']];
+  for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+    const k = j * 4 + i;
+    const [bg, fg] = styles[k % 4];
+    x.fillStyle = bg; x.fillRect(i * S, j * S, S, S);
+    x.strokeStyle = fg; x.lineWidth = 3; x.strokeRect(i * S + 6, j * S + 6, S - 12, S - 12);
+    x.fillStyle = fg; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = `700 ${S * 0.42}px "Helvetica Neue", Arial, sans-serif`;
+    x.fillText(String([1024, 1138, 207, 1845, 316, 2210, 1419, 88, 1307, 942, 1650, 511, 2034, 1273, 64, 1911][k]), i * S + S / 2, j * S + S / 2 + 2);
+  }
+  return c;
+}
+function flatNormal(R: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = R;
+  const x = c.getContext('2d')!; x.fillStyle = 'rgb(128,128,255)'; x.fillRect(0, 0, R, R);
+  return c;
+}
 
 export interface LayerInfo { index: number; base: THREE.Color; sizeM: number; rough: number; metal: number }
 const layers = new Map<string, LayerInfo>();
@@ -74,7 +143,8 @@ function averageOf(c: HTMLCanvasElement): THREE.Color {
 /** Wait (bounded) for the library texture sets used by the building layers to finish loading. */
 export async function prepareBuildingTextures(timeoutMs = 10000): Promise<void> {
   if (surfaceMat) return;
-  const ids = LAYER_IDS.filter((id) => !NO_LIB.has(id));
+  const ids: string[] = LAYER_IDS.filter((id) => !NO_LIB.has(id));
+  ids.push('decal-leak-2');
   const all = Promise.all(ids.map((id) => textureSetReady(id).catch(() => null)));
   await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
 }
@@ -84,7 +154,7 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
   if (surfaceMat) return surfaceMat;
   const R = TEX_RES, N = LAYER_IDS.length;
   const alb = new Uint8Array(R * R * 4 * N), nrm = new Uint8Array(R * R * 4 * N);
-  const scale: number[] = [], rough: number[] = [], metal: number[] = [], grime: number[] = [];
+  const scale: number[] = [], rough: number[] = [], metal: number[] = [], grime: number[] = [], nstr: number[] = [];
   LAYER_IDS.forEach((id, li) => {
     let a: HTMLCanvasElement | null = null, n: HTMLCanvasElement | null = null;
     let sizeM = 2, rgh = 0.85, mtl = 0;
@@ -101,6 +171,9 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
         if (!n) n = pt.nrm;
       }
     }
+    if (id === 'ghost' || id === 'plaque') {
+      a = id === 'ghost' ? ghostCanvas(R) : plaqueCanvas(R); n = flatNormal(R); sizeM = 1; rgh = id === 'ghost' ? 0.9 : 0.45; mtl = 0;
+    }
     if (!a) {
       const pt = procTexture(id);
       a = pt.alb; n = pt.nrm; sizeM = pt.sizeM; rgh = pt.roughness; mtl = pt.metalness;
@@ -115,7 +188,7 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
       alb.set(da.subarray(src, src + R * 4), dst);
       nrm.set(dn.subarray(src, src + R * 4), dst);
     }
-    scale.push(sizeM); rough.push(rgh); metal.push(mtl); grime.push(GRIME[id] ?? 0);
+    scale.push(sizeM); rough.push(rgh); metal.push(mtl); grime.push(GRIME[id] ?? 0); nstr.push(NRM[id] ?? 1);
     layers.set(id, { index: li, base, sizeM, rough: rgh, metal: mtl });
   });
   const mk = (data: Uint8Array, srgb: boolean) => {
@@ -134,6 +207,20 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
   dummy.needsUpdate = true;
   const dummyN = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
   dummyN.needsUpdate = true;
+  // rain-streak mask (CC0 leak decal opacity), tiled horizontally; flat fallback = procedural only
+  let streak: THREE.Texture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  streak.needsUpdate = true;
+  let hasStreak = 0;
+  try {
+    const ls = textureSet('decal-leak-2' as TextureId);
+    const img = ls?.maps.alphaMap?.image as (HTMLImageElement & { width: number }) | undefined;
+    if (ls?.maps.alphaMap && img && img.width > 0) {
+      streak = ls.maps.alphaMap.clone();
+      streak.wrapS = THREE.RepeatWrapping; streak.wrapT = THREE.ClampToEdgeWrapping;
+      streak.repeat.set(1, 1); streak.colorSpace = THREE.NoColorSpace; streak.needsUpdate = true;
+      hasStreak = 1;
+    }
+  } catch { /* procedural streaks only */ }
   const m = new THREE.MeshStandardMaterial({ map: dummy, normalMap: dummyN, vertexColors: true, roughness: 1, metalness: 0, name: 'bldg:surface' });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uAlbArr = { value: texA };
@@ -142,9 +229,12 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
     sh.uniforms.uLRough = { value: rough };
     sh.uniforms.uLMetal = { value: metal };
     sh.uniforms.uLGrime = { value: grime };
+    sh.uniforms.uLNrm = { value: nstr };
+    sh.uniforms.uStreak = { value: streak };
+    sh.uniforms.uHasStreak = { value: hasStreak };
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aLayer;\nflat varying int vLayer;\nvarying vec3 vBWPos;\nvarying vec3 vBWN;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvLayer = int(aLayer + 0.5);\nvBWPos = (modelMatrix * vec4(transformed,1.0)).xyz;\nvBWN = normalize(mat3(modelMatrix) * objectNormal);');
+      .replace('#include <common>', '#include <common>\nattribute float aLayer;\nattribute vec4 aWx;\nflat varying int vLayer;\nvarying vec4 vWx;\nvarying vec3 vBWPos;\nvarying vec3 vBWN;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvLayer = int(aLayer + 0.5);\nvWx = aWx;\nvBWPos = (modelMatrix * vec4(transformed,1.0)).xyz;\nvBWN = normalize(mat3(modelMatrix) * objectNormal);');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 precision highp sampler2DArray;
@@ -154,28 +244,48 @@ uniform float uLScale[${N}];
 uniform float uLRough[${N}];
 uniform float uLMetal[${N}];
 uniform float uLGrime[${N}];
+uniform float uLNrm[${N}];
+uniform sampler2D uStreak;
+uniform float uHasStreak;
 flat varying int vLayer;
+varying vec4 vWx;
 varying vec3 vBWPos;
 varying vec3 vBWN;
 ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
-  diffuseColor *= texture(uAlbArr, vec3(vMapUv / uLScale[vLayer], float(vLayer)));`)
+  int bL = vLayer >= ${OVERLAY} ? vLayer - ${OVERLAY} : vLayer;
+  vec4 bTex = texture(uAlbArr, vec3(vMapUv / uLScale[bL], float(bL)));
+  if (vLayer >= ${OVERLAY}) { // faded painted sign over the wall texture
+    vec4 gp = texture(uAlbArr, vec3(vWx.zw, ${LAYER_IDS.indexOf('ghost')}.0));
+    float lum = dot(bTex.rgb, vec3(0.3, 0.55, 0.15));
+    bTex.rgb = mix(bTex.rgb, gp.rgb * (0.6 + 0.9 * lum), gp.a);
+  }
+  diffuseColor.rgb *= bTex.rgb;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
   {
-    float gs = uLGrime[vLayer];
+    float gs = uLGrime[bL];
     if (gs > 0.0) {
       float along = dot(vBWPos.xz, vec2(-vBWN.z, vBWN.x));
       float vertical = 1.0 - abs(vBWN.y);
       float streak = bvn(vec2(along*2.3, vBWPos.y*0.18)) * bvn(vec2(along*7.1, vBWPos.y*0.05 + 3.0));
       float blotch = bvn(vBWPos.xz*0.11 + vBWPos.y*0.07);
       diffuseColor.rgb *= 1.0 - gs * (smoothstep(0.25, 0.8, streak) * 0.9 * vertical + blotch * 0.35);
+      // macro tint variation (weathering / repointing / sun fade) at 5-15 m scale
+      float mt = bvn(vBWPos.xz * 0.075 + vec2(vBWPos.y * 0.05, 7.3));
+      diffuseColor.rgb *= mix(vec3(0.9, 0.9, 0.92), vec3(1.07, 1.04, 0.99), mt);
+      // rain streaks under sills / cornices
+      if (vWx.x > 0.001 && vWx.y < 1.8 && vertical > 0.5) {
+        float sm = uHasStreak > 0.5 ? texture2D(uStreak, vec2(along / 2.6, 1.0 - vWx.y / 1.8)).r : smoothstep(0.3, 0.9, bvn(vec2(along * 9.0, vWx.y * 0.6))) * (1.0 - vWx.y / 1.8);
+        diffuseColor.rgb *= 1.0 - min(1.0, gs * 2.6) * vWx.x * sm * vec3(0.5, 0.52, 0.55);
+      }
     }
   }`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = uLRough[vLayer];')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = uLMetal[vLayer];')
-      .replace('texture2D( normalMap, vNormalMapUv )', 'texture(uNrmArr, vec3(vNormalMapUv / uLScale[vLayer], float(vLayer)))');
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = uLRough[bL];')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = uLMetal[bL];')
+      .replace('texture2D( normalMap, vNormalMapUv )', 'texture(uNrmArr, vec3(vNormalMapUv / uLScale[bL], float(bL)))')
+      .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * uLNrm[bL];');
   };
-  m.customProgramCacheKey = () => 'bldg-surface-v1';
+  m.customProgramCacheKey = () => 'bldg-surface-v2';
   surfaceMat = m;
   return m;
 }
@@ -261,6 +371,25 @@ export function signSlot(text: string, style: number): [number, number, number, 
   return [cx / ATLAS_W, 1 - (cy + SIGN_H) / ATLAS_H, (cx + SIGN_W) / ATLAS_W, 1 - cy / ATLAS_H];
 }
 
+/** Atlas rect of a warm lamp-lens swatch (glows with the signs at night). */
+export function lampSlot(): [number, number, number, number] {
+  const key = '\u0000lamp';
+  if (!signCanvas) signSlot('OPEN', 0);
+  let slot = signSlots.get(key);
+  if (slot === undefined) {
+    slot = signSlots.size % (COLS * ROWS);
+    signSlots.set(key, slot);
+    const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
+    const x = signCanvas!.getContext('2d')!;
+    const gr = x.createRadialGradient(cx + SIGN_W / 2, cy + SIGN_H / 2, 4, cx + SIGN_W / 2, cy + SIGN_H / 2, SIGN_W / 2);
+    gr.addColorStop(0, '#fff6dc'); gr.addColorStop(0.5, '#ffd99a'); gr.addColorStop(1, '#f0b060');
+    x.fillStyle = gr; x.fillRect(cx, cy, SIGN_W, SIGN_H);
+    if (signTex) signTex.needsUpdate = true;
+  }
+  const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
+  return [(cx + 128) / ATLAS_W, 1 - (cy + SIGN_H - 20) / ATLAS_H, (cx + SIGN_W - 128) / ATLAS_W, 1 - (cy + 20) / ATLAS_H];
+}
+
 export function signMaterial(): THREE.MeshStandardMaterial {
   if (signMat) return signMat;
   if (!signCanvas) signSlot('OPEN', 0);
@@ -283,6 +412,7 @@ export function refreshSigns() { if (signTex) signTex.needsUpdate = true; }
 const WINDOW_GLSL = /* glsl */ `
 uniform float uNight;
 uniform float uGlassEnv;
+uniform float uGDbg;
 uniform float uInteriorDay;
 uniform float uLamp;
 varying vec2 vWin0;
@@ -433,8 +563,14 @@ vec4 shadeWindow(vec3 V, vec3 N){
       fc *= 0.8 + 0.2 * step(0.5, fract(q.y / 0.35));
     } else if (kind > 4.5 && kind < 5.5) {
       float c = fract(q.x / 2.6);
-      m = step(q.y, 1.35) * step(0.1, c) * step(c, 0.9) * step(q.y, 0.75 + 0.6 * smoothstep(0.25, 0.4, c) * smoothstep(0.8, 0.65, c));
-      fc = vec3(wh2(vec2(floor(q.x/2.6), 1.0)), wh2(vec2(floor(q.x/2.6), 2.0)), wh2(vec2(floor(q.x/2.6), 3.0))) * 0.35;
+      float cabin = smoothstep(0.25, 0.4, c) * smoothstep(0.8, 0.65, c);
+      m = step(q.y, 1.35) * step(0.1, c) * step(c, 0.9) * step(q.y, 0.75 + 0.6 * cabin);
+      // parked cars in real paint colours (white/silver/black/grey/dark red/navy/beige)
+      float ch = wh2(vec2(floor(q.x/2.6), 1.0));
+      fc = ch < 0.22 ? vec3(0.72,0.72,0.70) : ch < 0.42 ? vec3(0.42,0.43,0.44) : ch < 0.6 ? vec3(0.03,0.03,0.035) : ch < 0.74 ? vec3(0.18,0.18,0.19)
+         : ch < 0.84 ? vec3(0.3,0.03,0.03) : ch < 0.93 ? vec3(0.04,0.07,0.16) : vec3(0.5,0.45,0.36);
+      if (q.y > 0.8 && q.y < 1.28 && cabin > 0.7) fc = vec3(0.03, 0.035, 0.04); // windows
+      if (q.y < 0.32 && (abs(c - 0.25) < 0.07 || abs(c - 0.75) < 0.07)) fc = vec3(0.02); // wheels
       m *= step(0.35, wh2(vec2(floor(q.x/2.6), seed)));
       // columns
       m = max(m, step(abs(fract(q.x / 8.0) - 0.5), 0.03));
@@ -495,6 +631,7 @@ export function glassMaterial(): THREE.MeshStandardMaterial {
     sh.uniforms.uInteriorDay = U.uInteriorDay;
     sh.uniforms.uLamp = U.uLamp;
     sh.uniforms.uGlassEnv = U.uGlassEnv;
+    sh.uniforms.uGDbg = U.uGDbg;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec2 aWin0; attribute vec4 aWinA; attribute vec4 aWinB;
@@ -504,7 +641,7 @@ vWin0 = aWin0; vWinA = aWinA; vWinB = aWinB;
 vGWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL + SHOP_GLSL + '\nfloat gSolid; float gReflect; float gKind;')
+      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL.replace('vec3 wallPalette(', SHOP_GLSL + '\nvec3 wallPalette(') + '\nfloat gSolid; float gReflect; float gKind;')
       .replace('#include <color_fragment>', `#include <color_fragment>
   {
     gKind = floor(vWinB.y + 0.001);
@@ -539,7 +676,7 @@ vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
     } else {
       // clear glass: fresnel mix of interior and a street/sky reflection
       float cosT = clamp(dot(-gV, gN), 0.0, 1.0);
-      float F = 0.07 + 0.93 * pow(1.0 - cosT, 5.0);
+      float F = (gKind > 1.5 && gKind < 2.5 ? 0.11 : 0.08) + 0.9 * pow(1.0 - cosT, 5.0);
       vec3 R = reflect(gV, gN);
       #ifdef USE_ENVMAP
         vec3 envR = getIBLRadiance(geometryViewDir, geometryNormal, 0.02) * uGlassEnv;
@@ -549,6 +686,7 @@ vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
       vec4 sb = streetBand(R, uNight);
       vec3 refl = mix(envR, sb.rgb, sb.a);
       vec3 glassOut = gw.rgb * (1.0 - F) + refl * F + reflectedLight.directSpecular;
+      if (uGDbg > 0.5) glassOut = uGDbg < 1.5 ? gw.rgb : uGDbg < 2.5 ? refl : vec3(F);
       outgoingLight = mix(glassOut, outgoingLight, gSolid);
     }
   }

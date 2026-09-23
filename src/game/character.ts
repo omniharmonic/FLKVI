@@ -3,7 +3,18 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { assetUrl } from '../assets/library';
+import { dressCharacter, preparePeople, type Look } from '../assets/characters';
+
 import { damp } from './util';
+
+/** The protagonist: charcoal hoodie (hood up), dark indigo jeans, gray sneakers, black gloves. */
+const PLAYER_LOOK: Partial<Look> = {
+  sex: 'm', build: 1, skin: '#c99a78', eyes: '#2e1c10', hair: 'buzz', hairColor: '#1a1410', glasses: false,
+  top: 'hoodie', topColor: '#2c2f34', topColor2: '#2c2f34', open: false,
+  bottom: 'jeans', bottomColor: '#222c42', belt: false,
+  shoes: 'sneaker', shoeColor: '#4a4d52', soleColor: '#e2e0da', sockColor: '#1a1a1c', crewSocks: false,
+  gloves: '#141416', policeBack: false, hat: 'hood', hatColor: '#2c2f34',
+};
 
 /** 'reach': standing, both arms raised to work a telescopic paint pole on a lens at head height and above. */
 export type Pose = 'none' | 'kneel' | 'interact' | 'drive' | 'reach';
@@ -37,6 +48,7 @@ function loadAssets() {
           // Shared with the assets library (Quaternius UBC male + UAL clips, see public/assets/LICENSES.json).
           loader.loadAsync(assetUrl('models/characters/ubc-male.glb')),
           loader.loadAsync(assetUrl('models/characters/anims.glb')),
+          preparePeople().catch(() => undefined),
         ]);
         return { scene: char.scene, clips: lib.animations };
       } catch (e) {
@@ -84,9 +96,9 @@ export class Character {
         m.castShadow = true;
         m.receiveShadow = true;
         m.frustumCulled = false;
-        this.dress(m);
       }
     });
+    this.dress(model);
     this.addGear(model);
     this.root.add(model);
     this.mixer = new THREE.AnimationMixer(model);
@@ -109,81 +121,15 @@ export class Character {
   }
 
   /**
-   * Procedural outfit: per-vertex cloth colors from the dominant skin bones (hoodie on torso/arms, jeans on
-   * legs, sneakers on feet), cloth inflated slightly off the body, muscle normal-map suppressed under cloth.
+   * Outfit (see src/assets/characters.ts): hoodie with the hood up, dark jeans, sneakers, gloves, on an average build;
+   * cloth shells give the garments volume, and shoes are real geometry.
    */
-  private dress(m: THREE.Mesh) {
-    const mat0 = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
-    if (/hair/i.test(mat0?.name ?? '')) { m.visible = false; return; } // hood up
-    const sk = m as THREE.SkinnedMesh;
-    if (!sk.isSkinnedMesh || !/Superhero|Male|Body/i.test(mat0?.name ?? '')) return;
-    const geo = sk.geometry;
-    const si = geo.attributes.skinIndex as THREE.BufferAttribute, sw = geo.attributes.skinWeight as THREE.BufferAttribute;
-    const pos = geo.attributes.position as THREE.BufferAttribute, nor = geo.attributes.normal as THREE.BufferAttribute;
-    const names = sk.skeleton.bones.map((b) => b.name);
-    const HOODIE = new THREE.Color('#2e3136'), JEANS = new THREE.Color('#283248'), SHOE = new THREE.Color('#d9d6cf'), SOLE = new THREE.Color('#2a2a2a');
-    type Cl = { c: THREE.Color; mask: number; inflate: number };
-    const classify = (n: string): Cl => {
-      if (/^spine_0[23]/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.04 };
-      if (/^spine_01/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.045 };
-      if (/^clavicle/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.028 };
-      if (/^upperarm/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.026 };
-      if (/^lowerarm/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.022 };
-      if (/^neck/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.03 };
-      if (/^pelvis/.test(n)) return { c: JEANS, mask: 1, inflate: 0.03 };
-      if (/^thigh/.test(n)) return { c: JEANS, mask: 1, inflate: 0.02 };
-      if (/^calf/.test(n)) return { c: JEANS, mask: 1, inflate: 0.016 };
-      if (/^foot/.test(n)) return { c: SHOE, mask: 1, inflate: 0.012 };
-      if (/^ball/.test(n)) return { c: SOLE, mask: 1, inflate: 0.012 };
-      return { c: HOODIE, mask: 0, inflate: 0 }; // hands, head, fingers: skin
-    };
-    const cls = names.map(classify);
-    geo.computeBoundingBox();
-    const bb = geo.boundingBox!;
-    const upm = Math.max(bb.max.y - bb.min.y, bb.max.z - bb.min.z, bb.max.x - bb.min.x) / 1.78; // local units per meter
-    for (const c of cls) c.inflate *= upm;
-    const cloth = new Float32Array(pos.count * 4);
-    const col = new THREE.Color();
-    for (let i = 0; i < pos.count; i++) {
-      col.setRGB(0, 0, 0);
-      let mask = 0, infl = 0;
-      for (let k = 0; k < 4; k++) {
-        const w = sw.getComponent(i, k);
-        if (w <= 0) continue;
-        const c = cls[si.getComponent(i, k)] ?? cls[0];
-        col.r += c.c.r * w; col.g += c.c.g * w; col.b += c.c.b * w;
-        mask += c.mask * w; infl += c.inflate * w;
-      }
-      // Hoodie hem / cuffs: sharpen mask so skin/cloth borders are crisp.
-      mask = THREE.MathUtils.smoothstep(mask, 0.35, 0.65);
-      cloth.set([col.r, col.g, col.b, mask], i * 4);
-      if (infl > 0) pos.setXYZ(i, pos.getX(i) + nor.getX(i) * infl, pos.getY(i) + nor.getY(i) * infl, pos.getZ(i) + nor.getZ(i) * infl);
-    }
-    geo.setAttribute('clothColor', new THREE.BufferAttribute(cloth, 4));
-    pos.needsUpdate = true;
-    const mat = mat0.clone();
-    mat.roughness = 1;
-    mat.metalness = 0;
-    mat.onBeforeCompile = (sh) => {
-      sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute vec4 clothColor;\nvarying vec4 vCloth;\nvarying vec3 vObjPos;')
-        .replace('#include <begin_vertex>', `#include <begin_vertex>\nvCloth = clothColor;\nvObjPos = position / ${upm.toFixed(5)};`);
-      sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec4 vCloth;\nvarying vec3 vObjPos;\nfloat gtHash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453); }')
-        .replace('#include <map_fragment>', `#include <map_fragment>
-          {
-            // Fabric: knit micro-variation + soft folds.
-            float n = gtHash(floor(vObjPos * 900.0)) * 0.08 + sin(vObjPos.y * 90.0 + sin(vObjPos.x * 40.0) * 2.0) * 0.03;
-            vec3 fabric = vCloth.rgb * (0.92 + n);
-            diffuseColor.rgb = mix(diffuseColor.rgb, fabric, vCloth.a);
-          }`)
-        .replace('#include <normal_fragment_maps>', `vec3 gtGeomNormal = normal;
-          #include <normal_fragment_maps>
-          normal = normalize(mix(normal, gtGeomNormal, vCloth.a));`)
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.95, vCloth.a);');
-    };
-    mat.customProgramCacheKey = () => 'gt-protagonist-cloth';
-    sk.material = mat;
+  private dress(model: THREE.Object3D) {
+    dressCharacter(model, { top: '#2c2f34', bottom: '#222c42', shoes: '#4a4d52', look: PLAYER_LOOK });
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; }
+    });
   }
 
   /** Backpack + hood attached to the skeleton. */
@@ -214,20 +160,7 @@ export class Character {
       pack.scale.setScalar(inv);
       this.pack = pack;
     }
-    if (head) {
-      head.getWorldScale(worldScale);
-      const inv = 1 / (worldScale.x || 1);
-      const hoodMat = new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.97, side: THREE.DoubleSide });
-      // Opening faces −Z (the face). Elongated toward the back like a draped hood.
-      const hg = new THREE.SphereGeometry(0.128, 20, 14, Math.PI * 1.76, Math.PI * 1.48, 0, Math.PI * 0.7);
-      hg.scale(1.12, 1.14, 1.2);
-      hg.translate(0, 0, 0.02);
-      const hood = new THREE.Mesh(hg, hoodMat);
-      hood.castShadow = true;
-      head.add(hood);
-      hood.scale.setScalar(inv);
-      this.hood = hood;
-    }
+    void head; // the hood is part of the outfit now (PLAYER_LOOK.hat = 'hood', fitted to the head in assets/characters)
   }
   private pack: THREE.Object3D | null = null;
   private hood: THREE.Object3D | null = null;

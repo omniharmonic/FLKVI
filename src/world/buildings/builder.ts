@@ -51,6 +51,12 @@ export interface WinAttr {
 export class MB {
   pos = new Grow(); nrm = new Grow(); uv = new Grow(); col = new Grow(); idx = new GrowU32();
   w0?: Grow; wa?: Grow; wb?: Grow; lay?: Grow;
+  /** surface weathering: (streak strength, metres below streak origin, overlay u, overlay v) */
+  wx?: Grow;
+  /** per-corner weathering for the next quad() (4 corners × 4 values), consumed by quad */
+  wxq: number[] | null = null;
+  /** ground level of the current building: base-grime darkening of surface vertices near it */
+  groundY = -1e9;
   vc = 0;
   /** current texture-array layer (surface buckets) */
   layer = 0;
@@ -58,7 +64,7 @@ export class MB {
   tr = 1; tg = 1; tb = 1;
   constructor(public kind: 'surface' | 'glass' | 'plain' = 'surface') {
     if (kind === 'glass') { this.w0 = new Grow(); this.wa = new Grow(); this.wb = new Grow(); }
-    if (kind === 'surface') this.lay = new Grow();
+    if (kind === 'surface') { this.lay = new Grow(); this.wx = new Grow(); }
   }
   setTint(c: THREE.Color | [number, number, number]) {
     if (Array.isArray(c)) { this.tr = c[0]; this.tg = c[1]; this.tb = c[2]; }
@@ -66,11 +72,19 @@ export class MB {
   }
   get tris() { return this.idx.n / 3; }
 
-  vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, ao = 1, w?: WinAttr, wl?: Vec2) {
+  vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, ao = 1, w?: WinAttr, wl?: Vec2, wxi = -1) {
     this.pos.push3(x, y, z);
     this.nrm.push3(nx, ny, nz);
     this.uv.push2(u, v);
-    this.col.push3(this.tr * ao, this.tg * ao, this.tb * ao);
+    if (this.wx) {
+      // splash-zone grime: darker, browner in the first ~1.3 m above the ground
+      const gm = Math.max(0, Math.min(1, 1 - (y - this.groundY) / 1.3));
+      const g = gm * gm * (Math.abs(ny) > 0.7 ? 0.4 : 1);
+      this.col.push3(this.tr * ao * (1 - 0.2 * g), this.tg * ao * (1 - 0.23 * g), this.tb * ao * (1 - 0.28 * g));
+      const q = this.wxq;
+      if (q && wxi >= 0) this.wx.push4(q[wxi * 4], q[wxi * 4 + 1], q[wxi * 4 + 2], q[wxi * 4 + 3]);
+      else this.wx.push4(0, 0, 0, 0);
+    } else this.col.push3(this.tr * ao, this.tg * ao, this.tb * ao);
     if (this.lay) this.lay.push1(this.layer);
     if (this.w0) {
       if (w) {
@@ -91,10 +105,10 @@ export class MB {
     if (l < 1e-10) return;
     nx /= l; ny /= l; nz /= l;
     const a = typeof ao === 'number' ? [ao, ao, ao, ao] : ao;
-    const i0 = this.vert(p0[0], p0[1], p0[2], nx, ny, nz, uv[0], uv[1], a[0], w, wl?.[0]);
-    this.vert(p1[0], p1[1], p1[2], nx, ny, nz, uv[2], uv[3], a[1], w, wl?.[1]);
-    this.vert(p2[0], p2[1], p2[2], nx, ny, nz, uv[4], uv[5], a[2], w, wl?.[2]);
-    this.vert(p3[0], p3[1], p3[2], nx, ny, nz, uv[6], uv[7], a[3], w, wl?.[3]);
+    const i0 = this.vert(p0[0], p0[1], p0[2], nx, ny, nz, uv[0], uv[1], a[0], w, wl?.[0], 0);
+    this.vert(p1[0], p1[1], p1[2], nx, ny, nz, uv[2], uv[3], a[1], w, wl?.[1], 1);
+    this.vert(p2[0], p2[1], p2[2], nx, ny, nz, uv[4], uv[5], a[2], w, wl?.[2], 2);
+    this.vert(p3[0], p3[1], p3[2], nx, ny, nz, uv[6], uv[7], a[3], w, wl?.[3], 3);
     this.idx.push3(i0, i0 + 1, i0 + 2);
     this.idx.push3(i0, i0 + 2, i0 + 3);
   }
@@ -165,6 +179,7 @@ export class MB {
     g.setAttribute('uv', new THREE.BufferAttribute(this.uv.view(), 2));
     g.setAttribute('color', new THREE.BufferAttribute(this.col.view(), 3));
     if (this.lay) g.setAttribute('aLayer', new THREE.BufferAttribute(this.lay.view(), 1));
+    if (this.wx) g.setAttribute('aWx', new THREE.BufferAttribute(this.wx.view(), 4));
     if (this.w0) {
       g.setAttribute('aWin0', new THREE.BufferAttribute(this.w0.view(), 2));
       g.setAttribute('aWinA', new THREE.BufferAttribute(this.wa!.view(), 4));

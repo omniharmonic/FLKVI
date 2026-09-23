@@ -5,7 +5,7 @@ import { buildQuery, indexOsm } from './osm.ts';
 import { buildHeightfield, terrainSampler, zoomForCell, type TileLoader } from './terrain.ts';
 import { regionFor, climateFor, paletteFor } from './region.ts';
 import { makeDensity, type Ctx, type Bounds } from './context.ts';
-import { buildRoads, buildGraph, RoadIndex, PUBLIC_STREET, fillSidewalksToFacades, swOf } from './roads.ts';
+import { buildRoads, buildGraph, RoadIndex, PUBLIC_STREET, fillSidewalksToFacades, dropMedianSidewalks, swOf } from './roads.ts';
 import { collectRawBuildings, collectPois, collectZones, buildBuildings, insideBuilding } from './buildings.ts';
 import { buildAreas } from './areas.ts';
 import { buildTrees, walk } from './vegetation.ts';
@@ -63,7 +63,8 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   const beat = setInterval(() => {
     if (osmDone || gotBytes > 0) return;
     const sec = Math.round((Date.now() - tQ) / 1000);
-    progress(sec < 4 ? 'Querying OpenStreetMap' : `Waiting for OpenStreetMap (${sec} s)`, 0.02 + 0.06 * (1 - Math.exp(-sec / 20)));
+    // creep forward so the bar never looks frozen while a busy server thinks (capped below 'Reading map data')
+    progress(sec < 4 ? 'Querying OpenStreetMap' : `Waiting for OpenStreetMap (${sec} s)`, Math.min(0.27, Math.max(0.02 + 0.06 * (1 - Math.exp(-sec / 20)), hiF + 0.0025)));
   }, 1000);
   const osmP = io.overpass(query, (b) => {
     gotBytes = b;
@@ -72,13 +73,20 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   const tm = 60;
   const terrainP = (async () => {
     const z = 15;
-    try {
-      const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2);
-      progress('Fetching terrain', 0.2);
-      return t;
-    } catch (e) {
-      // terrain is nice-to-have: fall back to a flat world rather than failing the whole compile
-      log(`terrain failed, using flat ground: ${e}`);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2);
+        progress('Fetching terrain', 0.2);
+        return t;
+      } catch (e) {
+        log(`terrain attempt ${attempt + 1} failed: ${(e as Error)?.message ?? e}`);
+        if (attempt < 1) continue;
+        if (!opt.lean) throw e; // bakes must have real terrain
+        break;
+      }
+    }
+    {
+      // live: terrain is nice-to-have — fall back to a flat world rather than failing the whole compile
       const n = Math.ceil((2 * (half + tm)) / cell) + 1;
       return { cols: n, rows: n, originX: -half - tm, originZ: -half - tm, cellSize: cell, heights: new Array(n * n).fill(0) } as Terrain;
     }
@@ -113,6 +121,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   progress('Laying out streets', 0.42);
   const infos = buildRoads(data, ctx);
   if (!infos.some((i) => i.drivable)) throw new Error('No streets are mapped here. Drop the pin on a town or city street, or pick a featured city.');
+  dropMedianSidewalks(infos);
   fillSidewalksToFacades(infos, raw, ctx);
   const gr = buildGraph(infos, data, ctx);
   const roadIdx = new RoadIndex(infos);

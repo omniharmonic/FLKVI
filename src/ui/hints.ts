@@ -55,13 +55,13 @@ export class Hints {
         id: 'map', ttl: 25,
         html: 'Open the camera map <b>M</b> and pick a target',
         when: () => takedownMode() && this.playT > 2.5 && !sv()?.selectedTarget,
-        done: () => !!sv()?.selectedTarget,
+        done: () => !!sv()?.selectedTarget || this.startedAct,
       },
       {
         id: 'approach', ttl: 22,
         html: 'Get close to the pole: follow the <i>orange route</i> and the beacon',
         when: () => takedownMode() && !!sv()?.selectedTarget && (sv()?.targetDistance ?? 0) > 12,
-        done: () => (sv()?.targetDistance ?? 99) < 6 || !!this.prompt?.includes('Hold'),
+        done: () => (sv()?.targetDistance ?? 99) < 6 || !!this.prompt?.includes('Hold') || this.startedAct,
       },
       {
         id: 'act', ttl: 20,
@@ -77,7 +77,7 @@ export class Hints {
       },
       {
         id: 'seen', ttl: 9,
-        html: 'Cameras see you. Break line of sight to lose heat',
+        html: 'You\'ve been reported. Break line of sight with police, cameras and witnesses to lose heat',
         when: () => takedownMode() && this.heatSeen && heat() > 0,
         done: () => heat() === 0,
       },

@@ -49,7 +49,7 @@ export interface DressExtras {
 export type TopKind = 'tee' | 'polo' | 'longsleeve' | 'shirt' | 'hoodie' | 'jacket' | 'puffer' | 'coat' | 'blazer' | 'uniform' | 'hivis' | 'dress';
 export type BottomKind = 'jeans' | 'chinos' | 'slacks' | 'shorts' | 'joggers' | 'leggings' | 'skirt' | 'uniform' | 'work';
 export type ShoeKind = 'sneaker' | 'runner' | 'canvas' | 'boot' | 'dress' | 'police';
-export type HatKind = 'none' | 'cap' | 'beanie' | 'police' | 'hardhat';
+export type HatKind = 'none' | 'cap' | 'beanie' | 'police' | 'hardhat' | 'hood';
 export type HairKind = 'short' | 'long' | 'buzz' | 'bald';
 export type PersonKind = 'civilian' | 'police' | 'worker' | 'player';
 export type Warmth = 'hot' | 'warm' | 'mild' | 'cool' | 'cold';
@@ -200,6 +200,8 @@ interface Landmarks {
 interface Base {
   sex: 'm' | 'f';
   src: THREE.SkinnedMesh;
+  /** Original (unmodified) body geometry; `src.geometry` is swapped per person. */
+  geo0: THREE.BufferGeometry;
   L: Landmarks;
   joints: Map<string, THREE.Vector3>;
   geos: (THREE.BufferGeometry | null)[];
@@ -215,6 +217,7 @@ interface Base {
 const BASES = new Map<THREE.BufferGeometry, Base>(); // original body geometry → base
 const GEO_BASE = new WeakMap<THREE.BufferGeometry, Base>(); // any prepared geometry → base
 const BASE_BY_SEX: Partial<Record<'m' | 'f', Base>> = {};
+(globalThis as any).__pzBases = BASES;
 
 function jointPos(mesh: THREE.SkinnedMesh, i: number): THREE.Vector3 {
   const m = new THREE.Matrix4().copy(mesh.skeleton.boneInverses[i]).invert();
@@ -253,7 +256,7 @@ function analyze(body: THREE.SkinnedMesh, brows: THREE.SkinnedMesh | null, eyes:
   };
   const map = (body.material as THREE.MeshStandardMaterial).map ?? null;
   const base: Base = {
-    sex, src: body, L, joints, geos: [null, null, null], map,
+    sex, src: body, geo0: body.geometry, L, joints, geos: [null, null, null], map,
     texAvg: avgColor(map, true, new THREE.Color(0.55, 0.3, 0.19)),
     lm: {
       uL1: { value: new THREE.Vector4(L.shoulderX, L.elbowX, L.wristX, L.armY) },
@@ -272,17 +275,17 @@ function analyze(body: THREE.SkinnedMesh, brows: THREE.SkinnedMesh | null, eyes:
 // Geometry: proportions, garment shells, skirt tube, face parts → one merged skinned geometry per sex × build
 // ---------------------------------------------------------------------------------------------------------------
 
-interface BuildParams { uarm: number; larm: number; thigh: number; calf: number; chestX: number; chestZ: number; waistX: number; glute: number; belly: number; neck: number; hand: number; hipX: number }
+interface BuildParams { trap: number; lat: number; uarm: number; larm: number; thigh: number; calf: number; chestX: number; chestZ: number; waistX: number; glute: number; belly: number; neck: number; hand: number; hipX: number }
 const BUILDS: Record<'m' | 'f', BuildParams[]> = {
   m: [
-    { uarm: 0.8, larm: 0.86, thigh: 0.82, calf: 0.86, chestX: 0.9, chestZ: 0.84, waistX: 0.94, glute: 0.66, belly: 0.0, neck: 0.86, hand: 0.9, hipX: 0.94 },
-    { uarm: 0.86, larm: 0.9, thigh: 0.88, calf: 0.9, chestX: 0.94, chestZ: 0.88, waistX: 1.02, glute: 0.72, belly: 0.03, neck: 0.9, hand: 0.92, hipX: 0.97 },
-    { uarm: 0.97, larm: 0.98, thigh: 0.98, calf: 0.97, chestX: 1.0, chestZ: 0.98, waistX: 1.14, glute: 0.84, belly: 0.085, neck: 0.98, hand: 0.97, hipX: 1.02 },
+    { trap: 0.5, lat: 0.4, uarm: 0.77, larm: 0.85, thigh: 0.82, calf: 0.86, chestX: 0.9, chestZ: 0.84, waistX: 0.94, glute: 0.66, belly: 0.0, neck: 0.86, hand: 0.9, hipX: 0.94 },
+    { trap: 0.45, lat: 0.33, uarm: 0.83, larm: 0.89, thigh: 0.88, calf: 0.9, chestX: 0.94, chestZ: 0.88, waistX: 1.02, glute: 0.72, belly: 0.03, neck: 0.9, hand: 0.92, hipX: 0.97 },
+    { trap: 0.35, lat: 0.2, uarm: 0.97, larm: 0.98, thigh: 0.98, calf: 0.97, chestX: 1.0, chestZ: 0.98, waistX: 1.14, glute: 0.84, belly: 0.085, neck: 0.98, hand: 0.97, hipX: 1.02 },
   ],
   f: [
-    { uarm: 0.84, larm: 0.9, thigh: 0.84, calf: 0.88, chestX: 0.94, chestZ: 0.9, waistX: 0.96, glute: 0.7, belly: 0.0, neck: 0.92, hand: 0.94, hipX: 0.92 },
-    { uarm: 0.9, larm: 0.94, thigh: 0.9, calf: 0.92, chestX: 0.97, chestZ: 0.94, waistX: 1.04, glute: 0.76, belly: 0.025, neck: 0.95, hand: 0.95, hipX: 0.96 },
-    { uarm: 1.0, larm: 1.0, thigh: 1.0, calf: 0.98, chestX: 1.03, chestZ: 1.0, waistX: 1.15, glute: 0.86, belly: 0.07, neck: 1.0, hand: 1.0, hipX: 1.03 },
+    { trap: 0.3, lat: 0.25, uarm: 0.84, larm: 0.9, thigh: 0.84, calf: 0.88, chestX: 0.94, chestZ: 0.9, waistX: 0.96, glute: 0.7, belly: 0.0, neck: 0.92, hand: 0.94, hipX: 0.92 },
+    { trap: 0.3, lat: 0.22, uarm: 0.9, larm: 0.94, thigh: 0.9, calf: 0.92, chestX: 0.97, chestZ: 0.94, waistX: 1.04, glute: 0.76, belly: 0.025, neck: 0.95, hand: 0.95, hipX: 0.96 },
+    { trap: 0.25, lat: 0.12, uarm: 1.0, larm: 1.0, thigh: 1.0, calf: 0.98, chestX: 1.03, chestZ: 1.0, waistX: 1.15, glute: 0.86, belly: 0.07, neck: 1.0, hand: 1.0, hipX: 1.03 },
   ],
 };
 
@@ -294,8 +297,7 @@ interface Src {
   weld: Int32Array; canon: number;
 }
 
-function readMesh(mesh: THREE.SkinnedMesh, xf: THREE.Matrix4 | null, boneRemap: Int32Array | null): Src {
-  const g = mesh.geometry;
+function readMesh(g: THREE.BufferGeometry, xf: THREE.Matrix4 | null, boneRemap: Int32Array | null): Src {
   const pa = g.getAttribute('position'), na = g.getAttribute('normal'), ua = g.getAttribute('uv');
   const sia = g.getAttribute('skinIndex'), swa = g.getAttribute('skinWeight');
   const n = pa.count;
@@ -381,7 +383,7 @@ function deformBody(s: Src, base: Base, bp: BuildParams): void {
     for (const [ck, lb] of Object.entries(limbs) as [string, { l: readonly [THREE.Vector3, THREE.Vector3]; r: readonly [THREE.Vector3, THREE.Vector3]; s: number }][]) {
       const wc = w[Number(ck)];
       if (wc <= 0) continue;
-      const [A, B] = left ? lb.l : lb.r;
+      const [A, B] = (lb.l[0].x >= 0) === left ? lb.l : lb.r;
       ab.subVectors(B, A);
       const t = Math.min(1, Math.max(0, q.subVectors(p, A).dot(ab) / ab.lengthSq()));
       q.copy(A).addScaledVector(ab, t);
@@ -392,7 +394,7 @@ function deformBody(s: Src, base: Base, bp: BuildParams): void {
     }
     // hands: shrink toward the wrist
     if (w[Cat.Hand] > 0) {
-      const wr = left ? wristL : wristR;
+      const wr = (wristL.x >= 0) === left ? wristL : wristR;
       d.addScaledVector(q.subVectors(p, wr).multiplyScalar(bp.hand - 1), w[Cat.Hand]);
     }
     // torso: width / depth about the spine axis
@@ -407,6 +409,12 @@ function deformBody(s: Src, base: Base, bp: BuildParams): void {
       // belly
       if (front && bp.belly > 0) d.z += bp.belly * win(p.y, L.hipY + 0.02, L.armY - 0.24, 0.07) * smooth01(0.02, 0.09, p.z - za) * wt;
     }
+    // trapezius slope + lats (superhero V-taper → everyday shoulders)
+    const ax = Math.abs(p.x);
+    if (w[Cat.UArm] + w[Cat.Clav] + w[Cat.Spine] + w[Cat.Neck] > 0.3 && p.y > L.armY - 0.03 && ax < L.shoulderX + 0.06) {
+      d.y -= bp.trap * smooth01(0.045, 0.11, ax) * (p.y - (L.armY - 0.03)) * (1 - smooth01(L.shoulderX - 0.01, L.shoulderX + 0.06, ax));
+    }
+    if (wt > 0 && ax > 0.08) d.x -= Math.sign(p.x) * (ax - 0.08) * bp.lat * win(p.y, L.armY - 0.34, L.armY - 0.06, 0.05) * wt;
     // glutes (pelvis + upper thigh, back side)
     const zg = J('pelvis').z;
     if (p.z < zg && Math.abs(p.x) < 0.24) {
@@ -431,7 +439,7 @@ function pushVert(o: Out, s: Src, i: number, p: ArrayLike<number>, pi: number, n
  * A garment shell over the selected body region: Laplacian-smoothed (bridges the concavities between muscles, like
  * fabric draping over the body), never inside the body, pushed out by `push` meters.
  */
-function addShell(o: Out, s: Src, sel: (i: number) => boolean, layer: number, iters: number, push: number, post?: (p: THREE.Vector3, orig: THREE.Vector3) => void) {
+function addShell(o: Out, s: Src, sel: (i: number) => boolean, layer: number, iters: number, push: number, restore: number, post?: (p: THREE.Vector3, orig: THREE.Vector3) => void) {
   const inSel = new Uint8Array(s.n);
   for (let i = 0; i < s.n; i++) inSel[i] = sel(i) ? 1 : 0;
   const tris: number[] = [];
@@ -491,7 +499,7 @@ function addShell(o: Out, s: Src, sel: (i: number) => boolean, layer: number, it
     nv.set(cn[c * 3], cn[c * 3 + 1], cn[c * 3 + 2]).normalize();
     pv.set(cur[c * 3], cur[c * 3 + 1], cur[c * 3 + 2]);
     ov.set(orig[c * 3], orig[c * 3 + 1], orig[c * 3 + 2]);
-    const inside = Math.max(0, ov.clone().sub(pv).dot(nv));
+    const inside = Math.max(0, ov.clone().sub(pv).dot(nv)) * restore;
     pv.addScaledVector(nv, inside + push);
     post?.(pv, ov);
     fin[c * 3] = pv.x; fin[c * 3 + 1] = pv.y; fin[c * 3 + 2] = pv.z;
@@ -587,7 +595,7 @@ function addFacePart(o: Out, base: Base, mesh: THREE.SkinnedMesh, layer: number)
   const remap = new Int32Array(mesh.skeleton.bones.length);
   mesh.skeleton.bones.forEach((b, i) => { remap[i] = bodyBones.indexOf(b.name); });
   const xf = new THREE.Matrix4().copy(base.src.bindMatrixInverse).multiply(mesh.bindMatrix);
-  const s = readMesh(mesh, xf, remap);
+  const s = readMesh(mesh.geometry, xf, remap);
   // per-eye centers for the procedural iris
   const cL = new THREE.Vector3(), cR = new THREE.Vector3();
   let nL = 0, nR = 0;
@@ -606,7 +614,7 @@ function addFacePart(o: Out, base: Base, mesh: THREE.SkinnedMesh, layer: number)
 }
 
 function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
-  const s = readMesh(base.src, null, null);
+  const s = readMesh(base.geo0, null, null);
   deformBody(s, base, BUILDS[base.sex][build]);
   s.N = weldedNormals(s.P, s.idx, s.weld, s.canon, s.n);
   const { L } = base;
@@ -618,13 +626,13 @@ function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
   const isArm = (i: number) => armT(i) > 0.12 && s.P[i * 3 + 1] > L.hipY;
   const y = (i: number) => s.P[i * 3 + 1];
   // top (torso + arms)
-  addShell(o, s, (i) => (isArm(i) ? armT(i) < 1.04 : y(i) > L.hipY - 0.2 && y(i) < L.neckY + 0.05), 1, 14, 0.009);
+  addShell(o, s, (i) => (isArm(i) ? armT(i) < 1.04 : y(i) > L.hipY - 0.2 && y(i) < L.neckY + 0.05), 1, 22, 0.011, 0.6);
   // bottom (hips + legs)
-  addShell(o, s, (i) => !isArm(i) && y(i) < L.pelvisY + 0.12 && y(i) > L.ankleY - 0.035, 2, 10, 0.007);
+  addShell(o, s, (i) => !isArm(i) && y(i) < L.pelvisY + 0.12 && y(i) > L.ankleY - 0.035, 2, 14, 0.008, 0.7);
   // shoes: heavily smoothed (no toes), flat sole, slightly longer toe box
   let toeZ = -1e9;
   for (let i = 0; i < s.n; i++) if (y(i) < 0.06) toeZ = Math.max(toeZ, s.P[i * 3 + 2]);
-  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 22, 0.011, (p) => {
+  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 22, 0.011, 1, (p) => {
     if (p.y < 0.02) p.y = Math.min(p.y, -0.006);
     p.y = Math.max(p.y, -0.014);
     if (p.z > toeZ - 0.07 && p.y < 0.07) p.z += 0.012 * smooth01(toeZ - 0.07, toeZ - 0.01, p.z);
@@ -664,7 +672,8 @@ float pzLegT(vec3 p) { return (uL2.x - p.y) / (uL2.x - uL2.z); }
 vec4 pzCover(vec3 p) {
   float at = pzArmT(p);
   bool arm = at > 0.12 && p.y > uL2.x;
-  float top = arm ? step(at, uTopP.x) : step(uTopP.y, p.y) * step(p.y, uTopQ.x);
+  float collar = max(step(p.y, uTopQ.x), step(0.072 + max(p.y - uTopQ.x, 0.0) * 0.9, abs(p.x)) * step(p.y, uL3.y));
+  float top = arm ? step(at, uTopP.x) : step(uTopP.y, p.y) * collar;
   float bot = arm ? 0.0 : step(p.y, uBotP.w) * step(pzLegT(p), uBotP.x);
   float shoe = arm ? 0.0 : step(p.y, uShoeP.x);
   return vec4(top, bot, shoe, 0.0);
@@ -728,7 +737,8 @@ if (pzKind < 0.5) {
   pzCol = uSkinCol * clamp(det, 0.0, 2.2);
   // buzz cut / scalp under hair
   if (uMisc.x > 0.5) {
-    float scalp = max(smoothstep(uL3.w - 0.085, uL3.w - 0.06, pzP.y),
+    float hl = uL3.w - 0.085 + 0.032 * smoothstep(uL4.x + 0.01, uL4.y - 0.015, pzP.z) * (1.0 - 0.35 * smoothstep(0.02, 0.06, abs(pzP.x)));
+    float scalp = max(smoothstep(hl, hl + 0.02, pzP.y),
       smoothstep(uL4.x - 0.005, uL4.x - 0.03, pzP.z) * smoothstep(uL4.z - 0.03, uL4.z - 0.005, pzP.y) * step(abs(pzP.x), 0.085));
     pzCol = mix(pzCol, uHairCol * (0.75 + 0.5 * pzN), scalp * 0.92);
     if (scalp > 0.5) pzSkin = 0.0;
@@ -843,8 +853,7 @@ function makeUniforms(base: Base): U {
 }
 
 function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
-  const src = base.src.material as THREE.MeshStandardMaterial;
-  const m = new THREE.MeshStandardMaterial({ map: src.map, roughness: 1, metalness: 0 });
+  const m = new THREE.MeshStandardMaterial({ map: base.map, roughness: 1, metalness: 0 });
   m.name = 'gt-person';
   const maps = MAPS[base.sex];
   if (maps.normal) { m.normalMap = maps.normal; m.normalScale.set(0.55, -0.55); }
@@ -858,8 +867,8 @@ function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
         {
           float L = floor(gt.x + 0.5);
           if (L < 0.5) { vec4 cv = pzCover(position); if (cv.x + cv.y + cv.z > 0.5) transformed -= normal * 0.004; }
-          else if (L < 1.5) transformed += normal * uTopP.z;
-          else if (L < 2.5) transformed += normal * uBotP.y;
+          else if (L < 1.5) { vec4 cv = pzCover(position); transformed += normal * (uTopP.z + cv.y * (0.006 + uBotP.y)); }
+          else if (L < 2.5) { vec4 cv = pzCover(position); transformed += normal * (cv.x > 0.5 ? -0.003 : uBotP.y); }
           else if (L < 4.5 && L > 3.5) transformed += normal * uBotQ.w;
         }`)
       .replace('#include <skinning_vertex>', `#include <skinning_vertex>
@@ -1021,13 +1030,32 @@ function hatGeometry(base: Base, hat: HatKind, glasses: boolean, longHair: boole
         parts.push(colorGeo(rim, 1));
       }
     }
+  } else if (hat === 'hood') {
+    // Hood up: a soft sack around the head, open at the face, draping down the back of the neck onto the shoulders.
+    const cy = L.eyeY + 0.005, czh = cz - 0.012;
+    const R = { x: rx + 0.034, y: top - cy + 0.034, z: rz + 0.05 };
+    const open = 0.95;
+    const hood = new THREE.SphereGeometry(1, 26, 16, Math.PI / 2 + open, Math.PI * 2 - open * 2, 0, Math.PI * 0.86);
+    const pa = hood.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pa.count; i++) {
+      let x = pa.getX(i) * R.x, y = pa.getY(i) * R.y, z = pa.getZ(i) * R.z;
+      if (y < 0) {
+        const t = Math.min(1, -y / R.y);
+        x *= 1 - 0.18 * t;                        // gathers toward the neck
+        z = z * (1 - 0.25 * t) - 0.03 * t;        // hangs behind the neck
+        y *= 1 + 0.35 * t;                        // drapes lower at the back
+      }
+      if (z > 0.02) z -= 0.012 * Math.min(1, (z - 0.02) / 0.05); // soft rim slightly behind the face
+      pa.setXYZ(i, x, y + cy, z + czh);
+    }
+    parts.push(colorGeo(hood, 1));
   } else if (hat === 'police') {
     const baseY = L.eyeY + 0.05, pad = 0.012 + extra;
-    const band = new THREE.CylinderGeometry(1, 1, 0.045, 22, 1);
-    band.scale(rx + pad, 1, rz + pad); band.translate(0, baseY + 0.02, cz);
-    parts.push(colorGeo(band, 0.35));
-    const crownG = new THREE.CylinderGeometry(1.14, 1, 0.07, 22, 1);
-    crownG.scale(rx + pad + 0.004, 1, rz + pad + 0.012); crownG.translate(0, baseY + 0.075, cz - 0.004);
+    const band = new THREE.CylinderGeometry(1, 1, 0.038, 22, 1);
+    band.scale(rx + pad, 1, rz + pad); band.translate(0, baseY + 0.017, cz);
+    parts.push(colorGeo(band, 0.3));
+    const crownG = new THREE.CylinderGeometry(1.2, 1, 0.042, 22, 1);
+    crownG.scale(rx + pad + 0.004, 1, rz + pad + 0.01); crownG.translate(0, baseY + 0.057, cz - 0.006);
     parts.push(colorGeo(crownG, 1));
     const bill = new THREE.CylinderGeometry(1, 1, 0.007, 16, 1, false, -Math.PI / 2, Math.PI);
     bill.scale(rx + pad - 0.01, 1, 0.06); bill.rotateX(0.32); bill.translate(0, baseY + 0.004, cz + rz + pad - 0.02);
@@ -1077,7 +1105,7 @@ function accMaterial(hat: HatKind, color: string): THREE.Material {
   const key = `${hat}|${color}`;
   let m = ACC_MAT.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ vertexColors: true, color: hat === 'none' ? '#ffffff' : color, roughness: hat === 'hardhat' ? 0.35 : hat === 'police' ? 0.6 : 0.85, metalness: 0 });
+    m = new THREE.MeshStandardMaterial({ vertexColors: true, color: hat === 'none' ? '#ffffff' : color, roughness: hat === 'hardhat' ? 0.35 : hat === 'police' ? 0.6 : 0.92, metalness: 0, side: hat === 'hood' ? THREE.DoubleSide : THREE.FrontSide });
     m.name = 'gt-acc';
     ACC_MAT.set(key, m);
   }
@@ -1146,7 +1174,7 @@ function setAccessories(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Bas
   const head = body.skeleton.bones[base.headBone];
   if (head) for (const c of [...head.children]) if (c.name === 'gt-acc' || c.name === 'cap') head.remove(c);
   // Hair: short hair is hidden under caps/police caps/hard hats (sides read as the buzz-painted scalp).
-  const hatHides = look.hat !== 'none' && look.hair !== 'long';
+  const hatHides = look.hat === 'hood' || (look.hat !== 'none' && look.hair !== 'long');
   if ((look.hair === 'short' || look.hair === 'long') && !hatHides) {
     const h = hairFor(base, look.hair);
     if (h) {

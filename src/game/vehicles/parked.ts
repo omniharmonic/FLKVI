@@ -23,6 +23,8 @@ export interface ParkedSlot {
   heading: number;
   seed: number;
   active: boolean; // true while promoted (hidden from instancing)
+  /** perf: promoted but still asleep and untouched — keep drawing it via instancing (its Vehicle visual is hidden). */
+  sleepy?: boolean;
   colliders: RAPIER_NS.Collider[];
   near: boolean;
   /** Cached instance matrix (column-major) and color; rebuilt when the pose changes. */
@@ -98,7 +100,13 @@ export class ParkingSystem {
     const nearBody = new THREE.InstancedMesh(m.body, [paint, mats.glass, mats.dark, mats.trim], cap);
     const miscGeos: THREE.BufferGeometry[] = [];
     const miscMats: THREE.Material[] = [];
-    const push = (g: THREE.BufferGeometry | null | undefined, mat: THREE.Material) => { if (g) { miscGeos.push(g); miscMats.push(mat); } };
+    // parts sharing a material share one group (one draw call per material, perf)
+    const push = (g: THREE.BufferGeometry | null | undefined, mat: THREE.Material) => {
+      if (!g) return;
+      const k = miscMats.indexOf(mat);
+      if (k >= 0) miscGeos[k] = mergeGeometries([clean(miscGeos[k].clone()), clean(g.clone())], false)!;
+      else { miscGeos.push(g); miscMats.push(mat); }
+    };
     push(m.trim, mats.trim); push(m.chrome, mats.chrome); push(m.grille, mats.grille); push(m.head, mats.headOff);
     push(m.tail, mats.tailOff); push(m.reverse, mats.revOff); push(m.plate, plateMaterial()); push(m.paintParts, mats.trim);
     const misc = mergeGeometries(miscGeos.map(clean), true)!;
@@ -159,9 +167,18 @@ export class ParkingSystem {
     this.dirty = true;
   }
 
+  /** perf: draw a promoted-but-sleeping car through instancing (pose = its current pose) or hand it back to its Vehicle. */
+  setSleepy(s: ParkedSlot, on: boolean, x?: number, y?: number, z?: number, heading?: number) {
+    if (!!s.sleepy === on) return;
+    s.sleepy = on;
+    if (on && x !== undefined) { s.x = x; s.y = y!; s.z = z!; s.heading = heading!; s.m = undefined; }
+    this.dirty = true;
+  }
+
   /** Put a vehicle back as a parked instance at its current pose. */
   deactivate(s: ParkedSlot, x: number, y: number, z: number, heading: number) {
     s.active = false;
+    s.sleepy = false;
     s.x = x; s.y = y; s.z = z; s.heading = heading;
     s.m = undefined;
     this.addColliders(s);
@@ -222,7 +239,7 @@ export class ParkingSystem {
       const fb2 = set.farBody2.instanceMatrix.array as Float32Array;
       const far2 = FAR2_DIST * FAR2_DIST;
       for (const s of set.slots) {
-        if (s.active) continue;
+        if (s.active && !s.sleepy) continue;
         const d2 = (s.x - cam.x) ** 2 + (s.z - cam.z) ** 2;
         if (d2 > max2) continue;
         const m = this.slotMatrix(s);
