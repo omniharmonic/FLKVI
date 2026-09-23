@@ -39,18 +39,19 @@ interface ModelSet {
   nearMisc: THREE.InstancedMesh;
   nearWheels: THREE.InstancedMesh;
   farBody: THREE.InstancedMesh;
-  /** Very far (> FAR2_DIST): lod2 body; shares farMisc for wheels/lamps. */
+  /** Very far (> FAR2_DIST): box proxy (body + glasshouse + dark wheel band), one draw. */
   farBody2: THREE.InstancedMesh;
   farMisc: THREE.InstancedMesh;
 }
 
-const NEAR_DIST = 45;
-const MAX_DIST = 520;
+const NEAR_DIST = 40;
+/** Parked cars beyond this are culled (perf: ~1M tris of parked cars in dense cities otherwise). */
+const MAX_DIST = 300;
 const EXTRA = 24;
 /** Parked cars cast sun shadows (via the shared hull proxies) out to this distance. */
 const SHADOW_DIST = 100;
-/** Beyond this, parked cars switch to the very-far lod2 body. */
-const FAR2_DIST = 110;
+/** Beyond this, parked cars switch to a ~36-triangle box proxy (no wheels / lamps). */
+const FAR2_DIST = 120;
 /** Always keep instances this close regardless of the view frustum (their shadows reach into view). */
 const KEEP_DIST = 30;
 
@@ -154,8 +155,8 @@ export class ParkingSystem {
     const nearWheels = new THREE.InstancedMesh(wheels, [mats.tire, mats.rim, mats.rimDark], cap);
     const farBody = new THREE.InstancedMesh(m.lod.body, [paint, mats.glassFar, mats.dark, mats.trim], cap);
     // One group per merged input: wheels (tire+rim collapse to tire at distance), head, tail.
-    // very far: one draw — lod2 body with its 4 material groups baked to vertex colours (× instance paint)
-    const farBody2 = new THREE.InstancedMesh(bakedLod2(m), veryFarMaterial(), cap);
+    // very far: one draw — box proxy with vertex colours (× instance paint)
+    const farBody2 = new THREE.InstancedMesh(boxProxy(m), veryFarMaterial(), cap);
     const farMisc = new THREE.InstancedMesh(mergeGeometries([clean(m.lod.wheels.clone()), clean(m.lod.head.clone()), clean(m.lod.tail.clone())], true)!, [mats.tire, mats.headOff, mats.tailOff], cap);
     for (const im of [nearBody, nearMisc, nearWheels, farBody, farBody2, farMisc]) {
       im.count = 0;
@@ -289,18 +290,17 @@ export class ParkingSystem {
         } else if (d2 < far2) {
           fb.set(m, f * 16);
           set.farBody.setColorAt(f, s.col!);
-          fm.set(m, (f + f2) * 16);
+          fm.set(m, f * 16);
           f++;
         } else {
           fb2.set(m, f2 * 16);
           set.farBody2.setColorAt(f2, s.col!);
-          fm.set(m, (f + f2) * 16);
           f2++;
         }
       }
       if (sbuf && shadows) shadows.setStatic(set.model, sbuf, sc);
       for (const im of [set.nearBody, set.nearMisc, set.nearWheels]) { im.count = n; im.instanceMatrix.needsUpdate = true; }
-      set.farBody.count = f; set.farBody2.count = f2; set.farMisc.count = f + f2;
+      set.farBody.count = f; set.farBody2.count = f2; set.farMisc.count = f;
       for (const im of [set.farBody, set.farBody2, set.farMisc]) im.instanceMatrix.needsUpdate = true;
       for (const im of [set.nearBody, set.farBody, set.farBody2]) if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
@@ -325,8 +325,37 @@ function veryFarMaterial() {
   return vfMat;
 }
 
+/**
+ * Box proxy for distant parked cars (> FAR2_DIST): paint body box, tapered dark glasshouse with a
+ * paint roof, and a dark band underneath standing in for wheels/underbody. Vertex colours × paint.
+ */
+function boxProxy(m: CarModel) {
+  const bottom = m.colCenter.y - m.colHalf.y, belt = m.colCenter.y + m.colHalf.y;
+  const parts: THREE.BufferGeometry[] = [];
+  const box = (w: number, h: number, d: number, y: number, z: number, faceCol: (face: number) => number, taper = 1) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const p = g.attributes.position as THREE.BufferAttribute;
+    if (taper !== 1) for (let i = 0; i < p.count; i++) if (p.getY(i) > 0) p.setXYZ(i, p.getX(i) * taper, p.getY(i), p.getZ(i) * (0.5 + taper * 0.5) - d * 0.04);
+    g.translate(0, y, z);
+    g.deleteAttribute('uv');
+    const col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) col.fill(faceCol(Math.floor(i / 4)), i * 3, i * 3 + 3);
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    parts.push(g);
+  };
+  const dark = 0.03;
+  box(m.W * 2 - 0.12, bottom - 0.02, m.L - 0.4, (bottom + 0.02) / 2, 0, () => 0.015);
+  box(m.W * 2, belt - bottom, m.L, (belt + bottom) / 2, 0, () => 1);
+  const cabLen = (m.cabHalf.z * 2) / 0.8;
+  box(m.cabHalf.x * 2 + 0.1, m.roofY - belt, cabLen, (m.roofY + belt) / 2, m.cabCenter.z, (f) => (f === 2 ? 1 : dark), 0.82);
+  const g = mergeGeometries(parts, false)!;
+  g.computeBoundingSphere();
+  return g;
+}
+
 /** lod2 body with groups (paint, glass, dark, trim) baked into a colour attribute. */
-function bakedLod2(m: CarModel) {
+export function bakedLod2(m: CarModel) {
   const src = m.lod2.body;
   const g = new THREE.BufferGeometry();
   for (const k of ['position', 'normal']) if (src.attributes[k]) g.setAttribute(k, src.attributes[k]);

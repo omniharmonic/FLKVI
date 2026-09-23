@@ -210,6 +210,8 @@ export class PropSystem {
   /** Traffic-signal poles with their mast arm (arm dir unit x/z, length m, arm height y+6.6). Read by surveillance to mount clusters. */
   masts: { x: number; y: number; z: number; dx: number; dz: number; len: number }[] = [];
   private lampGrid = new Grid<number>(60);
+  /** utility-pole indices that carry a street-light arm (residential consolidation) */
+  private poleLamps = new Set<number>();
   private heads: { node: number; axis: number; bearing: number; idx: number }[] = [];
   private lensMeshes: THREE.InstancedMesh[] = [];
   private lights: THREE.SpotLight[] = [];
@@ -337,6 +339,19 @@ export class PropSystem {
         lights.push({ p, dir: [q.x - p[0], q.z - p[1]].map((v) => v / off) as Vec2 });
         lightGrid.add(p[0], p[1], p);
       }
+    }
+    // residential streets with utility poles: hang the street light on the pole (cobra arm) instead of a
+    // separate lamp post a few metres away — consolidate each pole with its nearest dedicated light
+    const RES = /^(residential|unclassified|living_street)$/;
+    for (let i = 0; i < poles.length; i++) {
+      const p = poles[i];
+      const h = this.roads.nearestChain([p.x, p.z], 20);
+      if (!h || !RES.test(h.c.cls)) continue;
+      let best = -1, bd = 14;
+      lights.forEach((l, k) => { const d = Math.hypot(l.p[0] - p.x, l.p[1] - p.z); if (d < bd) { bd = d; best = k; } });
+      if (best < 0) continue;
+      lights.splice(best, 1);
+      this.poleLamps.add(i);
     }
     for (const l of lights) {
       const [x, z] = l.p, y = this.groundAt(x, z);
@@ -537,13 +552,12 @@ export class PropSystem {
   private buildWires(poles: THREE.Vector3[], kits: Record<string, KitInstances>) {
     if (!poles.length) return;
     const MAX_SPAN = 45, FREE_SPAN = 38;
-    const RES = /^(residential|unclassified|living_street)$/;
     const info = poles.map((p) => {
       const h = this.roads.nearestChain([p.x, p.z], 30);
-      if (!h) return { key: '', s: 0, t: null as Vec2 | null, toRoad: null as Vec2 | null, resid: false };
+      if (!h) return { key: '', s: 0, t: null as Vec2 | null, toRoad: null as Vec2 | null };
       const q = sampleAt(h.c.pts, h.c.L, h.s);
       const dx = q.x - p.x, dz = q.z - p.z, l = Math.hypot(dx, dz) || 1;
-      return { key: `${h.c.idx}:${Math.sign(h.off) || 1}`, s: h.s, t: [q.dx, q.dz] as Vec2, toRoad: [dx / l, dz / l] as Vec2, resid: RES.test(h.c.cls) };
+      return { key: `${h.c.idx}:${Math.sign(h.off) || 1}`, s: h.s, t: [q.dx, q.dz] as Vec2, toRoad: [dx / l, dz / l] as Vec2 };
     });
     // span must stay clear of buildings (wires at ~10.8 m: any footprint under them reads as clipping)
     const clear = (a: THREE.Vector3, b: THREE.Vector3) => {
@@ -589,18 +603,14 @@ export class PropSystem {
       kits.utility.add(this.mat(p.x, p.y, p.z, yaws[i]));
       // pole-top transformer on roughly one pole in four that carries wires
       if (degree[i] > 0 && H(i) < 0.27) kits.utilityXf.add(this.mat(p.x, p.y, p.z, yaws[i]));
-      // residential: cobra-head arm bolted to some poles where no dedicated streetlight is close
+      // residential: cobra-head arm on poles that absorbed a nearby dedicated street light (see build())
       const f = info[i];
-      if (f.resid && f.toRoad && H(i + 7919) < 0.5) {
-        let lit = false;
-        this.lampGrid.query(p.x, p.z, 22, (k) => { if (Math.hypot(this.lamps[k].x - p.x, this.lamps[k].z - p.z) < 22) lit = true; });
-        if (!lit) {
-          const m = this.mat(p.x, p.y, p.z, Math.atan2(-f.toRoad[1], f.toRoad[0]));
-          kits.utilityLamp.add(m);
-          const lp = POLE_LAMP_OFFSET.clone().applyMatrix4(m);
-          this.lampGrid.add(lp.x, lp.z, this.lamps.length);
-          this.lamps.push(lp);
-        }
+      if (this.poleLamps.has(i) && f.toRoad) {
+        const m = this.mat(p.x, p.y, p.z, Math.atan2(-f.toRoad[1], f.toRoad[0]));
+        kits.utilityLamp.add(m);
+        const lp = POLE_LAMP_OFFSET.clone().applyMatrix4(m);
+        this.lampGrid.add(lp.x, lp.z, this.lamps.length);
+        this.lamps.push(lp);
       }
     });
     const pts: number[] = [];
