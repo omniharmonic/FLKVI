@@ -1,0 +1,604 @@
+{
+ "adobe": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#73593d"
+ },
+ "asphalt": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#2d2a2a"
+ },
+ "asphalt-patched": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#5b5955"
+ },
+ "asphalt-worn": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#33312f"
+ },
+ "bark": {
+  "sizeM": 1,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#5f553f"
+ },
+ "board-batten": {
+  "sizeM": 1.8,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#b5a69e",
+  "tintable": true
+ },
+ "brick-brown": {
+  "sizeM": 1.9,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#453430"
+ },
+ "brick-old": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#654a3d"
+ },
+ "brick-painted": {
+  "sizeM": 1.8,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#ab9d79",
+  "tintable": true
+ },
+ "brick-red": {
+  "sizeM": 1.4,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#8f6652"
+ },
+ "brick-tan": {
+  "sizeM": 4,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#977c67"
+ },
+ "brick-white": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#a7998d",
+  "tintable": true
+ },
+ "cmu-block": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#5f5f5f",
+  "tintable": true
+ },
+ "cobble": {
+  "sizeM": 2.4,
+  "maps": [
+   "color",
+   "normal",
+   "rough"
+  ],
+  "res": 1024,
+  "avg": "#6f6757"
+ },
+ "concrete": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#565656"
+ },
+ "concrete-precast": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#777264"
+ },
+ "concrete-sidewalk": {
+  "sizeM": 6,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#877b70"
+ },
+ "corrugated-metal": {
+  "sizeM": 1.8,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#797675"
+ },
+ "curb": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#786d5b"
+ },
+ "decal-cracks": {
+  "sizeM": 1.2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#858082",
+  "decal": true
+ },
+ "decal-graffiti": {
+  "sizeM": 2.4,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#9a886d",
+  "decal": true
+ },
+ "decal-gum": {
+  "sizeM": 1,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#151211",
+  "decal": true
+ },
+ "decal-leak-1": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "opacity"
+  ],
+  "res": 256,
+  "avg": "#312b20",
+  "decal": true
+ },
+ "decal-leak-2": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#1a1815",
+  "decal": true
+ },
+ "decal-manhole": {
+  "sizeM": 0.8,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#685a57",
+  "decal": true
+ },
+ "decal-manhole-2": {
+  "sizeM": 0.9,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao",
+   "opacity"
+  ],
+  "res": 1024,
+  "avg": "#857565",
+  "decal": true
+ },
+ "decal-oil": {
+  "sizeM": 1.5,
+  "maps": [
+   "color",
+   "rough",
+   "opacity"
+  ],
+  "res": 64,
+  "avg": "#1a1710",
+  "decal": true
+ },
+ "decal-paint-splat": {
+  "sizeM": 0.6,
+  "maps": [
+   "color",
+   "rough",
+   "opacity"
+  ],
+  "res": 64,
+  "avg": "#f2f2f2",
+  "decal": true
+ },
+ "decal-puddle": {
+  "sizeM": 2.5,
+  "maps": [
+   "color",
+   "rough",
+   "opacity"
+  ],
+  "res": 64,
+  "avg": "#191d1e",
+  "decal": true
+ },
+ "dirt": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#64523f"
+ },
+ "grass": {
+  "sizeM": 1.4,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#616c31"
+ },
+ "grass-dry": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#98835a"
+ },
+ "gravel": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#513e2d"
+ },
+ "lap-siding": {
+  "sizeM": 1.96,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#ada69b",
+  "tintable": true
+ },
+ "leaves-ground": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#8e6f3b"
+ },
+ "metal-panel": {
+  "sizeM": 2.7,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#595752"
+ },
+ "metal-shutter": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#818286"
+ },
+ "painted-metal": {
+  "sizeM": 2.5,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#5b5b5b",
+  "tintable": true
+ },
+ "paving": {
+  "sizeM": 1.92,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#685e54"
+ },
+ "plaster": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#b1a79d",
+  "tintable": true
+ },
+ "roof-asphalt-shingle": {
+  "sizeM": 8,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#585553"
+ },
+ "roof-clay-tile": {
+  "sizeM": 2.5,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#914f2c"
+ },
+ "roof-gravel": {
+  "sizeM": 1.9,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#6d6860"
+ },
+ "roof-membrane": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#7b7b7b",
+  "tintable": true
+ },
+ "roof-slate": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#918676"
+ },
+ "roof-standing-seam": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#5a5a5a",
+  "tintable": true
+ },
+ "rust-metal": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#786d54"
+ },
+ "sandstone": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#a69275"
+ },
+ "stone": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#a3917b"
+ },
+ "stucco": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 2048,
+  "avg": "#d7d3d2",
+  "tintable": true
+ },
+ "tiles-terracotta": {
+  "sizeM": 2.08,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#4e261b"
+ },
+ "wood-planks": {
+  "sizeM": 1.87,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#a57f57"
+ },
+ "wood-shingle": {
+  "sizeM": 1.5,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#5c4e3c"
+ }
+}

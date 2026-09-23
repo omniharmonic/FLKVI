@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Surveillance dev harness</title>
+    <style>html,body{margin:0;height:100%;overflow:hidden;background:#000}#app{position:fixed;inset:0}#hud{position:fixed;left:8px;top:8px;color:#fff;font:12px monospace;background:#0009;padding:6px 8px;white-space:pre;z-index:10}#toast{position:fixed;left:50%;top:14%;transform:translateX(-50%);color:#fff;font:600 15px system-ui;z-index:10;text-align:center;text-shadow:0 1px 3px #000}#prompt{position:fixed;left:50%;bottom:18%;transform:translateX(-50%);color:#fff;font:600 16px system-ui;background:#000a;padding:6px 12px;border-radius:6px;z-index:10}#bar{position:fixed;left:50%;bottom:14%;transform:translateX(-50%);width:260px;height:8px;background:#0008;border-radius:4px;z-index:10}#bar>div{height:100%;background:#ffb020;border-radius:4px;width:0}</style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="ui-root"></div>
+    <div id="hud"></div>
+    <div id="toast"></div>
+    <div id="prompt" style="display:none"></div>
+    <div id="bar"><div></div></div>
+    <script type="module" src="./survdev.ts"></script>
+  </body>
+</html>

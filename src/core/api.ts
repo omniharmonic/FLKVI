@@ -41,6 +41,10 @@ export interface PlayerAPI {
   respawn(p: Vec2, heading?: number): void;
   /** Busy lock for hold-to-act interactions (surveillance owns it while acting). */
   busy: boolean;
+  /** Optional: crouching/sneaking (AI perception shortens detection range). */
+  crouching?: boolean;
+  /** Optional (gameplay): sprinting on foot — louder / more conspicuous. */
+  sprinting?: boolean;
 }
 
 /** A dynamic vehicle in the world (player, traffic, police, parked). Owned by src/game (vehicles). */
@@ -83,14 +87,35 @@ export interface HeatAPI {
   clear(): void;
 }
 
+/** Owned by src/ai (optional). Hooks for the surveillance Escalation director / debugging. */
+export interface AIAPI {
+  /** Idle police patrol cars cruising at heat 0 (default 2). */
+  setPatrolDensity(n: number): void;
+  readonly patrolDensity: number;
+}
+
 /** Owned by src/surveillance. */
 export interface SurveillanceAPI {
-  cameras(): (RecipeCamera & { status: 'active' | 'disabled' | 'down' | 'repairing'; discovered: boolean })[];
+  cameras(): (RecipeCamera & { status: 'active' | 'disabled' | 'down' | 'repairing'; discovered: boolean; /** # other active cameras watching this one */ coverage?: number; /** currently sees the player */ seesPlayer?: boolean; installed?: boolean })[];
   streak: number;
   score: number;
   banked: number;
   hot: number;
   selectedTarget: string | null;
+  /** Optional: grinder battery charges remaining / max (HUD shows pips when defined). */
+  grinderCharges?: number;
+  grinderMax?: number;
+  /** Distance (m) from the player to selectedTarget, or null. */
+  targetDistance?: number | null;
+  /** Current streak multiplier (1..3). */
+  multiplier?: number;
+  /** Hold-to-act progress, or null when idle. */
+  action?: { cameraId: string; mode: 'cut' | 'disable'; t: number; seen: boolean } | null;
+  /** True while Q (scan) is held / while binoculars (B) are up. */
+  scanning?: boolean;
+  binoculars?: boolean;
+  /** Surveillance drones currently flying (escalation, streak 20+). */
+  drones?: () => { id: string; p: [number, number, number] }[];
 }
 
 /** Owned by src/render. */

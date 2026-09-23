@@ -1,0 +1,244 @@
+{
+ "prop-hydrant": {
+  "sourceId": "fire_hydrant",
+  "url": "https://polyhaven.com/a/fire_hydrant",
+  "author": "Gon\u00e7alo Fel\u00edcio",
+  "polycount": 86316,
+  "dimensionsMm": [
+   874.623566865921,
+   317.74356961250305,
+   799.4560238003032
+  ]
+ },
+ "prop-trash-bag": {
+  "sourceId": "trashbag",
+  "url": "https://polyhaven.com/a/trashbag",
+  "author": "Benny Weimer",
+  "polycount": 4482,
+  "dimensionsMm": [
+   528.0700623989105,
+   462.893009185791,
+   574.9993845820427
+  ]
+ },
+ "prop-jersey-barrier": {
+  "sourceId": "concrete_road_barrier",
+  "url": "https://polyhaven.com/a/concrete_road_barrier",
+  "author": "Amal Kumar",
+  "polycount": 80776,
+  "dimensionsMm": [
+   1545.3570485115051,
+   640.9457623958588,
+   835.279269143939
+  ]
+ },
+ "prop-jersey-barrier-2": {
+  "sourceId": "concrete_road_barrier_02",
+  "url": "https://polyhaven.com/a/concrete_road_barrier_02",
+  "author": "Amal Kumar",
+  "polycount": 42578,
+  "dimensionsMm": [
+   1566.9698119163513,
+   442.20101833343506,
+   1111.9812715332955
+  ]
+ },
+ "prop-street-lamp-1": {
+  "sourceId": "street_lamp_01",
+  "url": "https://polyhaven.com/a/street_lamp_01",
+  "author": "Josh Dean",
+  "polycount": 30610,
+  "dimensionsMm": [
+   704.3362259864807,
+   386.49316132068634,
+   3870.5554008483887
+  ]
+ },
+ "prop-trash-can": {
+  "sourceId": "metal_trash_can",
+  "url": "https://polyhaven.com/a/metal_trash_can",
+  "author": "GurJas Studios",
+  "polycount": 13960,
+  "dimensionsMm": [
+   1846.9352722167969,
+   556.2898814678192,
+   906.1697272554738
+  ]
+ },
+ "prop-utility-box-2": {
+  "sourceId": "utility_box_02",
+  "url": "https://polyhaven.com/a/utility_box_02",
+  "author": "James Ray Cock",
+  "polycount": 6268,
+  "dimensionsMm": [
+   920.0001955032349,
+   431.999996304512,
+   1120.3334331512451
+  ]
+ },
+ "prop-utility-box-1": {
+  "sourceId": "utility_box_01",
+  "url": "https://polyhaven.com/a/utility_box_01",
+  "author": "James Ray Cock",
+  "polycount": 4404,
+  "dimensionsMm": [
+   520.0002193450928,
+   431.999996304512,
+   1120.3334331512451
+  ]
+ },
+ "prop-security-camera-1": {
+  "sourceId": "security_camera_01",
+  "url": "https://polyhaven.com/a/security_camera_01",
+  "author": "Alexander Otterbeck, Yann Kervran",
+  "polycount": 13571,
+  "dimensionsMm": [
+   169.5517897605896,
+   553.6733567714691,
+   286.04651242494583
+  ]
+ },
+ "prop-street-lamp-2": {
+  "sourceId": "street_lamp_02",
+  "url": "https://polyhaven.com/a/street_lamp_02",
+  "author": "Josh Dean",
+  "polycount": 20338,
+  "dimensionsMm": [
+   386.49316132068634,
+   806.7893021069672,
+   1675.0419437885284
+  ]
+ },
+ "prop-cardboard-box": {
+  "sourceId": "cardboard_box_01",
+  "url": "https://polyhaven.com/a/cardboard_box_01",
+  "author": "Rahul Chaudhary",
+  "polycount": 16952,
+  "dimensionsMm": [
+   387.02359795570374,
+   515.8704221248627,
+   341.7995423078537
+  ]
+ },
+ "prop-security-light": {
+  "sourceId": "security_light",
+  "url": "https://polyhaven.com/a/security_light",
+  "author": "Maximilian Schuster",
+  "polycount": 4668,
+  "dimensionsMm": [
+   323.14473390579224,
+   417.2230511903763,
+   530.9766530990601
+  ]
+ },
+ "prop-spray-can": {
+  "sourceId": "spray_paint_bottles_02",
+  "url": "https://polyhaven.com/a/spray_paint_bottles_02",
+  "author": "Riley Queen",
+  "polycount": 6576,
+  "dimensionsMm": [
+   195.52983343601227,
+   77.2877000272274,
+   218.91105466056615
+  ]
+ },
+ "prop-security-camera-2": {
+  "sourceId": "security_camera_02",
+  "url": "https://polyhaven.com/a/security_camera_02",
+  "author": "Garrison Gager, Yann Kervran",
+  "polycount": 12477,
+  "dimensionsMm": [
+   140.66611975431442,
+   393.7917649745941,
+   208.5888683795929
+  ]
+ },
+ "prop-wet-floor-sign": {
+  "sourceId": "WetFloorSign_01",
+  "url": "https://polyhaven.com/a/WetFloorSign_01",
+  "author": "Fran Calvente",
+  "polycount": 228,
+  "dimensionsMm": [
+   300.0548481941223,
+   358.5093021392822,
+   629.5440040994436
+  ]
+ },
+ "prop-covered-car": {
+  "sourceId": "covered_car",
+  "url": "https://polyhaven.com/a/covered_car",
+  "author": "MP",
+  "polycount": 12592,
+  "dimensionsMm": [
+   1788.962960243225,
+   4380.25426864624,
+   1411.1130833625793
+  ]
+ },
+ "prop-bench": {
+  "sourceId": "modular_street_seating",
+  "url": "https://polyhaven.com/a/modular_street_seating",
+  "author": "Stuart Attenborrow",
+  "polycount": 25156,
+  "dimensionsMm": [
+   4339.9999141693115,
+   770.3700959682465,
+   950.000050743509
+  ]
+ },
+ "prop-barrel": {
+  "sourceId": "Barrel_01",
+  "url": "https://polyhaven.com/a/Barrel_01",
+  "author": "Jorge Camacho",
+  "polycount": 2682,
+  "dimensionsMm": [
+   563.0351305007935,
+   563.0352199077606,
+   880.0000050105155
+  ]
+ },
+ "prop-shrub-2": {
+  "sourceId": "shrub_02",
+  "url": "https://polyhaven.com/a/shrub_02",
+  "author": "Rico Cilliers",
+  "polycount": 52317,
+  "dimensionsMm": [
+   5340.904712677002,
+   2060.703456401825,
+   2070.5229938030243
+  ]
+ },
+ "prop-manhole": {
+  "sourceId": "water_manhole_cover",
+  "url": "https://polyhaven.com/a/water_manhole_cover",
+  "author": "Raunox",
+  "polycount": 6301,
+  "dimensionsMm": [
+   690.7604932785034,
+   690.7604932785034,
+   67.61780008673668
+  ]
+ },
+ "prop-bolt-cutters": {
+  "sourceId": "bolt_cutters_01",
+  "url": "https://polyhaven.com/a/bolt_cutters_01",
+  "author": "Yann Kervran, Antanas Kep",
+  "polycount": 6719,
+  "dimensionsMm": [
+   280.6978076696396,
+   36.02746408432722,
+   937.6180171966553
+  ]
+ },
+ "prop-handsaw": {
+  "sourceId": "handsaw_wood",
+  "url": "https://polyhaven.com/a/handsaw_wood",
+  "author": "Konrad Sza\u0142ankiewicz",
+  "polycount": 2548,
+  "dimensionsMm": [
+   40.833745151758194,
+   632.9791843891144,
+   166.52002930641174
+  ]
+ }
+}

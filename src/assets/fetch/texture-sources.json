@@ -1,0 +1,402 @@
+{
+ "asphalt": {
+  "source": "ambientcg",
+  "sourceId": "Asphalt025C",
+  "url": "https://ambientcg.com/a/Asphalt025C",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "2k"
+ },
+ "concrete": {
+  "source": "polyhaven",
+  "sourceId": "concrete_floor_worn_001",
+  "url": "https://polyhaven.com/a/concrete_floor_worn_001",
+  "author": "Dimitrios Savva, Rico Cilliers",
+  "sizeM": 3,
+  "res": "2k"
+ },
+ "concrete-sidewalk": {
+  "source": "polyhaven",
+  "sourceId": "concrete_pavement_02",
+  "url": "https://polyhaven.com/a/concrete_pavement_02",
+  "author": "Charlotte Baglioni",
+  "sizeM": 1.8,
+  "res": "2k"
+ },
+ "asphalt-worn": {
+  "source": "ambientcg",
+  "sourceId": "Asphalt026C",
+  "url": "https://ambientcg.com/a/Asphalt026C",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "2k"
+ },
+ "asphalt-patched": {
+  "source": "polyhaven",
+  "sourceId": "asphalt_02",
+  "url": "https://polyhaven.com/a/asphalt_02",
+  "author": "Rob Tuytel",
+  "sizeM": 3,
+  "res": "2k"
+ },
+ "leaves-ground": {
+  "source": "polyhaven",
+  "sourceId": "forest_leaves_02",
+  "url": "https://polyhaven.com/a/forest_leaves_02",
+  "author": "Rob Tuytel",
+  "sizeM": 3,
+  "res": "1k"
+ },
+ "grass": {
+  "source": "ambientcg",
+  "sourceId": "Grass004",
+  "url": "https://ambientcg.com/a/Grass004",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": 1.4,
+  "res": "1k"
+ },
+ "curb": {
+  "source": "polyhaven",
+  "sourceId": "concrete_floor_02",
+  "url": "https://polyhaven.com/a/concrete_floor_02",
+  "author": "Rob Tuytel",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "dirt": {
+  "source": "polyhaven",
+  "sourceId": "dirt",
+  "url": "https://polyhaven.com/a/dirt",
+  "author": "Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "gravel": {
+  "source": "polyhaven",
+  "sourceId": "gravel",
+  "url": "https://polyhaven.com/a/gravel",
+  "author": "Dimitrios Savva",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "brick-brown": {
+  "source": "polyhaven",
+  "sourceId": "brick_wall_10",
+  "url": "https://polyhaven.com/a/brick_wall_10",
+  "author": "Dimitrios Savva",
+  "sizeM": 1.9,
+  "res": "2k"
+ },
+ "brick-red": {
+  "source": "polyhaven",
+  "sourceId": "red_brick",
+  "url": "https://polyhaven.com/a/red_brick",
+  "author": "Rob Tuytel",
+  "sizeM": 1.4,
+  "res": "2k"
+ },
+ "brick-old": {
+  "source": "polyhaven",
+  "sourceId": "brick_wall_001",
+  "url": "https://polyhaven.com/a/brick_wall_001",
+  "author": "Rob Tuytel, Dimitrios Savva",
+  "sizeM": 3,
+  "res": "1k"
+ },
+ "brick-tan": {
+  "source": "polyhaven",
+  "sourceId": "brick_wall_003",
+  "url": "https://polyhaven.com/a/brick_wall_003",
+  "author": "Rob Tuytel, Dimitrios Savva",
+  "sizeM": 4,
+  "res": "2k"
+ },
+ "cmu-block": {
+  "source": "polyhaven",
+  "sourceId": "concrete_block_wall",
+  "url": "https://polyhaven.com/a/concrete_block_wall",
+  "author": "Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "brick-white": {
+  "source": "polyhaven",
+  "sourceId": "whitewashed_brick",
+  "url": "https://polyhaven.com/a/whitewashed_brick",
+  "author": "Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "2k"
+ },
+ "brick-painted": {
+  "source": "polyhaven",
+  "sourceId": "painted_worn_brick",
+  "url": "https://polyhaven.com/a/painted_worn_brick",
+  "author": "Dimitrios Savva",
+  "sizeM": 1.8,
+  "res": "2k"
+ },
+ "stucco": {
+  "source": "polyhaven",
+  "sourceId": "white_stucco",
+  "url": "https://polyhaven.com/a/white_stucco",
+  "author": "Amal Kumar",
+  "sizeM": 2,
+  "res": "2k"
+ },
+ "adobe": {
+  "source": "polyhaven",
+  "sourceId": "clay_plaster",
+  "url": "https://polyhaven.com/a/clay_plaster",
+  "author": "Amal Kumar",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "plaster": {
+  "source": "polyhaven",
+  "sourceId": "plastered_wall",
+  "url": "https://polyhaven.com/a/plastered_wall",
+  "author": "Amal Kumar",
+  "sizeM": 2,
+  "res": "2k"
+ },
+ "concrete-precast": {
+  "source": "polyhaven",
+  "sourceId": "concrete_wall_004",
+  "url": "https://polyhaven.com/a/concrete_wall_004",
+  "author": "Dario Barresi, Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "lap-siding": {
+  "source": "polyhaven",
+  "sourceId": "exterior_wall_cladding_03",
+  "url": "https://polyhaven.com/a/exterior_wall_cladding_03",
+  "author": "Charlotte Baglioni",
+  "sizeM": 1.96,
+  "res": "2k"
+ },
+ "stone": {
+  "source": "polyhaven",
+  "sourceId": "stone_wall",
+  "url": "https://polyhaven.com/a/stone_wall",
+  "author": "Dario Barresi, Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "board-batten": {
+  "source": "polyhaven",
+  "sourceId": "white_planks_clean",
+  "url": "https://polyhaven.com/a/white_planks_clean",
+  "author": "Rob Tuytel",
+  "sizeM": 1.8,
+  "res": "1k"
+ },
+ "corrugated-metal": {
+  "source": "polyhaven",
+  "sourceId": "worn_corrugated_iron",
+  "url": "https://polyhaven.com/a/worn_corrugated_iron",
+  "author": "Jenelle van Heerden, Dimitrios Savva",
+  "sizeM": 1.8,
+  "res": "1k"
+ },
+ "metal-panel": {
+  "source": "polyhaven",
+  "sourceId": "corrugated_iron_02",
+  "url": "https://polyhaven.com/a/corrugated_iron_02",
+  "author": "Jenelle van Heerden, Sergej Majboroda",
+  "sizeM": 2.7,
+  "res": "1k"
+ },
+ "metal-shutter": {
+  "source": "polyhaven",
+  "sourceId": "painted_metal_shutter",
+  "url": "https://polyhaven.com/a/painted_metal_shutter",
+  "author": "Dario Barresi, Rico Cilliers, Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "sandstone": {
+  "source": "polyhaven",
+  "sourceId": "sandstone_blocks_08",
+  "url": "https://polyhaven.com/a/sandstone_blocks_08",
+  "author": "Rob Tuytel",
+  "sizeM": 3,
+  "res": "1k"
+ },
+ "roof-standing-seam": {
+  "source": "polyhaven",
+  "sourceId": "box_profile_metal_sheet",
+  "url": "https://polyhaven.com/a/box_profile_metal_sheet",
+  "author": "Amal Kumar",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "wood-shingle": {
+  "source": "polyhaven",
+  "sourceId": "roof_tiles_14",
+  "url": "https://polyhaven.com/a/roof_tiles_14",
+  "author": "Rob Tuytel",
+  "sizeM": 1.5,
+  "res": "1k"
+ },
+ "roof-asphalt-shingle": {
+  "source": "polyhaven",
+  "sourceId": "grey_roof_01",
+  "url": "https://polyhaven.com/a/grey_roof_01",
+  "author": "Rob Tuytel",
+  "sizeM": 8,
+  "res": "2k"
+ },
+ "roof-slate": {
+  "source": "polyhaven",
+  "sourceId": "roof_slates_02",
+  "url": "https://polyhaven.com/a/roof_slates_02",
+  "author": "Rob Tuytel",
+  "sizeM": 3,
+  "res": "1k"
+ },
+ "roof-clay-tile": {
+  "source": "polyhaven",
+  "sourceId": "clay_roof_tiles_02",
+  "url": "https://polyhaven.com/a/clay_roof_tiles_02",
+  "author": "Amal Kumar",
+  "sizeM": 2.5,
+  "res": "1k"
+ },
+ "roof-gravel": {
+  "source": "polyhaven",
+  "sourceId": "bicolour_gravel",
+  "url": "https://polyhaven.com/a/bicolour_gravel",
+  "author": "Dimitrios Savva",
+  "sizeM": 1.9,
+  "res": "1k"
+ },
+ "roof-membrane": {
+  "source": "polyhaven",
+  "sourceId": "painted_concrete",
+  "url": "https://polyhaven.com/a/painted_concrete",
+  "author": "Dario Barresi, Dimitrios Savva",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "cobble": {
+  "source": "polyhaven",
+  "sourceId": "cobblestone_01",
+  "url": "https://polyhaven.com/a/cobblestone_01",
+  "author": "Rob Tuytel",
+  "sizeM": 2.4,
+  "res": "1k"
+ },
+ "tiles-terracotta": {
+  "source": "polyhaven",
+  "sourceId": "terracotta_floor_tiles",
+  "url": "https://polyhaven.com/a/terracotta_floor_tiles",
+  "author": "Dimitrios Savva",
+  "sizeM": 2.08,
+  "res": "1k"
+ },
+ "wood-planks": {
+  "source": "polyhaven",
+  "sourceId": "raw_plank_wall",
+  "url": "https://polyhaven.com/a/raw_plank_wall",
+  "author": "Dimitrios Savva",
+  "sizeM": 1.87,
+  "res": "1k"
+ },
+ "paving": {
+  "source": "polyhaven",
+  "sourceId": "concrete_pavers",
+  "url": "https://polyhaven.com/a/concrete_pavers",
+  "author": "Amal Kumar",
+  "sizeM": 1.92,
+  "res": "1k"
+ },
+ "rust-metal": {
+  "source": "polyhaven",
+  "sourceId": "rusty_metal_sheet",
+  "url": "https://polyhaven.com/a/rusty_metal_sheet",
+  "author": "Amal Kumar",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "painted-metal": {
+  "source": "polyhaven",
+  "sourceId": "blue_metal_plate",
+  "url": "https://polyhaven.com/a/blue_metal_plate",
+  "author": "Rob Tuytel",
+  "sizeM": 2.5,
+  "res": "1k"
+ },
+ "decal-leak-2": {
+  "source": "ambientcg",
+  "sourceId": "Leaking004",
+  "url": "https://ambientcg.com/a/Leaking004",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "1k"
+ },
+ "bark": {
+  "source": "polyhaven",
+  "sourceId": "bark_brown_02",
+  "url": "https://polyhaven.com/a/bark_brown_02",
+  "author": "Rob Tuytel",
+  "sizeM": 1,
+  "res": "1k"
+ },
+ "decal-leak-1": {
+  "source": "ambientcg",
+  "sourceId": "Leaking006",
+  "url": "https://ambientcg.com/a/Leaking006",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "1k"
+ },
+ "decal-graffiti": {
+  "source": "ambientcg",
+  "sourceId": "GraffitiSet001",
+  "url": "https://ambientcg.com/a/GraffitiSet001",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": 1.2,
+  "res": "1k"
+ },
+ "decal-cracks": {
+  "source": "ambientcg",
+  "sourceId": "AsphaltDamage001",
+  "url": "https://ambientcg.com/a/AsphaltDamage001",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": 1.2,
+  "res": "1k"
+ },
+ "decal-gum": {
+  "source": "ambientcg",
+  "sourceId": "ChewingGum001",
+  "url": "https://ambientcg.com/a/ChewingGum001",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "1k"
+ },
+ "decal-manhole": {
+  "source": "ambientcg",
+  "sourceId": "ManholeCover005",
+  "url": "https://ambientcg.com/a/ManholeCover005",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": 0.8,
+  "res": "1k"
+ },
+ "grass-dry": {
+  "source": "polyhaven",
+  "sourceId": "leafy_grass",
+  "url": "https://polyhaven.com/a/leafy_grass",
+  "author": "Charlotte Baglioni",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "decal-manhole-2": {
+  "source": "ambientcg",
+  "sourceId": "ManholeCover009",
+  "url": "https://ambientcg.com/a/ManholeCover009",
+  "author": "ambientCG (Lennart Demes)",
+  "sizeM": null,
+  "res": "1k"
+ }
+}

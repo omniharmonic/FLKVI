@@ -48,7 +48,7 @@ export interface RecipeBuilding {
   /** For building:part with min_height (e.g. upper setbacks). */
   minHeight?: number;
   levels: number;
-  roof: { type: RoofType; material: RoofMaterial; color: string; /** ridge direction in radians, optional */ orientation?: number };
+  roof: { type: RoofType; material: RoofMaterial; color: string; /** ridge direction in radians, optional: atan2(dz, dx) of the ridge line (0 = ridge runs east-west), in [0, PI) */ orientation?: number };
   use: BuildingUse;
   era: Era;
   kit: StyleKit;
@@ -120,7 +120,15 @@ export type PropType =
   | 'bike-rack' | 'bollard' | 'utility-pole' | 'mailbox' | 'parking-meter' | 'planter' | 'parked-car'
   | 'newspaper-box' | 'crosswalk' | 'manhole' | 'fence' | 'hedge' | 'shrub';
 
-export interface RecipeProp { type: PropType; p: Vec2; y: number; rot: number; variant: number; /** fence/hedge polyline */ line?: Vec2[] }
+export interface RecipeProp {
+  type: PropType; p: Vec2; y: number;
+  /** Facing, same convention as RecipeCamera.heading: 0 = front faces -Z (north), clockwise seen from above.
+   *  streetlight/hydrant/signal/sign/bench: faces the road; parked-car: direction the car's nose points;
+   *  crosswalk: along the road's travel direction (stripes run across it); utility-pole: along the street. */
+  rot: number;
+  variant: number;
+  /** fence/hedge polyline */ line?: Vec2[];
+}
 
 export type CameraType = 'pole' | 'ptz' | 'cluster' | 'tower';
 
@@ -172,4 +180,6 @@ export interface Recipe {
   cameras: RecipeCamera[];
   spawn: { p: Vec2; y: number; heading: number };
   attribution: string[];
+  /** Absolute elevation (m, NAVD88-ish) of y = 0. All y values are relative to this datum. */
+  elevation?: number;
 }

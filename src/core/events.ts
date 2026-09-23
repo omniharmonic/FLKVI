@@ -13,7 +13,7 @@ export interface GameEvents {
   takedownStart: { cameraId: string; mode: 'cut' | 'disable' };
   takedownProgress: { cameraId: string; mode: 'cut' | 'disable'; t: number };
   takedownCancel: { cameraId: string };
-  takedown: { cameraId: string; mode: 'cut' | 'disable'; type: CameraType; seen: boolean; coverage: number; p: Vec2 };
+  takedown: { cameraId: string; mode: 'cut' | 'disable'; type: CameraType; seen: boolean; coverage: number; p: Vec2; /** points awarded (surveillance) */ points?: number; /** true when the target was a surveillance drone (type is reported as 'ptz') */ drone?: boolean };
   cameraRepaired: { cameraId: string };
   cameraInstalled: { cameraId: string };
   heatChanged: { heat: number; prev: number };
@@ -29,6 +29,14 @@ export interface GameEvents {
   playerExitVehicle: { vehicleId: string };
   toast: { text: string; kind?: 'info' | 'warn' | 'good' | 'bad'; ms?: number };
   worldReady: {};
+  /** Contextual interaction prompt for the HUD (e.g. 'Hold E: Disable · Hold R: Cut'); null hides it. */
+  prompt: { text: string | null };
+  /** Surveillance: a previously unmapped camera was spotted (fog of war). */
+  cameraDiscovered: { cameraId: string; via: 'sight' | 'binoculars' };
+  /** Surveillance escalation director stepped up (1 = more patrols + faster repairs, 2 = new installs, 3 = drones). AI may add patrols near `hotspots`. */
+  escalation: { level: number; streak: number; hotspots: Vec2[] };
+  /** Gameplay: player swung a punch/shove at p toward dir. AI may knock over a pedestrian in range (and emit crime 'assault'). */
+  playerMelee: { p: Vec2; dir: Vec2; range: number };
 }
 
 type Handler<T> = (payload: T) => void;

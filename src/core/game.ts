@@ -4,7 +4,7 @@ import type RAPIER_NS from '@dimforge/rapier3d-compat';
 import { EventBus } from './events';
 import { Input } from './input';
 import type { Recipe } from './types';
-import type { WorldAPI, PlayerAPI, VehiclesAPI, HeatAPI, SurveillanceAPI, SkyAPI, AudioAPI } from './api';
+import type { WorldAPI, PlayerAPI, VehiclesAPI, HeatAPI, SurveillanceAPI, SkyAPI, AudioAPI, AIAPI } from './api';
 
 export type RAPIER = typeof RAPIER_NS;
 
@@ -44,6 +44,8 @@ export class Game {
   player!: PlayerAPI;
   vehicles!: VehiclesAPI;
   heat!: HeatAPI;
+  /** Optional AI hooks (src/ai). */
+  ai?: AIAPI;
   surveillance!: SurveillanceAPI;
   sky!: SkyAPI;
   audio!: AudioAPI;

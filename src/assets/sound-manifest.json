@@ -1,0 +1,405 @@
+{
+"footstep-concrete": [
+"audio/footstep/footstep-concrete_1.ogg",
+"audio/footstep/footstep-concrete_2.ogg",
+"audio/footstep/footstep-concrete_3.ogg",
+"audio/footstep/footstep-concrete_4.ogg",
+"audio/footstep/footstep-concrete_5.ogg"
+],
+"footstep-grass": [
+"audio/footstep/footstep-grass_1.ogg",
+"audio/footstep/footstep-grass_2.ogg",
+"audio/footstep/footstep-grass_3.ogg",
+"audio/footstep/footstep-grass_4.ogg",
+"audio/footstep/footstep-grass_5.ogg"
+],
+"footstep-wood": [
+"audio/footstep/footstep-wood_1.ogg",
+"audio/footstep/footstep-wood_2.ogg",
+"audio/footstep/footstep-wood_3.ogg",
+"audio/footstep/footstep-wood_4.ogg",
+"audio/footstep/footstep-wood_5.ogg"
+],
+"footstep-snow": [
+"audio/footstep/footstep-snow_1.ogg",
+"audio/footstep/footstep-snow_2.ogg",
+"audio/footstep/footstep-snow_3.ogg",
+"audio/footstep/footstep-snow_4.ogg",
+"audio/footstep/footstep-snow_5.ogg"
+],
+"footstep-carpet": [
+"audio/footstep/footstep-carpet_1.ogg",
+"audio/footstep/footstep-carpet_2.ogg",
+"audio/footstep/footstep-carpet_3.ogg",
+"audio/footstep/footstep-carpet_4.ogg",
+"audio/footstep/footstep-carpet_5.ogg"
+],
+"footstep-leather": [
+"audio/footstep/footstep-leather_1.ogg",
+"audio/footstep/footstep-leather_2.ogg",
+"audio/footstep/footstep-leather_3.ogg",
+"audio/footstep/footstep-leather_4.ogg",
+"audio/footstep/footstep-leather_5.ogg",
+"audio/footstep/footstep-leather_6.ogg",
+"audio/footstep/footstep-leather_7.ogg",
+"audio/footstep/footstep-leather_8.ogg"
+],
+"impact-metal-heavy": [
+"audio/impact/impact-metal-heavy_1.ogg",
+"audio/impact/impact-metal-heavy_2.ogg",
+"audio/impact/impact-metal-heavy_3.ogg",
+"audio/impact/impact-metal-heavy_4.ogg",
+"audio/impact/impact-metal-heavy_5.ogg"
+],
+"impact-metal-medium": [
+"audio/impact/impact-metal-medium_1.ogg",
+"audio/impact/impact-metal-medium_2.ogg",
+"audio/impact/impact-metal-medium_3.ogg",
+"audio/impact/impact-metal-medium_4.ogg",
+"audio/impact/impact-metal-medium_5.ogg"
+],
+"impact-metal-light": [
+"audio/impact/impact-metal-light_1.ogg",
+"audio/impact/impact-metal-light_2.ogg",
+"audio/impact/impact-metal-light_3.ogg",
+"audio/impact/impact-metal-light_4.ogg",
+"audio/impact/impact-metal-light_5.ogg"
+],
+"impact-glass-heavy": [
+"audio/impact/impact-glass-heavy_1.ogg",
+"audio/impact/impact-glass-heavy_2.ogg",
+"audio/impact/impact-glass-heavy_3.ogg",
+"audio/impact/impact-glass-heavy_4.ogg",
+"audio/impact/impact-glass-heavy_5.ogg"
+],
+"impact-glass-medium": [
+"audio/impact/impact-glass-medium_1.ogg",
+"audio/impact/impact-glass-medium_2.ogg",
+"audio/impact/impact-glass-medium_3.ogg",
+"audio/impact/impact-glass-medium_4.ogg",
+"audio/impact/impact-glass-medium_5.ogg"
+],
+"impact-glass-light": [
+"audio/impact/impact-glass-light_1.ogg",
+"audio/impact/impact-glass-light_2.ogg",
+"audio/impact/impact-glass-light_3.ogg",
+"audio/impact/impact-glass-light_4.ogg",
+"audio/impact/impact-glass-light_5.ogg"
+],
+"impact-plate-heavy": [
+"audio/impact/impact-plate-heavy_1.ogg",
+"audio/impact/impact-plate-heavy_2.ogg",
+"audio/impact/impact-plate-heavy_3.ogg",
+"audio/impact/impact-plate-heavy_4.ogg",
+"audio/impact/impact-plate-heavy_5.ogg"
+],
+"impact-plate-medium": [
+"audio/impact/impact-plate-medium_1.ogg",
+"audio/impact/impact-plate-medium_2.ogg",
+"audio/impact/impact-plate-medium_3.ogg",
+"audio/impact/impact-plate-medium_4.ogg",
+"audio/impact/impact-plate-medium_5.ogg"
+],
+"impact-plate-light": [
+"audio/impact/impact-plate-light_1.ogg",
+"audio/impact/impact-plate-light_2.ogg",
+"audio/impact/impact-plate-light_3.ogg",
+"audio/impact/impact-plate-light_4.ogg",
+"audio/impact/impact-plate-light_5.ogg"
+],
+"impact-punch-heavy": [
+"audio/impact/impact-punch-heavy_1.ogg",
+"audio/impact/impact-punch-heavy_2.ogg",
+"audio/impact/impact-punch-heavy_3.ogg",
+"audio/impact/impact-punch-heavy_4.ogg",
+"audio/impact/impact-punch-heavy_5.ogg"
+],
+"impact-punch": [
+"audio/impact/impact-punch_1.ogg",
+"audio/impact/impact-punch_2.ogg",
+"audio/impact/impact-punch_3.ogg",
+"audio/impact/impact-punch_4.ogg",
+"audio/impact/impact-punch_5.ogg"
+],
+"impact-soft-heavy": [
+"audio/impact/impact-soft-heavy_1.ogg",
+"audio/impact/impact-soft-heavy_2.ogg",
+"audio/impact/impact-soft-heavy_3.ogg",
+"audio/impact/impact-soft-heavy_4.ogg",
+"audio/impact/impact-soft-heavy_5.ogg"
+],
+"impact-soft": [
+"audio/impact/impact-soft_1.ogg",
+"audio/impact/impact-soft_2.ogg",
+"audio/impact/impact-soft_3.ogg",
+"audio/impact/impact-soft_4.ogg",
+"audio/impact/impact-soft_5.ogg"
+],
+"impact-generic": [
+"audio/impact/impact-generic_1.ogg",
+"audio/impact/impact-generic_2.ogg",
+"audio/impact/impact-generic_3.ogg",
+"audio/impact/impact-generic_4.ogg",
+"audio/impact/impact-generic_5.ogg"
+],
+"impact-wood": [
+"audio/impact/impact-wood_1.ogg",
+"audio/impact/impact-wood_2.ogg",
+"audio/impact/impact-wood_3.ogg",
+"audio/impact/impact-wood_4.ogg",
+"audio/impact/impact-wood_5.ogg"
+],
+"impact-wood-heavy": [
+"audio/impact/impact-wood-heavy_1.ogg",
+"audio/impact/impact-wood-heavy_2.ogg",
+"audio/impact/impact-wood-heavy_3.ogg",
+"audio/impact/impact-wood-heavy_4.ogg",
+"audio/impact/impact-wood-heavy_5.ogg"
+],
+"impact-tin": [
+"audio/impact/impact-tin_1.ogg",
+"audio/impact/impact-tin_2.ogg",
+"audio/impact/impact-tin_3.ogg",
+"audio/impact/impact-tin_4.ogg",
+"audio/impact/impact-tin_5.ogg"
+],
+"impact-bell": [
+"audio/impact/impact-bell_1.ogg",
+"audio/impact/impact-bell_2.ogg",
+"audio/impact/impact-bell_3.ogg",
+"audio/impact/impact-bell_4.ogg",
+"audio/impact/impact-bell_5.ogg"
+],
+"impact-mining": [
+"audio/impact/impact-mining_1.ogg",
+"audio/impact/impact-mining_2.ogg",
+"audio/impact/impact-mining_3.ogg",
+"audio/impact/impact-mining_4.ogg",
+"audio/impact/impact-mining_5.ogg"
+],
+"impact-metal-scifi": [
+"audio/impact/impact-metal-scifi_1.ogg",
+"audio/impact/impact-metal-scifi_2.ogg",
+"audio/impact/impact-metal-scifi_3.ogg",
+"audio/impact/impact-metal-scifi_4.ogg",
+"audio/impact/impact-metal-scifi_5.ogg"
+],
+"crash-crunch": [
+"audio/crash/crash-crunch_1.ogg",
+"audio/crash/crash-crunch_2.ogg",
+"audio/crash/crash-crunch_3.ogg",
+"audio/crash/crash-crunch_4.ogg",
+"audio/crash/crash-crunch_5.ogg"
+],
+"explosion-low": [
+"audio/explosion/explosion-low_1.ogg",
+"audio/explosion/explosion-low_2.ogg"
+],
+"electric-hum": [
+"audio/electric/electric-hum_1.ogg",
+"audio/electric/electric-hum_2.ogg",
+"audio/electric/electric-hum_3.ogg",
+"audio/electric/electric-hum_4.ogg",
+"audio/electric/electric-hum_5.ogg"
+],
+"computer-noise": [
+"audio/computer/computer-noise_1.ogg",
+"audio/computer/computer-noise_2.ogg",
+"audio/computer/computer-noise_3.ogg",
+"audio/computer/computer-noise_4.ogg"
+],
+"motor-whine": [
+"audio/motor/motor-whine_1.ogg",
+"audio/motor/motor-whine_2.ogg",
+"audio/motor/motor-whine_3.ogg",
+"audio/motor/motor-whine_4.ogg",
+"audio/motor/motor-whine_5.ogg"
+],
+"thruster": [
+"audio/thruster/thruster_1.ogg",
+"audio/thruster/thruster_2.ogg",
+"audio/thruster/thruster_3.ogg",
+"audio/thruster/thruster_4.ogg",
+"audio/thruster/thruster_5.ogg"
+],
+"glitch": [
+"audio/glitch/glitch_1.ogg",
+"audio/glitch/glitch_2.ogg",
+"audio/glitch/glitch_3.ogg",
+"audio/glitch/glitch_4.ogg"
+],
+"ui-click": [
+"audio/ui/ui-click_1.ogg",
+"audio/ui/ui-click_2.ogg",
+"audio/ui/ui-click_3.ogg",
+"audio/ui/ui-click_4.ogg",
+"audio/ui/ui-click_5.ogg"
+],
+"ui-select": [
+"audio/ui/ui-select_1.ogg",
+"audio/ui/ui-select_2.ogg",
+"audio/ui/ui-select_3.ogg",
+"audio/ui/ui-select_4.ogg",
+"audio/ui/ui-select_5.ogg",
+"audio/ui/ui-select_6.ogg",
+"audio/ui/ui-select_7.ogg",
+"audio/ui/ui-select_8.ogg"
+],
+"ui-confirm": [
+"audio/ui/ui-confirm_1.ogg",
+"audio/ui/ui-confirm_2.ogg",
+"audio/ui/ui-confirm_3.ogg",
+"audio/ui/ui-confirm_4.ogg"
+],
+"ui-error": [
+"audio/ui/ui-error_1.ogg",
+"audio/ui/ui-error_2.ogg",
+"audio/ui/ui-error_3.ogg",
+"audio/ui/ui-error_4.ogg",
+"audio/ui/ui-error_5.ogg",
+"audio/ui/ui-error_6.ogg",
+"audio/ui/ui-error_7.ogg",
+"audio/ui/ui-error_8.ogg"
+],
+"ui-back": [
+"audio/ui/ui-back_1.ogg",
+"audio/ui/ui-back_2.ogg",
+"audio/ui/ui-back_3.ogg",
+"audio/ui/ui-back_4.ogg"
+],
+"ui-open": [
+"audio/ui/ui-open_1.ogg",
+"audio/ui/ui-open_2.ogg",
+"audio/ui/ui-open_3.ogg",
+"audio/ui/ui-open_4.ogg"
+],
+"ui-close": [
+"audio/ui/ui-close_1.ogg",
+"audio/ui/ui-close_2.ogg",
+"audio/ui/ui-close_3.ogg",
+"audio/ui/ui-close_4.ogg"
+],
+"ui-tick": [
+"audio/ui/ui-tick_1.ogg",
+"audio/ui/ui-tick_2.ogg",
+"audio/ui/ui-tick_3.ogg"
+],
+"ui-toggle": [
+"audio/ui/ui-toggle_1.ogg",
+"audio/ui/ui-toggle_2.ogg",
+"audio/ui/ui-toggle_3.ogg",
+"audio/ui/ui-toggle_4.ogg"
+],
+"ui-scratch": [
+"audio/ui/ui-scratch_1.ogg",
+"audio/ui/ui-scratch_2.ogg",
+"audio/ui/ui-scratch_3.ogg",
+"audio/ui/ui-scratch_4.ogg",
+"audio/ui/ui-scratch_5.ogg"
+],
+"ui-drop": [
+"audio/ui/ui-drop_1.ogg",
+"audio/ui/ui-drop_2.ogg",
+"audio/ui/ui-drop_3.ogg",
+"audio/ui/ui-drop_4.ogg"
+],
+"ui-question": [
+"audio/ui/ui-question_1.ogg",
+"audio/ui/ui-question_2.ogg",
+"audio/ui/ui-question_3.ogg",
+"audio/ui/ui-question_4.ogg"
+],
+"ui-maximize": [
+"audio/ui/ui-maximize_1.ogg",
+"audio/ui/ui-maximize_2.ogg",
+"audio/ui/ui-maximize_3.ogg",
+"audio/ui/ui-maximize_4.ogg",
+"audio/ui/ui-maximize_5.ogg",
+"audio/ui/ui-maximize_6.ogg",
+"audio/ui/ui-maximize_7.ogg",
+"audio/ui/ui-maximize_8.ogg"
+],
+"ui-minimize": [
+"audio/ui/ui-minimize_1.ogg",
+"audio/ui/ui-minimize_2.ogg",
+"audio/ui/ui-minimize_3.ogg",
+"audio/ui/ui-minimize_4.ogg",
+"audio/ui/ui-minimize_5.ogg",
+"audio/ui/ui-minimize_6.ogg",
+"audio/ui/ui-minimize_7.ogg",
+"audio/ui/ui-minimize_8.ogg"
+],
+"ui-bong": [
+"audio/ui/ui-bong_1.ogg"
+],
+"ui-switch": [
+"audio/ui/ui-switch_1.ogg",
+"audio/ui/ui-switch_2.ogg",
+"audio/ui/ui-switch_3.ogg",
+"audio/ui/ui-switch_4.ogg",
+"audio/ui/ui-switch_5.ogg",
+"audio/ui/ui-switch_6.ogg",
+"audio/ui/ui-switch_7.ogg",
+"audio/ui/ui-switch_8.ogg"
+],
+"ui-rollover": [
+"audio/ui/ui-rollover_1.ogg",
+"audio/ui/ui-rollover_2.ogg",
+"audio/ui/ui-rollover_3.ogg",
+"audio/ui/ui-rollover_4.ogg",
+"audio/ui/ui-rollover_5.ogg",
+"audio/ui/ui-rollover_6.ogg"
+],
+"metal-click": [
+"audio/metal/metal-click_1.ogg"
+],
+"metal-latch": [
+"audio/metal/metal-latch_1.ogg"
+],
+"metal-pot": [
+"audio/metal/metal-pot_1.ogg",
+"audio/metal/metal-pot_2.ogg",
+"audio/metal/metal-pot_3.ogg"
+],
+"knife-draw": [
+"audio/knife/knife-draw_1.ogg",
+"audio/knife/knife-draw_2.ogg",
+"audio/knife/knife-draw_3.ogg"
+],
+"knife-slice": [
+"audio/knife/knife-slice_1.ogg",
+"audio/knife/knife-slice_2.ogg"
+],
+"cloth": [
+"audio/cloth/cloth_1.ogg",
+"audio/cloth/cloth_2.ogg",
+"audio/cloth/cloth_3.ogg",
+"audio/cloth/cloth_4.ogg"
+],
+"cloth-belt": [
+"audio/cloth/cloth-belt_1.ogg",
+"audio/cloth/cloth-belt_2.ogg"
+],
+"door-open": [
+"audio/door/door-open_1.ogg",
+"audio/door/door-open_2.ogg"
+],
+"door-close": [
+"audio/door/door-close_1.ogg",
+"audio/door/door-close_2.ogg",
+"audio/door/door-close_3.ogg",
+"audio/door/door-close_4.ogg"
+],
+"creak": [
+"audio/creak/creak_1.ogg",
+"audio/creak/creak_2.ogg",
+"audio/creak/creak_3.ogg"
+],
+"chop": [
+"audio/chop/chop_1.ogg"
+],
+"coins": [
+"audio/coins/coins_1.ogg",
+"audio/coins/coins_2.ogg"
+]
+}
