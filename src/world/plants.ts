@@ -334,9 +334,9 @@ function palmFan(b: PlantBuilder, H: number, R: () => number, lo: boolean, sabal
     const k = i / n;
     const az = i * 2.39996 + R() * 0.3; // golden angle phyllotaxis
     const elev = sabal ? 1.2 - k * 1.9 : 1.25 - k * 1.7;
-    const dead = !sabal && k > 0.85 && R() < 0.6;
-    fanLeaf(b, top.clone().add(V(0, 0.1 + (1 - k) * 0.4, 0)), az, {
-      petL: (sabal ? 1.2 : 1.1) + R() * 0.4, R: (sabal ? 1.1 : 1.0) + R() * 0.2, elev, span: sabal ? 3.4 : 3.6, cup: sabal ? 0.55 : 0.5,
+    const dead = !sabal && k > 0.82 && R() < 0.7;
+    fanLeaf(b, top.clone().add(V(0, dead ? -0.1 : 0.1 + (1 - k) * 0.4, 0)), az, {
+      petL: dead ? 0.5 : (sabal ? 1.2 : 1.1) + R() * 0.4, R: dead ? 0.8 : (sabal ? 1.1 : 1.0) + R() * 0.2, elev: dead ? -1.4 : elev, span: dead ? 2.0 : sabal ? 3.4 : 3.6, cup: dead ? 0.1 : sabal ? 0.55 : 0.5,
       pleat: sabal ? 0.08 : 0.04, dead, tint: dead ? C(0xc0a888) : shade(tint, 0.85 + R() * 0.25), petTint: sabal ? C(0x8a8a6a) : C(0xa09a70), aseg: lo ? 6 : 10,
       hang: sabal ? -0.4 : -0.2,
     }, crownC);

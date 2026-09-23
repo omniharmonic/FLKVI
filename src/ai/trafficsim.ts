@@ -51,6 +51,12 @@ export class Car {
   pullOver = 0;
   /** extra desired-speed cap set by AI owners (police search etc.) */
   speedCap = Infinity;
+  /** Curbside maneuvers: 'in' = pulling over to park, 'parked' = stopped at the curb, 'out' = waiting to pull out. */
+  curb: 'in' | 'parked' | 'out' | null = null;
+  curbT = 0;
+  curbHold = false;
+  /** turn-signal intent for visuals: -1 left, 1 right, 0 none */
+  signal = 0;
   /** half length */
   halfLen = 2.3;
   /** marked for removal by the owner (dead end etc.) */
@@ -219,8 +225,8 @@ export class TrafficSim {
   }
 
   /** Find the closest obstacle on the car's path: returns gap and leader speed along our heading. */
-  private leader(c: Car, look: number): { gap: number; vl: number; kind: ObstacleKind | null } {
-    let best = Infinity, vl = 0, kind: ObstacleKind | null = null;
+  private leader(c: Car, look: number): { gap: number; vl: number; kind: ObstacleKind | null; curb: boolean } {
+    let best = Infinity, vl = 0, kind: ObstacleKind | null = null, curb = false;
     const fx = Math.sin(c.h), fz = -Math.cos(c.h);
     const cx = c.x + fx * look * 0.5, cz = c.z + fz * look * 0.5;
     const ahead: Sample = { x: 0, z: 0, h: 0 };
@@ -250,9 +256,10 @@ export class TrafficSim {
         best = gap;
         vl = o.v * Math.cos(dh);
         kind = o.kind;
+        curb = !!o.car && (o.car.curb === 'parked' || o.car.curb === 'in' || (o.car.curb === 'out' && o.car.v < 0.5));
       }
     });
-    return { gap: best, vl, kind };
+    return { gap: best, vl, kind, curb };
   }
 
   step(dt: number, rateOf?: (c: Car) => number) {
@@ -283,6 +290,22 @@ export class TrafficSim {
     if (c.panicMode === 'stop') v0 = 0.01;
     if (c.pullOver > 0) v0 = Math.min(v0, 2.5);
     v0 = Math.min(v0, c.speedCap);
+    c.signal = 0;
+    if (c.curb) {
+      c.curbT -= dt;
+      if (c.curb === 'in') {
+        v0 = Math.min(v0, 4);
+        c.signal = 1;
+        if (Math.abs(c.latOff - this.curbOffset(c)) < 0.25) { v0 = 0.01; if (c.v < 0.3) { c.curb = 'parked'; c.curbT = 6 + c.rnd() * 18; } }
+      } else if (c.curb === 'parked') {
+        v0 = 0.01;
+        if (c.curbT <= 0) { c.curb = 'out'; c.curbHold = true; c.curbT = 1.2 + c.rnd() * 1.8; }
+      } else {
+        c.signal = -1;
+        if (c.curbT > 0 || (c.v < 0.5 && this.approachingFromBehind(c))) { v0 = 0.01; c.curbHold = true; }
+        else { c.curbHold = false; if (Math.abs(c.latOff) < 0.3) c.curb = null; }
+      }
+    }
     let gap = Infinity, vl = 0;
     c.control = '';
 
@@ -369,11 +392,16 @@ export class TrafficSim {
         c.honkCd = 3 + c.rnd() * 4;
         this.hooks.honk?.(c);
       }
+      if (L.curb && c.blockedTime > 1.2 && c.swerve <= 0 && c.leg === 'lane') c.swerve = 3.5; // go around a parked / double-parked car
       if (siren) {
         if (c.blockedTime > 0.8 && c.swerve <= 0) c.swerve = 3;
       } else if ((byPlayer && c.blockedTime > 4) || (c.blockedBy === 'vehicle' && c.blockedTime > 5)) {
         c.swerve = 5;
         c.blockedTime = 0;
+      }
+      if (c.blockedBy === 'car' && !police && c.blockedTime > 5 && c.honkCd <= 0 && (c.control === '' || c.control === 'green')) {
+        c.honkCd = 5 + c.rnd() * 8;
+        if (c.rnd() < 0.45) this.hooks.honk?.(c);
       }
       if (c.blockedBy === 'car' && (c.blockedTime > 9 && !c.control || (siren && c.blockedTime > 2.5))) {
         c.ghost = 2.5;
@@ -387,10 +415,17 @@ export class TrafficSim {
 
     // lateral offset target
     if (c.swerve > 0 && c.leg === 'lane') c.latTarget = -(E.laneW + 0.9);
-    else if (c.pullOver > 0 && !police) {
-      const laneOff = E.lane0 + c.lane * E.laneW;
-      c.latTarget = Math.max(0.6, Math.min(2.4, Math.max(2.5, E.width / 2) - laneOff - 1.0));
+    else if ((c.pullOver > 0 && !police) || ((c.curb === 'in' || c.curb === 'parked' || (c.curb === 'out' && c.curbHold)) && c.leg === 'lane')) {
+      c.latTarget = this.curbOffset(c);
+    } else if (siren && c.leg === 'lane' && c.next >= 0 && net.laneEnd(E) - c.s < 24) {
+      // racing line: drift to the inside of the coming turn (sirens use the whole road)
+      const ta = net.turnAngle(E, net.edges[c.next]);
+      c.latTarget = Math.abs(ta) > 0.5 ? Math.sign(ta) * Math.min(E.laneW * 0.85, 2.4) : 0;
     } else c.latTarget = 0;
+    if (!c.signal && c.leg === 'lane' && c.next >= 0 && !siren) {
+      const dEnd = net.laneEnd(E) - c.s;
+      if (dEnd < 32) { const ta = net.turnAngle(E, net.edges[c.next]); if (Math.abs(ta) > 0.55) c.signal = ta > 0 ? 1 : -1; }
+    }
     const latRate = 1.6 * Math.min(1, 0.3 + c.v / 4);
     const dl = c.latTarget - c.latOff;
     c.latOff += Math.sign(dl) * Math.min(Math.abs(dl), latRate * dt);
@@ -400,6 +435,50 @@ export class TrafficSim {
     c.v = stepSpeed(c.v, acc, dt);
     if (gap < 0.2 && c.v > 0) c.v = Math.max(0, Math.min(c.v, gap / dt));
     this.advance(c, c.v * dt);
+  }
+
+  /** Lateral offset that puts the car against the curb (right side). */
+  curbOffset(c: Car): number {
+    const E = this.net.edges[c.e];
+    const laneOff = E.lane0 + c.lane * E.laneW;
+    return Math.max(0.6, Math.min(2.4, Math.max(2.5, E.width / 2) - laneOff - 1.0));
+  }
+
+  /** Start a curbside stop (parallel park / delivery) if this spot allows it. */
+  tryPark(c: Car): boolean {
+    if (c.mode !== 'lane' || c.leg !== 'lane' || c.curb || c.kind !== 'civilian' || c.panicMode) return false;
+    const E = this.net.edges[c.e];
+    if (c.lane !== E.dirLanes - 1 || E.rank > 4) return false;
+    const rem = this.net.laneEnd(E) - c.s;
+    if (rem < 30 || c.s - this.net.laneStart(E) < 8) return false;
+    c.curb = 'in';
+    c.curbT = 0;
+    return true;
+  }
+
+  /** Put a freshly spawned car at the curb, about to pull out. */
+  startPullOut(c: Car) {
+    c.curb = 'out';
+    c.curbHold = true;
+    c.curbT = 0.8 + c.rnd() * 2.5;
+    c.latOff = this.curbOffset(c);
+    c.v = 0;
+    this.samplePos(c);
+  }
+
+  private approachingFromBehind(c: Car): boolean {
+    let found = false;
+    const fx = Math.sin(c.h), fz = -Math.cos(c.h);
+    this.hash.query(c.x - fx * 14, c.z - fz * 14, 16, (o) => {
+      if (found || o.car === c || !(o.kind === 'car' || o.kind === 'vehicle' || o.kind === 'playerCar')) return;
+      const rel = (o.x - c.x) * fx + (o.z - c.z) * fz;
+      if (rel < -1 && rel > -30 && o.v > 2) {
+        let dh = Math.abs(o.h - c.h) % (Math.PI * 2);
+        if (dh > Math.PI) dh = Math.PI * 2 - dh;
+        if (dh < 0.6) found = true;
+      }
+    });
+    return found;
   }
 
   private majorTrafficApproaching(c: Car, node: number): boolean {

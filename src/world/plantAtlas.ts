@@ -373,7 +373,13 @@ export function plantAtlas(): THREE.Texture {
   });
   withCell(ctx, 'cactus', (w, h) => paintCactus(ctx, w, h));
   withCell(ctx, 'agave', (w, h) => paintAgave(ctx, w, h));
-  withCell(ctx, 'yucca', (w, h) => paintBlades(ctx, w, h, 7, 1, 100, 34, false, 0));
+  withCell(ctx, 'yucca', (w, h) => {
+    const g = ctx.createLinearGradient(0, h, 0, 0);
+    g.addColorStop(0, hsl(70, 25, 45)); g.addColorStop(0.3, hsl(100, 30, 36)); g.addColorStop(1, hsl(95, 28, 44));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(w * 0.2, h); ctx.quadraticCurveTo(w * 0.02, h * 0.35, w * 0.47, 2); ctx.lineTo(w * 0.53, 2); ctx.quadraticCurveTo(w * 0.98, h * 0.35, w * 0.8, h); ctx.fill();
+    ctx.strokeStyle = hsl(60, 30, 70, 0.6); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(w / 2, h); ctx.lineTo(w / 2, 6); ctx.stroke();
+  });
   withCell(ctx, 'grass', (w, h) => paintBlades(ctx, w, h, 12, 140, 62, 52, true, 1.3));
   withCell(ctx, 'flowersWarm', (w, h) => paintFlowers(ctx, w, h, 31, [[4, 75, 50], [40, 85, 55], [20, 80, 55], [52, 85, 58]]));
   withCell(ctx, 'flowersCool', (w, h) => paintFlowers(ctx, w, h, 37, [[275, 45, 55], [0, 0, 92], [320, 60, 70], [230, 45, 60]]));
@@ -443,7 +449,7 @@ export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
         for (const s of [-1, 1]) {
           const la = a + s * (0.8 + R() * 0.4);
           const ll = 14 + R() * 8;
-          ctx.fillStyle = hsl(85 + R() * 18, 40, 34 + R() * 18);
+          ctx.fillStyle = hsl(72 + R() * 18, 26, 34 + R() * 16);
           ctx.save(); ctx.translate(qx + Math.cos(la) * ll * 0.5, qy + Math.sin(la) * ll * 0.5); ctx.rotate(la);
           ctx.beginPath(); ctx.ellipse(0, 0, ll * 0.55, 3.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
@@ -464,7 +470,7 @@ export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
       const s = 16 + R() * 10;
       const l = 28 + R() * 20;
       ctx.save(); ctx.translate(x, y); ctx.rotate(R() * Math.PI * 2);
-      ctx.fillStyle = hsl(90 + R() * 16, 38, l);
+      ctx.fillStyle = hsl(88 + R() * 16, 30, l);
       ctx.beginPath(); ctx.ellipse(0, 0, s, s * 0.45, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = hsl(90, 25, l + 14, 0.45); ctx.beginPath(); ctx.ellipse(-s * 0.2, -s * 0.1, s * 0.5, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = hsl(90, 30, l - 10, 0.6); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s, 0); ctx.stroke();

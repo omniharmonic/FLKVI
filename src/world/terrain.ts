@@ -145,6 +145,9 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
 export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLandMask>) {
   const grass = surface('grass'), dirt = surface('dirt'), dry = surface('grass-dry', 'grass'), conc = surface('concrete');
   const arid = recipe.climate === 'arid';
+  // vegetation: Sonoran-desert cities landscape yards with decomposed granite / gravel instead of lawn
+  const xeri = recipe.region === 'southwest';
+  const grav = surface('gravel');
   const mat = new THREE.MeshStandardMaterial({ map: grass.map ?? null, normalMap: grass.normalMap ?? null, roughness: 0.95, metalness: 0 });
   mat.name = 'terrain';
   mat.onBeforeCompile = (sh) => {
@@ -159,13 +162,15 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
     sh.uniforms.maskSize = { value: mask.size };
     sh.uniforms.grassScale = { value: 1 / grass.sizeM };
     sh.uniforms.dirtScale = { value: 1 / dirt.sizeM };
+    sh.uniforms.gravMap = { value: grav.map };
+    sh.uniforms.gravScale = { value: 1 / grav.sizeM };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGtW;')
       .replace('#include <project_vertex>', '#include <project_vertex>\nvGtW = (modelMatrix * vec4(transformed,1.0)).xyz;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vGtW; uniform sampler2D dirtMap; uniform sampler2D maskMap; uniform vec2 maskOrigin; uniform vec2 maskSize;
-        uniform float grassScale; uniform float dirtScale; uniform sampler2D dryMap; uniform float dryScale; uniform sampler2D hardMap; uniform sampler2D concMap; uniform float concScale;
+        uniform float grassScale; uniform float dirtScale; uniform sampler2D dryMap; uniform float dryScale; uniform sampler2D hardMap; uniform sampler2D concMap; uniform float concScale; uniform sampler2D gravMap; uniform float gravScale;
         ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
         vec2 wuv = vGtW.xz;
@@ -187,6 +192,15 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
         base *= 0.88 + 0.24 * gt_fbm(wuv * 0.11 + 7.0);
         base = mix(base, dirtC, clamp(max(dirtAmt * (1.0 - lawn), bare), 0.0, 1.0));
         base = mix(base, mix(dirtC * 0.55, grassC * 0.6, 0.5), forest * 0.6);
+        ${xeri ? `{
+          // decomposed granite: residential yards + unmapped ground (parks keep irrigated turf)
+          float yard = smoothstep(0.3, 0.45, lawn) * (1.0 - smoothstep(0.72, 0.9, lawn));
+          float dgAmt = clamp(max(yard, (1.0 - smoothstep(0.1, 0.3, lawn)) * 0.9) * (1.0 - forest), 0.0, 1.0);
+          vec3 dg1 = texture2D(gravMap, wuv * gravScale * 1.6).rgb, dg2 = texture2D(gravMap, wuv * gravScale * 0.45 + 0.3).rgb;
+          vec3 dg = mix(dg1, dg2, 0.35) * mix(vec3(1.32, 1.12, 0.94), vec3(1.2, 1.06, 0.95), gt_noise(wuv * 0.07));
+          dg *= 0.9 + 0.2 * gt_fbm(wuv * 0.23 + 5.0);
+          base = mix(base, dg, dgAmt * (0.85 + 0.15 * gt_noise(wuv * 0.5)));
+        }` : ''}
         float slope = 1.0 - abs(normalize(cross(dFdx(vGtW), dFdy(vGtW))).y);
         base = mix(base, dirtC * vec3(0.95, 0.9, 0.85), smoothstep(0.25, 0.45, abs(slope)));
         float hard = texture2D(hardMap, (wuv - maskOrigin) / maskSize).r;
@@ -201,7 +215,7 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
       `)
       .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1.0 - 0.85 * hard);'));
   };
-  mat.customProgramCacheKey = () => 'gt-terrain-' + arid;
+  mat.customProgramCacheKey = () => 'gt-terrain-' + arid + (xeri ? '-xeri' : '');
   return mat;
 }
 

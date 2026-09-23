@@ -8,7 +8,22 @@ import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.j
 import * as Lib from '../assets/library';
 import { personalize, preparePeople, warmthFor } from '../assets/characters';
 
-export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave';
+export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave' | 'talk' | 'film' | 'hit' | 'sprint' | 'jump' | 'foldArms' | 'jog';
+
+/** Fallback chain when a rig lacks a clip (glTF clip names come from CHARACTER_CLIPS). */
+const ROLE_ALIASES: Partial<Record<Role, string[]>> = {
+  film: ['film', 'aim', 'phone', 'idle'],
+  talk: ['talk', 'idle'],
+  hit: ['hit', 'knockback', 'idle'],
+  sprint: ['sprint', 'run', 'walk'],
+  jog: ['run', 'walk'],
+  jump: ['jump', 'jumpStart', 'run', 'walk'],
+  foldArms: ['foldArms', 'idle'],
+  phone: ['phone', 'idle'],
+  sit: ['sit', 'idle'],
+  wave: ['wave', 'idle'],
+  run: ['run', 'walk'],
+};
 export type CharKind = 'civilian' | 'officer';
 
 const NAVY = '#1b2233';
@@ -214,6 +229,27 @@ function makeClips(): Record<string, THREE.AnimationClip> {
     cyc('foreArmR', 4, () => qx(50), 2),
     cyc('head', 4, (p) => qxyz(-4, Math.sin(p) * 20, 0), 6),
   ]);
+  clips.film = new THREE.AnimationClip('film', 2, [
+    cyc('upperArmR', 2, (p) => qxyz(78 + Math.sin(p) * 2, 0, 10), 4),
+    cyc('foreArmR', 2, () => qx(28), 2),
+    cyc('handR', 2, () => qxyz(-20, 0, 0), 2),
+    cyc('upperArmL', 2, () => qxyz(58, 0, -22), 2),
+    cyc('foreArmL', 2, () => qx(48), 2),
+    cyc('head', 2, (p) => qxyz(-4, Math.sin(p) * 4, 0), 4),
+  ]);
+  clips.talk = new THREE.AnimationClip('talk', 2.4, [
+    cyc('chest', 2.4, (p) => qxyz(Math.sin(p) * 2, Math.sin(p * 2) * 5, 0), 6),
+    cyc('upperArmR', 2.4, (p) => qxyz(18 + Math.sin(p * 2) * 12, 0, 10), 6),
+    cyc('foreArmR', 2.4, (p) => qx(50 + Math.sin(p * 2) * 25), 6),
+    cyc('upperArmL', 2.4, () => qxyz(4, 0, -6), 2),
+    cyc('foreArmL', 2.4, () => qx(12), 2),
+    cyc('head', 2.4, (p) => qxyz(Math.sin(p * 3) * 6, Math.sin(p) * 14, 0), 6),
+  ]);
+  clips.hit = new THREE.AnimationClip('hit', 0.8, [
+    new THREE.QuaternionKeyframeTrack('spine.quaternion', [0, 0.15, 0.8], [...qx(0).toArray(), ...qx(-18).toArray(), ...qx(0).toArray()]),
+    new THREE.QuaternionKeyframeTrack('upperArmL.quaternion', [0, 0.15, 0.8], [...qx(0).toArray(), ...qxyz(40, 0, -40).toArray(), ...qx(0).toArray()]),
+    new THREE.QuaternionKeyframeTrack('upperArmR.quaternion', [0, 0.15, 0.8], [...qx(0).toArray(), ...qxyz(40, 0, 40).toArray(), ...qx(0).toArray()]),
+  ]);
   clips.wave = new THREE.AnimationClip('wave', 1, [
     cyc('upperArmR', 1, () => qxyz(10, 0, 150), 2),
     cyc('foreArmR', 1, (p) => qxyz(0, 0, 20 + Math.sin(p) * 25), 4),
@@ -237,6 +273,8 @@ export class Character {
   private current: THREE.AnimationAction | null = null;
   role: Role | null = null;
   phone: THREE.Object3D | null = null;
+  /** red recording LED + screen glow (visible while filming) */
+  phoneLed: THREE.Object3D | null = null;
   /** 0 standing .. 1 lying on the ground */
   fallT = 0;
   fallTarget = 0;
@@ -250,6 +288,18 @@ export class Character {
       const ph = new THREE.Mesh(PHONE_GEO, PHONE_MAT);
       ph.position.set(0.02, -0.07, -0.03);
       ph.visible = false;
+      // counter the rig's bone scale so the phone stays phone-sized on scaled glTF skeletons
+      phoneParent.updateWorldMatrix(true, false);
+      const ws = new THREE.Vector3().setFromMatrixScale(phoneParent.matrixWorld);
+      const rootS = new THREE.Vector3().setFromMatrixScale(model.matrixWorld);
+      const k = rootS.x > 0 && ws.x > 0 ? rootS.x / ws.x : 1;
+      if (Number.isFinite(k) && k > 0.01 && k < 100) ph.scale.setScalar(k);
+      const led = new THREE.Sprite(LED_MAT);
+      led.scale.set(0.09, 0.09, 1);
+      led.position.set(0, 0.06, 0.012);
+      led.visible = false;
+      ph.add(led);
+      this.phoneLed = led;
       phoneParent.add(ph);
       this.phone = ph;
     }
@@ -259,9 +309,11 @@ export class Character {
 
   play(role: Role, fade = 0.25, timeScale = 1) {
     let a = this.actions.get(role);
-    if (!a && role === 'run') a = this.actions.get('walk');
-    if (!a && (role === 'phone' || role === 'sit' || role === 'wave')) a = this.actions.get('idle');
+    if (!a) for (const alt of ROLE_ALIASES[role] ?? ['idle']) { a = this.actions.get(alt); if (a) break; }
     if (!a) return;
+    const once = role === 'hit' || (role === 'jump' && !this.actions.has('jump'));
+    a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+    a.clampWhenFinished = once;
     a.timeScale = timeScale;
     if (this.current === a) { this.role = role; return; }
     a.reset();
@@ -271,7 +323,11 @@ export class Character {
     if (this.current) a.crossFadeFrom(this.current, fade, false);
     this.current = a;
     this.role = role;
-    if (this.phone) this.phone.visible = role === 'phone';
+    if (this.phone) {
+      this.phone.visible = role === 'phone' || role === 'film';
+      (this.phone as THREE.Mesh).material = role === 'film' ? PHONE_FILM_MAT : PHONE_MAT;
+      if (this.phoneLed) this.phoneLed.visible = role === 'film';
+    }
   }
 
   /** Advance animation; `dt` may be accumulated for low-rate LOD updates. */
@@ -301,6 +357,17 @@ function easeOutBounce(t: number) {
 
 const PHONE_GEO = new THREE.BoxGeometry(0.075, 0.14, 0.012);
 const PHONE_MAT = new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.3, metalness: 0.4, emissive: '#3a6cff', emissiveIntensity: 0.25 });
+/** Filming: bright screen that reads at distance (bloom picks it up at night). */
+const PHONE_FILM_MAT = new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.3, metalness: 0.4, emissive: '#cfe2ff', emissiveIntensity: 2.6 });
+const LED_MAT = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const x = c.getContext('2d')!;
+  const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,40,40,1)'); gr.addColorStop(1, 'rgba(255,0,0,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+  const t = new THREE.CanvasTexture(c);
+  return new THREE.SpriteMaterial({ map: t, color: '#ff3030', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false });
+})();
 
 // ------------------------------------------------------------------------------------------------
 // Factory (procedural or glTF)

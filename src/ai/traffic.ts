@@ -7,6 +7,7 @@ import { rng } from '../core/geo';
 import { RoadNet, samplePoly, CLASS_DENSITY } from './roadnet';
 import { TrafficSim, Car, type Obstacle } from './trafficsim';
 import { groundY, hourOfDay, playerInfo, visibleToCamera, playSound, dist2, type PlayerInfo } from './util';
+import { CAR_MODEL_IDS } from '../game/vehicles/carModels';
 
 export const TRAFFIC_TUNING = {
   /** max civilian cars around the player */
@@ -19,7 +20,16 @@ export const TRAFFIC_TUNING = {
   metersPerCar: 70,
   /** global density multiplier */
   density: 1,
+  /** share of spawns that are delivery vans / taxis (downtown) / buses (major roads, if the vehicle kit has one) */
+  vanShare: 0.09,
+  taxiShare: 0.06,
+  busShare: 0.05,
+  /** share of spawns that start at the curb and pull out; chance per car-second of pulling over to park */
+  pullOutShare: 0.12,
+  parkRate: 0.004,
 };
+
+const DELIVERY_COLORS = ['#f2f2ee', '#f2f2ee', '#6b4a2b', '#e6e1d3', '#2e4a7a', '#c8c2b0'];
 
 /** Traffic density multiplier by hour. */
 export function trafficTimeFactor(h: number): number {
@@ -33,6 +43,7 @@ export function trafficTimeFactor(h: number): number {
 }
 
 const UP = new THREE.Vector3();
+const HAS_BUS = (CAR_MODEL_IDS as string[]).includes('bus');
 
 interface CarData {
   handle: VehicleHandle;
@@ -91,6 +102,8 @@ export class TrafficSystem {
     handle.driver = 'ai';
     const y = groundY(this.g, c.x, c.z);
     c.data = { handle, acc: 0, y, hazard: 0, crashed: false, settle: 0, prevMode: 'lane' } as CarData;
+    // delivery vans stop often; others rarely
+    (handle as any).__park = look?.model === 'van' ? 6 : look?.model === 'taxi' ? 3 : 1;
     if (kind === 'police') c.halfLen = 2.45;
     this.handleIds.add(handle.id);
     this.sync(c);
@@ -133,7 +146,8 @@ export class TrafficSystem {
     if (h.control) {
       h.control.brake = c.acc < -0.8 || c.v < 0.1 ? 1 : 0;
       h.control.throttle = c.acc > 0.2 ? Math.min(1, c.acc / 2) : 0;
-      h.control.steer = 0;
+      // turn-signal intent (vehicle visuals blink from |steer| > 0.2); lane cars only
+      h.control.steer = c.mode === 'lane' ? c.signal * 0.25 : 0;
     }
     if (c.kind === 'police') h.siren = c.sirens;
   }
@@ -191,12 +205,35 @@ export class TrafficSystem {
       if (!clear) continue;
       for (const c of this.sim.cars) if (dist2(c.x, c.z, sp.x, sp.z) < 121) { clear = false; break; }
       if (!clear) continue;
-      const c = this.addCar('civilian', pick, lane, s);
+      const look = this.pickLook(E.rank, P);
+      const c = this.addCar('civilian', pick, lane, s, look);
       if (!c) return false;
+      if (look?.model === 'bus') c.halfLen = 6;
+      else if (look?.model === 'van') c.halfLen = 2.6;
       c.v = Math.min(E.speed, 4 + this.rnd() * E.speed * 0.8);
+      // some cars start at the curb and pull out (signal, wait for a gap)
+      if (!this.initialFill && lane === E.dirLanes - 1 && E.rank <= 4 && this.rnd() < T.pullOutShare) this.sim.startPullOut(c);
       return true;
     }
     return false;
+  }
+
+  private downtownT = 0;
+  private downtown = 0;
+  /** Vehicle model/color for a new civilian: vans, taxis downtown, buses on major roads. */
+  private pickLook(rank: number, P: PlayerInfo): { model?: string; color?: string } | undefined {
+    const T = TRAFFIC_TUNING;
+    const r = this.rnd();
+    if (rank >= 3 && HAS_BUS && r < T.busShare) return { model: 'bus' };
+    if (r < T.busShare + T.vanShare) return { model: 'van', color: DELIVERY_COLORS[Math.floor(this.rnd() * DELIVERY_COLORS.length)] };
+    if (this.g.elapsed - this.downtownT > 5) {
+      this.downtownT = this.g.elapsed;
+      let n = 0;
+      for (const b of this.g.recipe.buildings) { if ((b.use === 'commercial' || b.use === 'office' || b.use === 'mixed-use') && Math.abs(b.footprint[0][0] - P.x) < 250 && Math.abs(b.footprint[0][1] - P.z) < 250 && ++n > 60) break; }
+      this.downtown = Math.min(1, n / 60);
+    }
+    if (r < T.busShare + T.vanShare + T.taxiShare * this.downtown) return { model: 'taxi' };
+    return undefined;
   }
 
   /** React to a ram / gunshot / crash: stop with hazards or flee. */
@@ -297,7 +334,9 @@ export class TrafficSystem {
       const every = dd < 200 * 200 ? 1 : dd < 320 * 320 ? 2 : 4;
       d.acc += dt;
       if ((this.frame + c.id) % every !== 0) continue;
-      this.sim.stepCar(c, Math.min(d.acc, 0.25));
+      const step = Math.min(d.acc, 0.25);
+      if (c.kind === 'civilian' && !c.curb && this.rnd() < TRAFFIC_TUNING.parkRate * step * (d.handle as any).__park) this.sim.tryPark(c);
+      this.sim.stepCar(c, step);
       d.acc = 0;
     }
 

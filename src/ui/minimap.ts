@@ -61,6 +61,16 @@ export class Minimap {
       ctx.strokeStyle = 'rgba(255,178,62,0.25)'; ctx.lineWidth = 9 / k; this.poly(nav.route);
       ctx.strokeStyle = '#ffb23e'; ctx.lineWidth = 3.2 / k; this.poly(nav.route);
     }
+    // police search area (ai: g.heat.searchArea — heat > 0 and they've lost sight of you)
+    const sa = g.heat?.searchArea;
+    if (sa) {
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      ctx.fillStyle = `rgba(255,64,64,${0.1 + 0.06 * pulse})`;
+      ctx.strokeStyle = `rgba(255,96,96,${0.5 + 0.35 * pulse})`;
+      ctx.lineWidth = 2 / k; ctx.setLineDash([7 / k, 5 / k]);
+      ctx.beginPath(); ctx.arc(sa.p[0], sa.p[1], sa.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
 
     // world → screen

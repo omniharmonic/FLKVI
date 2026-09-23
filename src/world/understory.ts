@@ -57,7 +57,7 @@ export function buildUnderstory(ctx: Ctx, existing: RecipeTree[]): RecipeTree[] 
   const occ = new Set<number>();
   const key = (x: number, z: number) => (Math.floor(x / cell) + 32768) * 65536 + (Math.floor(z / cell) + 32768);
   for (const t of existing) occ.add(key(t.p[0], t.p[1]));
-  const hard = recipe.areas.filter((a) => a.kind === 'parking' || a.kind === 'plaza' || a.kind === 'pedestrian' || a.kind === 'water' || a.kind === 'pitch');
+  const hard = recipe.areas.filter((a) => a.kind === 'parking' || a.kind === 'plaza' || a.kind === 'pedestrian' || a.kind === 'water' || a.kind === 'pitch' || a.kind === 'commercial' || a.kind === 'industrial');
   const inHard = (x: number, z: number) => hard.some((a) => pointInPoly(x, z, a.poly));
   const ok = (x: number, z: number, clear = 0.5) => {
     if (x < b.minX + 2 || x > b.maxX - 2 || z < b.minZ + 2 || z > b.maxZ - 2) return false;

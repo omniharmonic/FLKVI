@@ -26,7 +26,32 @@ export const PED_TUNING = {
   /** NPC sight range for crimes (m, daylight) */
   sightRange: 45,
   density: 1,
+  /** walking together: chance a spawn is a pair (and that a pair is a trio) */
+  groupChance: 0.26,
+  trioChance: 0.3,
+  /** daytime joggers */
+  joggerChance: 0.07,
+  /** per ped-second: cross mid-block (gap acceptance) / step into a shop */
+  jaywalkRate: 0.005,
+  shopEnterRate: 0.035,
+  /** share of spawns that walk out of a shop door (fade in) / stand chatting in a cluster */
+  shopExitShare: 0.16,
+  chatShare: 0.1,
+  /** at night (19–02 h) share of spawns placed near bars / restaurants */
+  nightVenueShare: 0.45,
+  /** idle peds on the phone */
+  phoneIdleChance: 0.35,
+  /** a takedown / crime / arrest in view: chance each witness raises a phone and films */
+  filmChance: 0.38,
+  /** filmers who kept the player in frame during a takedown post it (low-confidence witness report) */
+  filmReportChance: 0.5,
+  /** cars faster than this heading at a ped make them jump aside (m/s) */
+  dodgeSpeed: 9,
 };
+
+const VENUES = /BAR|PUB|BREW|TAVERN|RESTAURANT|CAFE|COFFEE|PIZZA|TACO|SUSHI|RAMEN|DINER|CURRY|FOOD|ICE CREAM|GRILL|BURGER|THAI|NOODLE|BAKERY|DELI|WINE/;
+
+interface Door { x: number; z: number; nx: number; nz: number; venue: boolean }
 
 export function pedTimeFactor(h: number): number {
   if (h < 5) return 0.18;
@@ -37,7 +62,8 @@ export function pedTimeFactor(h: number): number {
   return 0.35;
 }
 
-type PedState = 'walk' | 'wait' | 'cross' | 'idle' | 'toBench' | 'sit' | 'notice' | 'flee' | 'call' | 'watch' | 'fallen' | 'getup' | 'wander';
+type PedState = 'walk' | 'wait' | 'cross' | 'idle' | 'toBench' | 'sit' | 'notice' | 'flee' | 'call' | 'watch' | 'fallen' | 'getup' | 'wander'
+  | 'follow' | 'chat' | 'enter' | 'exit' | 'film' | 'stagger' | 'dodge';
 
 const tmpS: Sample = { x: 0, z: 0, h: 0 };
 
@@ -91,6 +117,19 @@ export class Ped {
   ch: Character;
   icon = new Icon();
   alive = true;
+  /** walking group: followers mirror the leader at an offset */
+  leader: Ped | null = null;
+  followers: Ped[] = [];
+  fLat = 0; fBack = 0;
+  jogger = false;
+  /** 0 invisible .. 1 opaque (shop doors); fadeDir -1 fading out, +1 in */
+  fade = 1; fadeDir = 0;
+  door = -1;
+  jay = false; jaySide = 0; jayS = 0;
+  /** filming: saw the player do something while recording */
+  filmSus = false;
+  dodgeCd = 0;
+  chatWith: Ped[] = [];
   constructor(public id: number, ch: Character) {
     this.ch = ch;
     this.ch.root.add(this.icon.sprite);
@@ -114,6 +153,8 @@ export class PedSystem {
   private benchGrid = new StaticGrid(32);
   private bldGrid = new StaticGrid(64);
   private commercial: { x: number; z: number }[] = [];
+  private doors: Door[] = [];
+  private doorGrid = new StaticGrid(24);
   hash = new SpatialHash<Ped>(8);
   targetCount = 0;
   obstacles: Obstacle[] = [];
@@ -139,11 +180,36 @@ export class PedSystem {
       this.bldGrid.addBox(this.commercial.length, cx, cz, cx, cz);
       this.commercial.push({ x: cx, z: cz });
     }
+    // shop doors: middle of each street-facing storefront edge, nudged outside the wall
+    for (const b of g.recipe.buildings) {
+      if (!b.storefront || !b.streetEdges?.length) continue;
+      const fp = b.footprint;
+      let cx = 0, cz = 0;
+      for (const q of fp) { cx += q[0]; cz += q[1]; }
+      cx /= fp.length; cz /= fp.length;
+      const venue = !!b.signage && VENUES.test(b.signage);
+      for (const ei of b.streetEdges.slice(0, 2)) {
+        const a = fp[ei], c = fp[(ei + 1) % fp.length];
+        if (!a || !c) continue;
+        const ex = c[0] - a[0], ez = c[1] - a[1];
+        const el = Math.hypot(ex, ez);
+        if (el < 4) continue;
+        let nx = ez / el, nz = -ex / el;
+        const mx = (a[0] + c[0]) / 2, mz = (a[1] + c[1]) / 2;
+        if ((mx - cx) * nx + (mz - cz) * nz < 0) { nx = -nx; nz = -nz; }
+        const d: Door = { x: mx + nx * 0.45, z: mz + nz * 0.45, nx, nz, venue };
+        this.doorGrid.addBox(this.doors.length, d.x, d.z, d.x, d.z);
+        this.doors.push(d);
+      }
+    }
     this.enabled = net.peds.length > 0 || !!(g as any).world?.randomSidewalkPoint;
 
     g.events.on('noise', (e) => this.onStimulus(e.p, e.radius, e.kind, false));
     g.events.on('crime', (e) => this.onCrime(e.p, e.severity, e.kind));
     g.events.on('playerMelee', (e) => this.onMelee(e.p, e.dir, e.range));
+    g.events.on('takedownStart', () => { const P = playerInfo(g); if (P.ok) this.startFilming([P.x, P.z], 45, 1, true); });
+    g.events.on('takedown', (e) => this.startFilming(e.p, 50, 0.8, true));
+    g.events.on('arrested', () => { const P = playerInfo(g); if (P.ok) this.startFilming([P.x, P.z], 55, 1.3, false); });
   }
 
   // ------------------------------------------------------------------ spawning

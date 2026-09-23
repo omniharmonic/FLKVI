@@ -82,9 +82,8 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   // Cabin: interior shell alone, or interior + seated driver merged (one draw either way).
   const cabinGeo = [model.interior, cabinWithDriver(model, seed % model.drivers.length)];
   const cabin = add(model.interior, mats.interior)!;
-  const signals = add(model.signals, [mats.amber, mats.amber] as unknown as THREE.Material)!;
   const sigMats: THREE.Material[] = [mats.amber, mats.amber];
-  signals.material = sigMats;
+  add(model.signals, sigMats);
   add(plateGeo(model, seed % PLATE_CELLS), plateMaterial());
   let red: THREE.Mesh | null = null, blue: THREE.Mesh | null = null;
   if (model.lightbar) {

@@ -247,11 +247,11 @@ function buildBodyGeometry(s: BodySpec, lod = 0) {
   const fns = makeBodyFns(s);
   // Stations
   const st: number[] = [];
-  for (let d = 0; d <= s.L + 1e-6; d += lod === 2 ? 0.75 : lod ? 0.32 : 0.13) st.push(d);
+  for (let d = 0; d <= s.L + 1e-6; d += lod === 2 ? 0.75 : lod ? 0.32 : 0.17) st.push(d);
   for (const e of lod === 2 ? [0.05] : lod ? [0.02, 0.08] : [0.005, 0.02, 0.045, 0.08, 0.12, 0.17, 0.24]) { st.push(e); st.push(s.L - e); }
   for (const dc of [s.axleF, s.axleR]) {
     const R = fns.archR;
-    const na = lod === 2 ? 2 : lod ? 5 : 12;
+    const na = lod === 2 ? 2 : lod ? 5 : 10;
     for (let k = 0; k <= na; k++) st.push(dc - R * Math.cos((k / na) * Math.PI));
     st.push(dc - R - 0.012, dc + R + 0.012);
   }
@@ -409,6 +409,18 @@ function detailTexture(s: BodySpec, livery: Livery, fns: ReturnType<typeof makeB
     const gr = x.createLinearGradient(0, Y(0.55), 0, Y(0.15));
     gr.addColorStop(0, 'rgba(60,55,50,0)'); gr.addColorStop(1, 'rgba(60,55,50,0.35)');
     x.fillStyle = gr; x.fillRect(ox, Y(0.55), Wpx / 2, Y(0.15) - Y(0.55));
+    // Road spray: speckled dirt thrown up behind each wheel and along the sills.
+    let sd = 1234 + ox;
+    const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+    for (const dc of [s.axleF, s.axleR]) {
+      for (let k = 0; k < 900; k++) {
+        const u = rnd(), v = rnd();
+        const d = dc + 0.15 + u * 0.9 * (1 - v * 0.5), y = 0.18 + v * v * 0.45;
+        x.fillStyle = `rgba(${70 + rnd() * 30},${62 + rnd() * 25},${52 + rnd() * 20},${0.08 + (1 - v) * 0.22 * (1 - u)})`;
+        const r = 0.6 + rnd() * 1.8;
+        x.fillRect(X(d), Y(y), r, r);
+      }
+    }
     x.restore();
   };
   drawHalf(0, true);
@@ -450,17 +462,17 @@ function buildWheel(R: number, tw: number, style: BodySpec['rimStyle']) {
     [R, hw - 0.045], [R - 0.004, hw - 0.026], [R - 0.022, hw - 0.004], [R - 0.05, hw + 0.004], [rimR - 0.005, hw - 0.012],
   ];
   for (const [r, y] of tireProfile) prof.push(new THREE.Vector2(r, y));
-  const tire = new THREE.LatheGeometry(prof, 30);
+  const tire = new THREE.LatheGeometry(prof, 22);
   const yf = hw - 0.018;
   const rimProf: [number, number][] = style === 'steel'
     ? [[0.001, yf - 0.005], [0.07, yf - 0.006], [0.085, yf - 0.02], [rimR - 0.06, yf - 0.035], [rimR - 0.035, yf - 0.012], [rimR - 0.012, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]]
     : [[0.001, yf + 0.006], [0.045, yf + 0.006], [0.055, yf - 0.002], [rimR - 0.018, yf - 0.004], [rimR - 0.006, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]];
-  const rim = new THREE.LatheGeometry(rimProf.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 30);
+  const rim = new THREE.LatheGeometry(rimProf.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 22);
   const parts: THREE.BufferGeometry[] = [];
   const darkParts: THREE.BufferGeometry[] = [];
   if (style !== 'steel') {
     // Spoked alloy: dark dish recessed behind spokes.
-    const dish = new THREE.CylinderGeometry(rimR - 0.012, rimR - 0.012, 0.01, 36, 1);
+    const dish = new THREE.CylinderGeometry(rimR - 0.012, rimR - 0.012, 0.01, 22, 1);
     dish.translate(0, yf - 0.07, 0);
     darkParts.push(dish);
     const nSp = style === 'spoke5' ? 5 : 10;
@@ -481,7 +493,7 @@ function buildWheel(R: number, tw: number, style: BodySpec['rimStyle']) {
     // Strip the non-lathe parts so the rim geometry matches: the dish replaces the flat lathe face.
     const rimOuter = new THREE.LatheGeometry(
       ([[rimR - 0.02, yf - 0.02], [rimR - 0.006, yf + 0.004], [rimR, yf], [rimR, -hw + 0.02]] as [number, number][])
-        .map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 30);
+        .map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 22);
     rim.dispose();
     parts.push(rimOuter);
   } else {
@@ -764,6 +776,16 @@ function buildCarModel(id: CarModelId): CarModel {
       const rail = rbox(0.035, 0.035, b - a, 0.012);
       rail.translate(sx * (s.W * s.cabin - 0.08 - 1.75 * 0.0), fns.top(3) + fns.roofH(3) + 0.035, Z((a + b) / 2));
       trimParts.push(rail);
+    }
+  }
+  // Black plastic wheel-arch flares on SUVs / pickups.
+  if (baseId === 'suv' || baseId === 'pickup') {
+    for (const sx of [-1, 1]) for (const dc of [s.axleF, s.axleR]) {
+      const fl = new THREE.TorusGeometry(fns.archR + 0.025, 0.035, 4, 14, Math.PI);
+      fl.scale(1, 1, 0.9);
+      fl.rotateY(Math.PI / 2);
+      fl.translate(sx * (fns.halfW(dc) - 0.02), s.wheelR, Z(dc));
+      trimParts.push(fl);
     }
   }
   // Pickup bed cover + tailgate handle
