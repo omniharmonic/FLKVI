@@ -122,8 +122,8 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
     setLights(s) {
       head.material = s.head ? mats.headOn : mats.headOff;
       tail.material = s.brake ? mats.tailBrake : s.head ? mats.tailRun : mats.tailOff;
-      farHead.material = head.material;
-      farTail.material = tail.material;
+      farHead.material = head.material as THREE.MeshPhysicalMaterial;
+      farTail.material = tail.material as THREE.MeshPhysicalMaterial;
       rev.material = s.reverse ? mats.revOn : mats.revOff;
       if (red && blue) {
         if (s.siren) {

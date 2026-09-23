@@ -59,6 +59,8 @@ export interface BCtx {
   ring: Vec2[];
   /** extra output: approximate triangle counts etc. */
   winCount: number;
+  /** position of the front door along the front edge (set by the ground-floor grammar) */
+  doorS?: number;
 }
 
 export function aoAt(c: BCtx, y: number): number {
@@ -142,8 +144,8 @@ function reveal(mb: MB, f: Frame, o: Op, r: number, aoOut = 0.85, aoIn = 0.55, b
 
 /** Frame ring (sash) inside an opening at depth dz. */
 function frameRing(mb: MB, f: Frame, s0: number, s1: number, y0: number, y1: number, dz: number, fw: number, depth: number) {
-  mb.box(f, s0, s0 + fw, y0, y1, dz - depth, dz, 1 | 4, [0.8, 0.9]);
-  mb.box(f, s1 - fw, s1, y0, y1, dz - depth, dz, 1 | 8, [0.8, 0.9]);
+  mb.box(f, s0, s0 + fw, y0, y1, dz - depth, dz, 1, [0.8, 0.9]);
+  mb.box(f, s1 - fw, s1, y0, y1, dz - depth, dz, 1, [0.8, 0.9]);
   mb.box(f, s0 + fw, s1 - fw, y1 - fw, y1, dz - depth, dz, 1 | 32, [0.85, 0.85]);
   mb.box(f, s0 + fw, s1 - fw, y0, y0 + fw, dz - depth, dz, 1 | 16, [0.9, 0.9]);
 }
@@ -188,9 +190,9 @@ function emitOpening(c: BCtx, f: Frame, o: Op, wallId: string) {
       // sill
       if (o.t === 'win' && st.win.sillType !== 'none') {
         const stone = st.win.sillType === 'stone';
-        const mb = stone ? surf(B, 0, 'stone', st.stone) : surf(B, 0, 'paint', st.trim);
+        const mb = stone ? surf(B, 0, 'trim-stone', st.stone) : surf(B, 0, 'paint', st.trim);
         const ext = stone ? 0.08 : 0.05;
-        mb.box(f, o.s0 - ext, o.s1 + ext, o.y0 - (stone ? 0.1 : 0.05), o.y0, -r * 0.3, stone ? 0.07 : 0.05, 1 | 4 | 8 | 16 | 32, [0.8, 1]);
+        mb.box(f, o.s0 - ext, o.s1 + ext, o.y0 - (stone ? 0.1 : 0.05), o.y0, -r * 0.3, stone ? 0.07 : 0.05, 1 | 16 | 32, [0.8, 1]);
       }
       // lintel / head
       lintel(c, f, o);
@@ -276,7 +278,7 @@ function emitOpening(c: BCtx, f: Frame, o: Op, wallId: string) {
       tm.box(f, o.s0 + 0.08, o.s1 - 0.08, o.y0 + hDoor, o.y0 + hDoor + 0.1, dz - 0.03, dz + 0.06, 1 | 16 | 32, [0.8, 0.9]);
       glassQuad(B.g[0], f, o.s0 + 0.08, o.s1 - 0.08, o.y0 + 0.08, o.y1 - 0.08, dz, { ...o, kind: 2, muntin: 0 }, st.trim);
       // floor tile + ceiling of the recess
-      const fl = surf(B, 0, 'stone', col('#8c877f'));
+      const fl = surf(B, 0, 'trim-stone', col('#8c877f'));
       fl.quad(f.pt(o.s0, o.y0 + 0.01, 0), f.pt(o.s1, o.y0 + 0.01, 0), f.pt(o.s1, o.y0 + 0.01, dz), f.pt(o.s0, o.y0 + 0.01, dz), [0, 0, bw, 0, bw, r, 0, r], [0.8, 0.8, 0.5, 0.5]);
       // door pull
       surf(B, 0, 'metal', col('#c0b08a')).box(f, dm + dw / 2 - 0.2, dm + dw / 2 - 0.17, o.y0 + 0.8, o.y0 + 1.4, dz + 0.06, dz + 0.1, 1 | 4 | 8);
@@ -324,31 +326,31 @@ function lintel(c: BCtx, f: Frame, o: Op) {
   const { B, st } = c;
   const y1 = o.y1;
   switch (st.win.lintel) {
-    case 'stone': surf(B, 0, 'stone', st.stone).box(f, o.s0 - 0.12, o.s1 + 0.12, y1, y1 + 0.24, 0, 0.035, 1 | 4 | 8 | 16 | 32, [0.85, 1]); break;
+    case 'stone': surf(B, 0, 'trim-stone', st.stone).box(f, o.s0 - 0.12, o.s1 + 0.12, y1, y1 + 0.24, 0, 0.035, 1 | 16 | 32, [0.85, 1]); break;
     case 'keystone': {
-      const mb = surf(B, 0, 'stone', st.stone);
-      mb.box(f, o.s0 - 0.1, o.s1 + 0.1, y1, y1 + 0.22, 0, 0.03, 1 | 4 | 8 | 16 | 32, [0.85, 1]);
+      const mb = surf(B, 0, 'trim-stone', st.stone);
+      mb.box(f, o.s0 - 0.1, o.s1 + 0.1, y1, y1 + 0.22, 0, 0.03, 1 | 16 | 32, [0.85, 1]);
       const m = (o.s0 + o.s1) / 2;
-      mb.box(f, m - 0.12, m + 0.12, y1 - 0.05, y1 + 0.34, 0, 0.06, 1 | 4 | 8 | 16 | 32, [0.85, 1]);
+      mb.box(f, m - 0.12, m + 0.12, y1 - 0.05, y1 + 0.34, 0, 0.06, 1 | 16 | 32, [0.85, 1]);
       break;
     }
-    case 'soldier': surf(B, 0, st.wallTex, st.wallColor.clone().multiplyScalar(0.82)).box(f, o.s0 - 0.08, o.s1 + 0.08, y1, y1 + 0.25, 0, 0.02, 1 | 4 | 8 | 32, [0.85, 1]); break;
+    case 'soldier': surf(B, 0, st.wallTex, st.wallColor.clone().multiplyScalar(0.82)).box(f, o.s0 - 0.08, o.s1 + 0.08, y1, y1 + 0.25, 0, 0.02, 1 | 32, [0.85, 1]); break;
     case 'hood': {
-      const mb = st.wallTex.startsWith('brick') || st.wallTex === 'stone' || st.wallTex === 'sandstone' ? surf(B, 0, 'stone', st.stone) : surf(B, 0, 'paint', st.trim);
-      mb.box(f, o.s0 - 0.14, o.s1 + 0.14, y1 + 0.02, y1 + 0.26, 0, 0.08, 1 | 4 | 8 | 32, [0.85, 1]);
+      const mb = st.wallTex.startsWith('brick') || st.wallTex === 'stone' || st.wallTex === 'sandstone' ? surf(B, 0, 'trim-stone', st.stone) : surf(B, 0, 'paint', st.trim);
+      mb.box(f, o.s0 - 0.14, o.s1 + 0.14, y1 + 0.02, y1 + 0.26, 0, 0.08, 1 | 32, [0.85, 1]);
       mb.box(f, o.s0 - 0.2, o.s1 + 0.2, y1 + 0.26, y1 + 0.34, 0, 0.14, 63, [0.85, 1]);
       // small brackets
-      mb.box(f, o.s0 - 0.14, o.s0 - 0.06, y1 - 0.15, y1 + 0.02, 0, 0.07, 1 | 4 | 8 | 32, [0.8, 1]);
-      mb.box(f, o.s1 + 0.06, o.s1 + 0.14, y1 - 0.15, y1 + 0.02, 0, 0.07, 1 | 4 | 8 | 32, [0.8, 1]);
+      mb.box(f, o.s0 - 0.14, o.s0 - 0.06, y1 - 0.15, y1 + 0.02, 0, 0.07, 1 | 32, [0.8, 1]);
+      mb.box(f, o.s1 + 0.06, o.s1 + 0.14, y1 - 0.15, y1 + 0.02, 0, 0.07, 1 | 32, [0.8, 1]);
       break;
     }
     case 'wood': {
       const mb = surf(B, 0, 'paint', st.trim);
-      mb.box(f, o.s0 - 0.14, o.s1 + 0.14, y1, y1 + 0.18, 0, 0.035, 1 | 4 | 8 | 32, [0.9, 1]);
+      mb.box(f, o.s0 - 0.14, o.s1 + 0.14, y1, y1 + 0.18, 0, 0.035, 1 | 32, [0.9, 1]);
       mb.box(f, o.s0 - 0.18, o.s1 + 0.18, y1 + 0.18, y1 + 0.23, 0, 0.07, 63, [0.9, 1]);
       break;
     }
-    case 'flat': surf(B, 0, 'paint', st.trim).box(f, o.s0 - 0.12, o.s1 + 0.12, y1, y1 + 0.16, 0, 0.04, 1 | 4 | 8 | 16 | 32, [0.9, 1]); break;
+    case 'flat': surf(B, 0, 'paint', st.trim).box(f, o.s0 - 0.12, o.s1 + 0.12, y1, y1 + 0.16, 0, 0.04, 1 | 16 | 32, [0.9, 1]); break;
     default: break;
   }
 }
@@ -378,8 +380,8 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
   // foundation band (residential raised floor / civic plinth)
   const fTop = c.floorBase;
   if (fTop > c.base + 0.02) {
-    const fid = st.kit === 'civic' || st.kit === 'brownstone' ? 'stone' : 'concrete-plain';
-    const fc = fid === 'stone' ? st.stone : col('#a9a59c');
+    const fid = st.kit === 'civic' || st.kit === 'brownstone' ? 'trim-stone' : 'concrete-plain';
+    const fc = fid === 'trim-stone' ? st.stone : col('#a9a59c');
     plainWall(c, f, 0, L, c.base - 0.6, fTop, fid, fc, 0.03);
     surf(B, 2, fid, fc).box(f, 0, L, fTop - 0.02, fTop, 0, 0.03, 16, [1, 1]);
   } else if (!c.isPart) {
@@ -451,7 +453,7 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
       c.winCount += ops.length;
       // string course / floor band at top of floor
       if (fl.k < c.floors.length - 1) {
-        if (st.stringCourse && (fl.k === 0 || st.kit === 'civic' || st.kit === 'masonry-tower')) surf(B, 2, 'stone', st.stone).box(f, 0, L, fl.y1 - 0.12, fl.y1 + 0.12, 0, 0.05, 1 | 4 | 8 | 16 | 32, [0.85, 1]);
+        if (st.stringCourse && (fl.k === 0 || st.kit === 'civic' || st.kit === 'masonry-tower')) surf(B, 2, 'trim-stone', st.stone).box(f, 0, L, fl.y1 - 0.12, fl.y1 + 0.12, 0, 0.05, 1 | 4 | 8 | 16 | 32, [0.85, 1]);
         else if (st.floorBands) {
           const id = st.accentTex ?? 'concrete-plain';
           surf(B, 2, id, st.accentTex ? st.accentColor : col('#b0aca4')).box(f, 0, L, fl.y1 - 0.18, fl.y1 + 0.12, 0, 0.04, 1 | 4 | 8 | 16 | 32, [0.9, 1]);
@@ -468,7 +470,7 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
   if (c.flat && st.parapet > 0.05) {
     const pm = surf(B, 2, w.pattern === 'curtain' ? 'metal-panel' : wallId, w.pattern === 'curtain' ? st.sash : st.wallColor.clone().multiplyScalar(0.9));
     pm.box(f, 0, L, c.deckY - 0.05, c.top, -0.3, 0, 2, [0.7, 1]);
-    if (st.coping) surf(B, 2, st.wallTex.startsWith('brick') || st.kit === 'civic' ? 'stone' : 'metal', st.wallTex.startsWith('brick') ? st.stone : col('#9a9c9e')).box(f, -0.02, L + 0.02, c.top, c.top + 0.08, -0.34, 0.05, 1 | 2 | 16 | 4 | 8, [0.9, 1]);
+    if (st.coping) surf(B, 2, st.wallTex.startsWith('brick') || st.kit === 'civic' ? 'trim-stone' : 'metal', st.wallTex.startsWith('brick') ? st.stone : col('#9a9c9e')).box(f, -0.02, L + 0.02, c.top, c.top + 0.08, -0.34, 0.05, 1 | 2 | 16 | 4 | 8, [0.9, 1]);
   }
   // corner piers / pilasters / quoins
   if (st.cornerPiers && L > 2) {
@@ -479,7 +481,7 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
     mb.box(f, L - 0.5, L, y0, y1, 0, 0.07, 1 | 4 | 8, [0.8, 1]);
   }
   if (st.quoins && L > 2) {
-    const mb = surf(B, 0, 'stone', st.stone);
+    const mb = surf(B, 0, 'trim-stone', st.stone);
     let k = 0;
     for (let y = c.floorBase; y < c.top - (st.corniceH + 0.4); y += 0.34, k++) {
       const wq = k % 2 ? 0.35 : 0.6;
@@ -532,7 +534,7 @@ function curtainEdge(c: BCtx, e: EdgeInfo, lastTop: number) {
       const o: Op = { s0: 0, s1: L, y0: fl.y0, y1: fl.y1, t: 'lobby', r: 0, muntin: 9 + Math.min(0.29, bay / 10), kind: 6, reflect: 0.05, roomW: 20, floorY: fl.y0, floorH: fh, seed: sd };
       glassQuad(B.g[2], f, 0, L, fl.y0, fl.y1 - 0.5, -0.8, o, sash);
       surf(B, 2, 'metal-panel', sash).box(f, 0, L, fl.y1 - 0.5, fl.y1, -0.8, 0, 1 | 32, [0.7, 0.9]);
-      surf(B, 2, 'stone', col('#8c877f')).quad(f.pt(0, fl.y0 + 0.01, 0), f.pt(L, fl.y0 + 0.01, 0), f.pt(L, fl.y0 + 0.01, -0.8), f.pt(0, fl.y0 + 0.01, -0.8), [0, 0, L, 0, L, 0.8, 0, 0.8], 0.7);
+      surf(B, 2, 'trim-stone', col('#8c877f')).quad(f.pt(0, fl.y0 + 0.01, 0), f.pt(L, fl.y0 + 0.01, 0), f.pt(L, fl.y0 + 0.01, -0.8), f.pt(0, fl.y0 + 0.01, -0.8), [0, 0, L, 0, L, 0.8, 0, 0.8], 0.7);
       continue;
     }
     const spH = Math.min(1.0, fh * 0.28);
@@ -582,8 +584,9 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
       } else {
         ops.push({ s0: a, s1: z, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
       }
-      storefrontDress(c, f, a - 0.22, z + 0.22, fl.y0, top, fl.y1, i, sd);
+      storefrontDress(c, f, a - 0.22, z + 0.22, fl.y0, top, fl.y1, i, sd, L < 16 && nS > 1);
     }
+    if (L < 16 && nS > 1) storefrontSign(c, f, 0.6, L - 0.6, top, fl.y1, 0, nextSeed());
     // pilasters between bays (+ends)
     const pm = st.kit === 'main-street-block' || st.kit === 'brick-warehouse' ? surf(c.B, 2, 'paint', st.trim) : surf(c.B, 2, st.wallTex, st.wallColor.clone().multiplyScalar(0.9));
     for (let i = 0; i <= nS; i++) {
@@ -660,6 +663,7 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
       const cx = margin + (i + 0.5) * bay;
       if (i === di) {
         const dw = st.kit === 'brownstone' ? 1.2 : 0.95;
+        c.doorS = cx;
         ops.push({ s0: cx - dw / 2, s1: cx + dw / 2, y0: fl.y0, y1: fl.y0 + dH, t: 'door', r: 0.12, muntin: 0, kind: 0, reflect: 0, roomW: 4, floorY: fl.y0, floorH: fh, seed: nextSeed() });
         continue;
       }
@@ -682,13 +686,12 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
 }
 
 /** Sign board, awning, and night-lit sign for one storefront bay. */
-function storefrontDress(c: BCtx, f: Frame, a: number, z: number, y0: number, top: number, floorTop: number, i: number, sd: number) {
+function storefrontSign(c: BCtx, f: Frame, a: number, z: number, top: number, floorTop: number, i: number, sd: number) {
   const { B, st, b } = c;
   const w = z - a;
-  // sign board in the sign band
   const bandH = floorTop - top - 0.3;
   if (bandH > 0.35 && w > 1.5) {
-    const sw = Math.min(w - 0.5, 5.2), sh = Math.min(bandH - 0.1, 0.75);
+    const sh = Math.min(bandH - 0.1, 0.75), sw = Math.min(w - 0.5, sh * (512 / 96) * 1.15);
     const sx = (a + z) / 2 - sw / 2, sy = top + 0.12 + (bandH - sh) / 2;
     const text = signWord(b, () => ((sd >>> 3) % 1000) / 1000 + (i * 0.37) % 1);
     const [u0, v0, u1, v1] = signSlot(text, (st.signStyle + i) % 8);
@@ -704,9 +707,18 @@ function storefrontDress(c: BCtx, f: Frame, a: number, z: number, y0: number, to
       lm.box(f, lx - 0.07, lx + 0.07, sy + sh - 0.02, sy + sh + 0.08, 0.3, 0.42, 63);
     }
   }
+}
+
+/** Sign board (unless shared), awning for one storefront bay. */
+function storefrontDress(c: BCtx, f: Frame, a: number, z: number, y0: number, top: number, floorTop: number, i: number, sd: number, sharedSign = false) {
+  const { st, b } = c;
+  const w = z - a;
+  void y0;
+  if (!sharedSign) storefrontSign(c, f, a, z, top, floorTop, i, sd);
   // awning
   if (st.awnings && w > 1.5) {
-    const ac = st.awningColors[(i + (b.seed & 1)) % st.awningColors.length] ?? st.awningColors[0];
+    const ac = st.awningColors[0];
+    void i;
     const striped = st.awningStriped;
     const yT = top - 0.05, drop = 0.75, proj = 1.3, val = 0.25;
     const fb = c.B;
@@ -748,8 +760,8 @@ function cornice(c: BCtx, e: EdgeInfo) {
   const T = c.top;
   const H = st.corniceH;
   const stoneLike = st.wallTex.startsWith('brick') || st.wallTex === 'stone' || st.wallTex === 'sandstone';
-  const trimId = stoneLike && st.cornice !== 'bracketed' ? 'stone' : 'paint';
-  const trimCol = trimId === 'stone' ? st.stone : st.trim;
+  const trimId = stoneLike && st.cornice !== 'bracketed' ? 'trim-stone' : 'paint';
+  const trimCol = trimId === 'trim-stone' ? st.stone : st.trim;
   const ext = 0.25;
   switch (st.cornice) {
     case 'simple': {
@@ -769,7 +781,7 @@ function cornice(c: BCtx, e: EdgeInfo) {
       m.box(f, -0.18, L + 0.18, T - 0.3, T - 0.1, 0, 0.2, 1 | 4 | 8 | 32, [0.7, 1]);
       const d0 = surf(B, 0, st.wallTex, st.wallColor.clone().multiplyScalar(0.9));
       for (let s = 0.2; s < L - 0.1; s += 0.34) d0.box(f, s, s + 0.17, T - H + 0.3, T - H + 0.48, 0, 0.1, 1 | 4 | 8 | 32, [0.7, 0.9]);
-      surf(B, 2, 'stone', st.stone).box(f, -0.2, L + 0.2, T - 0.1, T + 0.04, -0.3, 0.24, 63, [0.85, 1]);
+      surf(B, 2, 'trim-stone', st.stone).box(f, -0.2, L + 0.2, T - 0.1, T + 0.04, -0.3, 0.24, 63, [0.85, 1]);
       break;
     }
     case 'bracketed': {

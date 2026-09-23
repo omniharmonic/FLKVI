@@ -10,7 +10,7 @@ import type { Progress } from '../../core/location';
 import type { Recipe, RecipeBuilding } from '../../core/types';
 import { generateBuilding } from './building';
 import { newBuckets, type Buckets } from './facade';
-import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, U } from './materials';
+import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, prepareBuildingTextures, U } from './materials';
 import { centroid } from './poly';
 
 export interface BuildingsResult {
@@ -23,7 +23,7 @@ export interface BuildingsResult {
   stats?: BuildStats;
 }
 
-export interface BuildStats { buildings: number; chunks: number; meshes: number; trisLod0: number; trisLod1: number; trisCommon: number; windows: number; ms: number }
+export interface BuildStats { buildings: number; chunks: number; meshes: number; trisLod0: number; trisLod1: number; trisCommon: number; windows: number; ms: number; texMs: number; genMs: number }
 
 export interface BuildOptions {
   chunkSize?: number;
@@ -31,7 +31,7 @@ export interface BuildOptions {
   lodDistance?: number;
 }
 
-interface Chunk { cx: number; cz: number; radius: number; group: THREE.Group; lod0: THREE.Group; lod1: THREE.Group; near: boolean }
+interface Chunk { cx: number; cz: number; groundY: number; radius: number; group: THREE.Group; lod0: THREE.Group; lod1: THREE.Group; near: boolean }
 
 export async function buildBuildings(g: Game, onProgress: Progress, opts: BuildOptions = {}): Promise<BuildingsResult> {
   return buildFromRecipe(g.recipe, onProgress, opts, g.quality);
@@ -42,34 +42,41 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   const group = new THREE.Group();
   group.name = 'buildings';
   const CH = opts.chunkSize ?? 200;
-  const lodD = opts.lodDistance ?? (quality === 'high' ? 320 : quality === 'medium' ? 220 : 140);
+  const lodD = opts.lodDistance ?? (quality === 'high' ? 170 : quality === 'medium' ? 120 : 80);
   onProgress('Preparing building materials', 0);
   await yieldUI();
+  try { await prepareBuildingTextures(); } catch { /* fall back to procedural */ }
+  const tTex = performance.now();
   const surfM = surfaceMaterial();
   const glassM = glassMaterial();
   const signM = signMaterial();
+  const texMs = performance.now() - tTex;
 
   // bucket buildings by chunk (centroid)
-  const byChunk = new Map<string, { cx: number; cz: number; list: RecipeBuilding[] }>();
+  const byChunk = new Map<string, { cx: number; cz: number; list: RecipeBuilding[]; y: number }>();
   for (const b of recipe.buildings ?? []) {
     if (!b.footprint || b.footprint.length < 3) continue;
     const [x, z] = centroid(b.footprint);
     const i = Math.floor(x / CH), j = Math.floor(z / CH);
     const key = i + ',' + j;
     let e = byChunk.get(key);
-    if (!e) byChunk.set(key, (e = { cx: (i + 0.5) * CH, cz: (j + 0.5) * CH, list: [] }));
+    if (!e) byChunk.set(key, (e = { cx: (i + 0.5) * CH, cz: (j + 0.5) * CH, list: [], y: 0 }));
+    e.y = (e.y * e.list.length + b.baseY) / (e.list.length + 1);
     e.list.push(b);
   }
-  const stats: BuildStats = { buildings: 0, chunks: 0, meshes: 0, trisLod0: 0, trisLod1: 0, trisCommon: 0, windows: 0, ms: 0 };
+  const stats: BuildStats = { buildings: 0, chunks: 0, meshes: 0, trisLod0: 0, trisLod1: 0, trisCommon: 0, windows: 0, ms: 0, texMs: 0, genMs: 0 };
   const chunks: Chunk[] = [];
   const total = recipe.buildings?.length ?? 0;
   let done = 0;
   let lastYield = performance.now();
+  let genMs = 0;
   for (const e of byChunk.values()) {
     const B = newBuckets();
     for (const b of e.list) {
       try {
+        const tg = performance.now();
         stats.windows += generateBuilding(B, b, recipe.region);
+        genMs += performance.now() - tg;
         stats.buildings++;
       } catch (err) {
         console.warn('[buildings] failed', b.id, err);
@@ -81,12 +88,14 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
         lastYield = performance.now();
       }
     }
-    const ch = makeChunk(e.cx, e.cz, CH, B, surfM, glassM, signM, stats);
+    const ch = makeChunk(e.cx, e.cz, e.y, CH, B, surfM, glassM, signM, stats);
     chunks.push(ch);
     group.add(ch.group);
   }
   refreshSigns();
   stats.chunks = chunks.length;
+  stats.texMs = texMs;
+  stats.genMs = genMs;
   stats.ms = performance.now() - t0;
   onProgress('Raising buildings', 1);
   console.info(`[buildings] ${stats.buildings} buildings, ${stats.chunks} chunks, ${stats.meshes} meshes, tris lod0 ${stats.trisLod0} lod1 ${stats.trisLod1} common ${stats.trisCommon}, ${stats.windows} windows, ${stats.ms.toFixed(0)} ms`);
@@ -96,7 +105,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     cam.getWorldPosition(camPos);
     for (const c of chunks) {
       const dx = Math.max(0, Math.abs(camPos.x - c.cx) - c.radius), dz = Math.max(0, Math.abs(camPos.z - c.cz) - c.radius);
-      const d = Math.hypot(dx, dz, Math.max(0, camPos.y - 60) * 0.5);
+      const d = Math.hypot(dx, dz, Math.max(0, camPos.y - c.groundY - 10));
       const near = c.near ? d < lodD + 30 : d < lodD - 30;
       if (near !== c.near) { c.near = near; c.lod0.visible = near; c.lod1.visible = !near; }
     }
@@ -113,14 +122,13 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     setNightFactor,
     update(_dt: number, g: Game) {
       setLod(g.camera);
-      if (g.sky && typeof g.sky.nightFactor === 'number') setNightFactor(g.sky.nightFactor);
     },
   };
 }
 
 export { U as buildingUniforms };
 
-function makeChunk(cx: number, cz: number, CH: number, B: Buckets, surfM: THREE.Material, glassM: THREE.Material, signM: THREE.Material, stats: BuildStats): Chunk {
+function makeChunk(cx: number, cz: number, groundY: number, CH: number, B: Buckets, surfM: THREE.Material, glassM: THREE.Material, signM: THREE.Material, stats: BuildStats): Chunk {
   const group = new THREE.Group();
   group.name = `bchunk_${Math.round(cx)}_${Math.round(cz)}`;
   const lod0 = new THREE.Group(); lod0.name = 'lod0';
@@ -147,7 +155,7 @@ function makeChunk(cx: number, cz: number, CH: number, B: Buckets, surfM: THREE.
   add(common, B.sign.build(), signM, false, 'c');
   lod1.visible = false;
   group.add(lod0, lod1, common);
-  return { cx, cz, radius: CH / 2, group, lod0, lod1, near: true };
+  return { cx, cz, groundY, radius: CH / 2, group, lod0, lod1, near: true };
 }
 
 function yieldUI(): Promise<void> {

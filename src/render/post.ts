@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, ToneMappingEffect, ToneMappingMode,
-  SMAAEffect, SMAAPreset, VignetteEffect, Effect, BlendFunction,
+  SMAAEffect, SMAAPreset, VignetteEffect, Effect, BlendFunction, EffectAttribute,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 
@@ -105,6 +105,103 @@ export class GrainEffect extends Effect {
   }
 }
 
+
+const SSR_FRAG = /* glsl */ `
+uniform mat4 camWorld;
+uniform mat4 projMat;
+uniform mat4 projInv;
+uniform vec4 wetParams; // x wetness, y puddles, z strength, w max steps scale
+float sHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.1031 ); p3 += dot( p3, p3.yzx + 33.33 ); return fract( ( p3.x + p3.y ) * p3.z ); }
+float sNoise( vec2 p ) {
+	vec2 i = floor( p ); vec2 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+	return mix( mix( sHash( i ), sHash( i + vec2( 1, 0 ) ), f.x ), mix( sHash( i + vec2( 0, 1 ) ), sHash( i + vec2( 1, 1 ) ), f.x ), f.y );
+}
+vec2 projectUV( vec3 p ) { vec4 c = projMat * vec4( p, 1.0 ); return c.xy / c.w * 0.5 + 0.5; }
+float sViewZ( float d ) { return ( cameraNear * cameraFar ) / ( ( cameraFar - cameraNear ) * d - cameraFar ); }
+vec3 sViewPos( vec2 uv, float d ) { vec4 c = projInv * vec4( vec3( uv, d ) * 2.0 - 1.0, 1.0 ); return c.xyz / c.w; }
+void mainImage( const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor ) {
+	outputColor = inputColor;
+	if ( wetParams.w > 2.5 ) { outputColor = vec4( fract( depth * 100.0 ), depth > 0.9999 ? 1.0 : 0.0, wetParams.x, 1.0 ); return; }
+	if ( wetParams.x < 0.02 || depth >= 0.9999 ) return;
+	vec3 vp = sViewPos( uv, depth );
+	vec3 nV = normalize( cross( dFdx( vp ), dFdy( vp ) ) );
+	vec3 nW = mat3( camWorld ) * nV;
+	if ( nW.y < 0.85 ) return;
+	vec3 wp = ( camWorld * vec4( vp, 1.0 ) ).xyz;
+	float n = sNoise( wp.xz * 0.22 ) * 0.65 + sNoise( wp.xz * 0.9 ) * 0.35;
+	float puddle = smoothstep( 0.52, 0.64, n ) * wetParams.y;
+	vec3 vd = normalize( vp );
+	vec3 r = reflect( vd, nV );
+	if ( r.z > 0.3 ) return; // reflecting back toward the camera: off screen
+	float cosT = clamp( dot( -vd, nV ), 0.0, 1.0 );
+	float fres = 0.02 + 0.98 * pow( 1.0 - cosT, 5.0 );
+	float strength = wetParams.x * mix( 0.3, 1.0, puddle ) * fres * wetParams.z;
+	if ( strength < 0.01 ) return;
+	// jitter start to hide banding; rough (non-puddle) wet surfaces get a slightly blurred direction
+	float j = sHash( gl_FragCoord.xy );
+	vec3 p = vp + nV * 0.05;
+	float stepLen = 0.25 * ( 1.0 + j );
+	vec3 hitColor = vec3( 0.0 );
+	float hit = 0.0;
+	vec2 huv = vec2( 0.0 );
+	for ( int i = 0; i < 28; i ++ ) {
+		vec3 q = p + r * stepLen;
+		vec2 suv = projectUV( q );
+		if ( suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 || q.z > -0.05 ) break;
+		float sd = readDepth( suv );
+		float sz = sViewZ( sd );
+		float dz = sz - q.z; // > 0: ray is behind the surface
+		if ( dz > 0.0 && dz < max( stepLen * 1.6, 0.4 ) && sd < 0.9999 ) {
+			// refine
+			vec3 a = p, b = q;
+			for ( int k = 0; k < 5; k ++ ) {
+				vec3 m = ( a + b ) * 0.5;
+				vec2 muv = projectUV( m );
+				if ( sViewZ( readDepth( muv ) ) - m.z > 0.0 ) b = m; else a = m;
+			}
+			huv = projectUV( b );
+			hit = 1.0;
+			break;
+		}
+		p = q;
+		stepLen *= 1.3;
+	}
+	if ( wetParams.w > 1.5 ) { outputColor = vec4( hit, strength * 4.0, nW.y > 0.85 ? 0.3 : 0.0, 1.0 ); return; }
+	if ( hit < 0.5 ) return;
+	vec2 edge = smoothstep( 0.0, 0.08, huv ) * ( 1.0 - smoothstep( 0.92, 1.0, huv ) );
+	float fade = edge.x * edge.y;
+	vec3 rc = texture2D( inputBuffer, huv ).rgb;
+	rc = min( rc, vec3( 30.0 ) );
+	// roughness blur approximation for non-puddle wet surfaces: pull toward a mip-less blurred average
+	outputColor = vec4( inputColor.rgb + rc * strength * fade, inputColor.a );
+}
+`;
+
+/** Screen-space reflections restricted to wet, up-facing surfaces (roads, sidewalks, roofs). */
+export class WetReflectionEffect extends Effect {
+  constructor() {
+    super('WetReflectionEffect', SSR_FRAG, {
+      attributes: EffectAttribute.DEPTH,
+      blendFunction: BlendFunction.SRC,
+      uniforms: new Map<string, THREE.Uniform>([
+        ['camWorld', new THREE.Uniform(new THREE.Matrix4())],
+        ['projMat', new THREE.Uniform(new THREE.Matrix4())],
+        ['projInv', new THREE.Uniform(new THREE.Matrix4())],
+        ['wetParams', new THREE.Uniform(new THREE.Vector4(0, 0, 0.9, 1))],
+      ]),
+    });
+  }
+  camera: THREE.Camera | null = null;
+  update() {
+    const c = this.camera;
+    if (!c) return;
+    (this.uniforms.get('camWorld')!.value as THREE.Matrix4).copy(c.matrixWorld);
+    (this.uniforms.get('projMat')!.value as THREE.Matrix4).copy(c.projectionMatrix);
+    (this.uniforms.get('projInv')!.value as THREE.Matrix4).copy(c.projectionMatrixInverse);
+  }
+  get params() { return this.uniforms.get('wetParams')!.value as THREE.Vector4; }
+}
+
 export interface PostChain {
   composer: EffectComposer;
   renderPass: RenderPass;
@@ -119,6 +216,8 @@ export interface PostChain {
   mainPass: EffectPass;
   finalPass: EffectPass;
   bloomBaseThreshold: number;
+  wetSSR: WetReflectionEffect;
+  ssrPass: EffectPass;
 }
 
 export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, w: number, h: number): PostChain {
@@ -143,6 +242,11 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   ao.setQualityMode('Medium');
   composer.addPass(ao);
 
+  const wetSSR = new WetReflectionEffect();
+  wetSSR.camera = camera;
+  const ssrPass = new EffectPass(camera, wetSSR);
+  composer.addPass(ssrPass);
+
   const bloomBaseThreshold = 1.4;
   const bloom = new BloomEffect({
     mipmapBlur: true,
@@ -165,5 +269,5 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   finalPass.dithering = true;
   composer.addPass(finalPass);
 
-  return { composer, renderPass, ao, bloom, exposure, tone, grade, vignette, smaa, grain, mainPass, finalPass, bloomBaseThreshold };
+  return { composer, renderPass, ao, bloom, exposure, tone, grade, vignette, smaa, grain, mainPass, finalPass, bloomBaseThreshold, wetSSR, ssrPass };
 }

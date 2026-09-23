@@ -119,12 +119,13 @@ function box(mb: ReturnType<typeof surf>, f: Frame, s0: number, s1: number, y0: 
 }
 
 /** Cylinder column (12 segments) centered at frame position (s, d). */
-function column(mb: ReturnType<typeof surf>, f: Frame, s: number, d: number, y0: number, y1: number, r0: number, r1: number, seg = 12) {
+function column(mb: ReturnType<typeof surf>, f: Frame, s: number, d: number, y0: number, y1: number, r0: number, r1: number, seg = 16) {
   const c = f.pt(s, 0, d);
   for (let i = 0; i < seg; i++) {
     const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
     const p = (a: number, y: number, r: number): V3 => [c[0] + Math.cos(a) * r, y, c[2] + Math.sin(a) * r];
-    mb.quad(p(a1, y0, r0), p(a0, y0, r0), p(a0, y1, r1), p(a1, y1, r1), [a1 * r0, y0, a0 * r0, y0, a0 * r1, y1, a1 * r1, y1], [0.8, 0.8, 1, 1]);
+    const n = (a: number): V3 => [Math.cos(a), 0, Math.sin(a)];
+    mb.quadN([p(a1, y0, r0), p(a0, y0, r0), p(a0, y1, r1), p(a1, y1, r1)], [n(a1), n(a0), n(a0), n(a1)], [a1 * r0, y0, a0 * r0, y0, a0 * r1, y1, a1 * r1, y1], [0.8, 0.8, 1, 1]);
   }
 }
 
@@ -151,7 +152,10 @@ function porch(c: BCtx, f: Frame, L: number) {
     case 'farm': {
       if (L < 5) return;
       const w = st.porch === 'farm' ? Math.min(L - 1, L * 0.7) : Math.min(L - 0.6, Math.max(4, L * (0.55 + c.r() * 0.4)));
-      const left = st.garage ? ((c.b.seed & 2) === 2 ? L - 0.3 - w : 0.3) : (L - w) / 2 + (c.r() - 0.5) * (L - w) * 0.8;
+      const ds = c.doorS ?? L / 2;
+      // porch covers the door; shift toward the side away from the garage
+      let left = ds - w * (0.3 + c.r() * 0.4);
+      left = Math.max(0.2, Math.min(L - 0.2 - w, left));
       const s0 = Math.max(0.1, left), s1 = Math.min(L - 0.1, s0 + w);
       const D = st.porch === 'farm' ? 1.8 : 2.4;
       const deckY = fb - 0.02;
@@ -160,8 +164,8 @@ function porch(c: BCtx, f: Frame, L: number) {
       box(deck, f, s0, s1, deckY - 0.08, deckY, 0, D, 1 | 4 | 8 | 16, [0.8, 1]);
       const skirt = st.porch === 'craftsman' ? surf(B, 2, 'brick-red', C('#8e4a36')) : surf(B, 2, 'paint', st.trim);
       box(skirt, f, s0 + 0.05, s1 - 0.05, c.groundY - 0.3, deckY - 0.08, 0.02, D - 0.05, 1 | 4 | 8, [0.6, 0.8]);
-      // steps in the middle
-      const sm = (s0 + s1) / 2;
+      // steps in front of the door
+      const sm = Math.max(s0 + 0.8, Math.min(s1 - 0.8, ds));
       steps(c, f, sm - 0.7, sm + 0.7, deckY, D, 'concrete-plain');
       // posts
       const beamY = Math.min(g.y1 - 0.2, deckY + 2.5);
@@ -229,12 +233,12 @@ function porch(c: BCtx, f: Frame, L: number) {
     case 'stoop':
     case 'stoop-small': {
       // find door-ish position: middle for small stoops, one side for brownstones
-      const s = st.porch === 'stoop' ? Math.min(L - 1.2, 1.6) : L / 2;
+      const s = c.doorS ?? (st.porch === 'stoop' ? Math.min(L - 1.2, 1.6) : L / 2);
       const w = st.porch === 'stoop' ? 1.8 : 1.6;
       const top = fb;
       if (top - c.groundY < 0.15) return;
       const land = st.porch === 'stoop' ? 1.2 : 1.0;
-      const id = st.porch === 'stoop' ? 'stone' : 'concrete-plain';
+      const id = st.porch === 'stoop' ? st.wallTex : 'concrete-plain';
       const col = st.porch === 'stoop' ? st.wallColor : C('#b5b1a8');
       const mb = surf(B, 2, id, col);
       box(mb, f, s - w / 2, s + w / 2, c.groundY - 0.3, top, 0, land, 1 | 4 | 8 | 16, [0.75, 1]);
@@ -279,10 +283,10 @@ function porch(c: BCtx, f: Frame, L: number) {
       const s0 = (L - w) / 2, s1 = s0 + w;
       const D = civic ? 3.2 : 1.3;
       const colH = civic ? Math.min((c.floors[1]?.y1 ?? g.y1) - fb, 11) : Math.min(2.8, g.y1 - fb - 0.1);
-      const sm = surf(B, 2, civic ? 'stone' : 'paint', civic ? st.stone : st.trim);
+      const sm = surf(B, 2, civic ? 'trim-stone' : 'paint', civic ? st.stone : st.trim);
       // podium / landing
-      box(surf(B, 2, 'stone', st.stone), f, s0 - 0.3, s1 + 0.3, c.groundY - 0.3, fb, 0, D + 0.3, 1 | 4 | 8 | 16, [0.75, 1]);
-      steps(c, f, s0, s1, fb, D + 0.3, 'stone', st.stone);
+      box(surf(B, 2, 'trim-stone', st.stone), f, s0 - 0.3, s1 + 0.3, c.groundY - 0.3, fb, 0, D + 0.3, 1 | 4 | 8 | 16, [0.75, 1]);
+      steps(c, f, s0, s1, fb, D + 0.3, 'trim-stone', st.stone);
       const nC = civic ? Math.max(4, Math.round(w / 3) + 1) : 2;
       for (let k = 0; k < nC; k++) {
         const s = s0 + 0.4 + ((w - 0.8) * k) / (nC - 1);
@@ -346,7 +350,7 @@ function steeple(c: BCtx, f: Frame, L: number, ridgeY: number) {
   const dm = surf(B, 2, 'dark', C('#2a2a2a'));
   const by = towerTop - 3.2;
   box(dm, f, s0 + 0.9, s1 - 0.9, by, by + 2.2, 0.4, 0.42, 1, [0.5, 0.6]);
-  box(surf(B, 2, 'stone', st.stone), f, s0 - 0.1, s1 + 0.1, towerTop - 0.3, towerTop, -w + 0.3, 0.5, 63, [0.8, 1]);
+  box(surf(B, 2, 'trim-stone', st.stone), f, s0 - 0.1, s1 + 0.1, towerTop - 0.3, towerTop, -w + 0.3, 0.5, 63, [0.8, 1]);
   // spire
   const rm = surf(B, 2, 'roof-slate', C('#4a4f57'));
   const cxs = (s0 + s1) / 2, cd = -w / 2 + 0.4;

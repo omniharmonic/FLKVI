@@ -23,13 +23,35 @@ function makeNoise(period: number, seed: number) {
     return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
   };
 }
-/** fBm over [0,1)² tileable; base period p cells. */
-function makeFbm(p: number, oct: number, seed: number) {
+/** fBm over [0,1)² tileable; base period p cells (slow reference implementation). */
+function makeFbmSlow(p: number, oct: number, seed: number) {
   const ns = Array.from({ length: oct }, (_, i) => makeNoise(p << i, seed + i * 31));
   return (u: number, v: number) => {
     let s = 0, a = 0.5, t = 0;
     for (let i = 0; i < oct; i++) { s += ns[i](u * (p << i), v * (p << i)) * a; t += a; a *= 0.5; }
     return s / t;
+  };
+}
+/** Precomputed tileable fBm fields (one per base period), shared by all textures. */
+const fields = new Map<string, Float32Array>();
+function field(p: number, oct: number): Float32Array {
+  const key = p + ':' + oct;
+  let f = fields.get(key);
+  if (f) return f;
+  f = new Float32Array(RES * RES);
+  const fn = makeFbmSlow(p, oct, 1000 + p * 7 + oct);
+  for (let y = 0; y < RES; y++) for (let x = 0; x < RES; x++) f[y * RES + x] = fn(x / RES, y / RES);
+  fields.set(key, f);
+  return f;
+}
+/** Fast fBm sampler: a precomputed field shifted by a seed-dependent offset (still tileable). */
+function makeFbm(p: number, oct: number, seed: number) {
+  const f = field(p, Math.min(oct, 3));
+  const ox = (seed * 7919) % RES, oy = (seed * 104729) % RES;
+  return (u: number, v: number) => {
+    const x = ((Math.floor(u * RES) + ox) % RES + RES) % RES;
+    const y = ((Math.floor(v * RES) + oy) % RES + RES) % RES;
+    return f[y * RES + x];
   };
 }
 
@@ -54,7 +76,7 @@ function finish(L: Layer, sizeM: number, normalStrength: number, roughness: numb
       const xl = (x - 1 + RES) % RES, xr = (x + 1) % RES, yu = (y - 1 + RES) % RES, yd = (y + 1) % RES;
       const dx = (L.h[y * RES + xr] - L.h[y * RES + xl]) * normalStrength;
       const dy = (L.h[yu * RES + x] - L.h[yd * RES + x]) * normalStrength;
-      const nl = Math.hypot(dx, dy, 1);
+      const nl = Math.sqrt(dx * dx + dy * dy + 1);
       d2.data[i * 4] = (-dx / nl * 0.5 + 0.5) * 255;
       d2.data[i * 4 + 1] = (-dy / nl * 0.5 + 0.5) * 255;
       d2.data[i * 4 + 2] = (1 / nl * 0.5 + 0.5) * 255;
@@ -301,9 +323,18 @@ function concrete(color: string, seed: number, formwork: boolean): ProcTex {
 const cache = new Map<string, ProcTex>();
 
 /** Procedural texture for a facade/roof/trim id. */
+export const texTimes: Record<string, number> = {};
 export function procTexture(id: string): ProcTex {
   let t = cache.get(id);
   if (t) return t;
+  const t0 = performance.now();
+  t = gen(id);
+  texTimes[id] = performance.now() - t0;
+  cache.set(id, t);
+  return t;
+}
+function gen(id: string): ProcTex {
+  let t: ProcTex;
   switch (id) {
     case 'brick-red': t = brick(['#9c4630', '#a8503a', '#8a3b28', '#b25a41', '#7e3a2c'], '#b9b1a4', 11); break;
     case 'brick-brown': t = brick(['#6e4535', '#7d5140', '#5e3b2e', '#8a5c45'], '#a9a092', 12); break;
@@ -325,7 +356,7 @@ export function procTexture(id: string): ProcTex {
     case 'roof-wood-shingle': t = shingles('#7a6048', 72, 0.14, 0.2, 1.68, 'wood'); break;
     case 'roof-slate': t = shingles('#4a4f57', 73, 0.2, 0.3, 1.8, 'slate'); break;
     case 'roof-clay-tile': t = clayTile('#b0583a', 74); break;
-    case 'roof-standing-seam': t = seams('#8a9096', 75, 0.45, 1.8, 0.4, 0.6, 0.025); break;
+    case 'roof-standing-seam': t = seams('#8a9096', 75, 0.45, 1.8, 0.38, 0.35, 0.025); break;
     case 'roof-membrane': t = noiseSurface('#cfd0cd', 76, 6.0, 0.12, 0.05, 0.85, (L, u, v, i) => {
       if ((u * 2) % 1 < 0.004 || (v * 2) % 1 < 0.003) { L.alb[i * 3] *= 0.85; L.alb[i * 3 + 1] *= 0.85; L.alb[i * 3 + 2] *= 0.85; L.h[i] = 1; }
     }); break;
@@ -337,9 +368,11 @@ export function procTexture(id: string): ProcTex {
     case 'paint': t = noiseSurface('#f4f4f2', 82, 2.0, 0.05, 0.04, 0.6, undefined, 0.3); break;
     case 'metal': t = noiseSurface('#d8d8d8', 83, 2.0, 0.06, 0.05, 0.42, undefined, 0.3); t.metalness = 0.75; break;
     case 'wood-planks': t = lap('#9a7552', 84, 0.14, false); t.roughness = 0.8; break;
+    case 'trim-stone': t = noiseSurface('#d9d2c2', 86, 1.6, 0.12, 0.08, 0.8, (L, u, v, i) => {
+      if ((v * 2) % 1 < 0.006 || ((u * 2 + Math.floor(v * 2) * 0.5) % 1) < 0.004) { L.alb[i * 3] *= 0.82; L.alb[i * 3 + 1] *= 0.82; L.alb[i * 3 + 2] *= 0.82; L.h[i] = 0; }
+    }, 1.5); break;
     case 'dark': t = noiseSurface('#202020', 85, 2.0, 0.1, 0.05, 0.9, undefined, 0.3); break;
     default: t = noiseSurface('#cccccc', 99, 2.0, 0.15, 0.1, 0.9); break;
   }
-  cache.set(id, t);
   return t;
 }

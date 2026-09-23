@@ -4,7 +4,7 @@ import { rng } from '../core/geo';
 
 const SR = 44100;
 type Build = (oc: OfflineAudioContext, out: AudioNode, dur: number) => void;
-interface Def { dur: number; loop?: boolean; build: Build; gain?: number }
+interface Def { dur: number; loop?: boolean; build: Build; gain?: number; /** loop is already sample-exact (no crossfade fold) */ exact?: boolean }
 
 // ---------- helpers ----------
 function noise(oc: BaseAudioContext, dur: number, color: 'white' | 'pink' | 'brown' = 'white', seed = 1): AudioBufferSourceNode {
@@ -92,7 +92,7 @@ const defs: Record<string, Def> = {
     chain(lp, pk, sh, out);
     for (const f of [420, 500]) { const o = osc(oc, 'sawtooth', f); chain(o, gain(oc, 0.35), lp); play(o); }
   } },
-  siren: { dur: 4, loop: true, gain: 0.55, build(oc, out) {
+  siren: { dur: 4, loop: true, exact: true, gain: 0.55, build(oc, out) {
     // Wail: integral of f(t) over 4 s = 3800 whole cycles so the loop is phase-continuous.
     const N = 512; const curve = new Float32Array(N);
     for (let i = 0; i < N; i++) curve[i] = 950 + 400 * Math.sin((2 * Math.PI * i) / (N - 1) - Math.PI / 2);
@@ -212,7 +212,8 @@ export const SOUND_NAMES = Object.keys(defs);
 export function isLoopSound(name: string): boolean { return !!defs[name]?.loop; }
 
 async function render(name: string, def: Def): Promise<AudioBuffer> {
-  const len = def.dur + (def.loop ? XF : 0);
+  const fold = def.loop && !def.exact;
+  const len = def.dur + (fold ? XF : 0);
   const oc = new OfflineAudioContext(1, Math.ceil(len * SR), SR);
   const out = oc.createGain(); out.gain.value = def.gain ?? 1; out.connect(oc.destination);
   def.build(oc, out, def.dur);
@@ -220,6 +221,7 @@ async function render(name: string, def: Def): Promise<AudioBuffer> {
   // Peak-normalize hot renders so nothing clips before the mix bus.
   { const d = buf.getChannelData(0); let pk = 0; for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i]));
     if (pk > 0.9) { const k = 0.9 / pk; for (let i = 0; i < d.length; i++) d[i] *= k; } }
+  if (def.loop && !fold) return buf;
   if (!def.loop) {
     // short fade at end to avoid clicks
     const d = buf.getChannelData(0); const f = Math.min(256, d.length);

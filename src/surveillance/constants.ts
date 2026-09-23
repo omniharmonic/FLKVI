@@ -50,7 +50,7 @@ export const TUNE = {
   discoverRadius: 60,
   binocularRadius: 250,
   binocularFov: 15,
-  proximityConeRadius: 35,
+  proximityConeRadius: 26,
   scanRadius: 320,
 
   // Escalation (§9)

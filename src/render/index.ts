@@ -29,6 +29,7 @@ const E_SUN = 6.0;
 const MOON_E = 0.35;
 const SUN_DISK = 45;
 const DEG = Math.PI / 180;
+const SSR_DEBUG = Number(new URLSearchParams(location.search).get('ssrdebug') ?? 1);
 
 const _c = new THREE.Color();
 const _c2 = new THREE.Color();
@@ -61,6 +62,7 @@ class RenderSky implements SkyAPI {
   sun: THREE.DirectionalLight;
   readonly sunLight: SunLight;
   sunElevation = 0;
+  ssrAllowed = true;
 
   // weather
   rainTarget = 0;
@@ -295,11 +297,13 @@ class RenderSky implements SkyAPI {
     globals.sunDir.set(sunDir.x, sunDir.y, sunDir.z);
     globals.fogSun.set(this.fogSun.r * dim, this.fogSun.g * dim, this.fogSun.b * dim);
     globals.wet.set(this.wet, smoothstep(0.3, 1, this.wet), globals.wet.z + dt, 0);
+    this.post.wetSSR.params.set(this.wet, smoothstep(0.3, 1, this.wet), 0.9, SSR_DEBUG);
+    this.post.ssrPass.enabled = this.wet > 0.02 && this.ssrAllowed;
 
     // --- night fill (sky + city bounce)
-    this.hemi.intensity = this.nightFactor * 0.35 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor);
-    this.hemi.color.setRGB(0.3, 0.38, 0.55);
-    this.hemi.groundColor.setRGB(0.55, 0.36, 0.18);
+    this.hemi.intensity = this.nightFactor * 0.16 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor);
+    this.hemi.color.setRGB(0.34, 0.42, 0.62);
+    this.hemi.groundColor.setRGB(0.42, 0.3, 0.2);
 
     // --- exposure (partial eye adaptation) + grading
     const sceneLum = lum(sl.color) * sl.intensity * Math.max(sunDir.y, 0.05) * (sunW > 0.001 ? 1 : 0.2) + lum(this.zenith) * 3 + lum(this.skyU.uTwiCool.value) * 3 + 0.004;
@@ -539,6 +543,7 @@ function applyQuality(g: Game, q: Quality) {
   post.bloom.resolution.scale = cfg.bloomScale;
   post.smaa.edgeDetectionMaterial.edgeDetectionThreshold = q === 'low' ? 0.15 : 0.08;
   sky.applyShadowTier(q);
+  sky.ssrAllowed = q !== 'low';
 }
 
 /** Change quality tier (settings menu). Persists the choice and disables the auto-benchmark. */

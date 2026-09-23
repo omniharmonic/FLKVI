@@ -61,7 +61,7 @@ function playerCrouching(g: Game, target: Vec3): boolean {
   if (!p || !p.position || p.vehicleId) return false;
   const dx = p.position.x - target[0], dz = p.position.z - target[2];
   if (dx * dx + dz * dz > 1.0) return false;
-  return !!(p.crouching ?? p.crouched ?? p.isCrouching);
+  return !!(p.crouching ?? p.crouched ?? p.isCrouching ?? p.crouch);
 }
 
 /** Effective detection range for an observer (night / crouch adjusted). */
@@ -108,6 +108,6 @@ export function playerTarget(g: Game): Vec3 | null {
   const p = (g as any).player;
   if (!p || !p.position) return null;
   const inCar = !!p.vehicleId;
-  const crouch = !inCar && !!(p.crouching ?? p.crouched);
+  const crouch = !inCar && !!(p.crouching ?? p.crouched ?? p.crouch);
   return [p.position.x, p.position.y + (inCar ? 1.0 : crouch ? 0.8 : 1.3), p.position.z];
 }

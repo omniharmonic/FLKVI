@@ -23,21 +23,21 @@ export interface Tuning {
 
 export function tuningFor(model: CarModel): Tuning {
   const base = model.spec;
-  const t: Tuning = { mass: 1450, engine: 9500, maxSpeed: 42, brake: 55, steerMax: 0.6, grip: 3.2, stiffness: 28, rest: 0.26, downforce: 2.2 };
+  const t: Tuning = { mass: 1450, engine: 9500, maxSpeed: 42, brake: 55, steerMax: 0.6, grip: 1.55, stiffness: 28, rest: 0.26, downforce: 2.2 };
   switch (model.id) {
-    case 'sports': Object.assign(t, { mass: 1350, engine: 15000, maxSpeed: 52, grip: 3.8, stiffness: 36, rest: 0.2, downforce: 3.2 }); break;
-    case 'suv': case 'police-suv': Object.assign(t, { mass: 2000, engine: 12000, maxSpeed: 40, grip: 3.0, stiffness: 24, rest: 0.3 }); break;
-    case 'pickup': Object.assign(t, { mass: 2200, engine: 12500, maxSpeed: 40, grip: 2.9, stiffness: 22, rest: 0.32 }); break;
-    case 'van': Object.assign(t, { mass: 2300, engine: 11000, maxSpeed: 36, grip: 2.8, stiffness: 24, rest: 0.28 }); break;
-    case 'hatchback': Object.assign(t, { mass: 1250, engine: 8500, maxSpeed: 40, grip: 3.2 }); break;
-    case 'police': Object.assign(t, { mass: 1700, engine: 13500, maxSpeed: 48, grip: 3.5 }); break;
+    case 'sports': Object.assign(t, { mass: 1350, engine: 15000, maxSpeed: 52, grip: 1.85, stiffness: 36, rest: 0.2, downforce: 3.2 }); break;
+    case 'suv': case 'police-suv': Object.assign(t, { mass: 2000, engine: 12000, maxSpeed: 40, grip: 1.4, stiffness: 24, rest: 0.3 }); break;
+    case 'pickup': Object.assign(t, { mass: 2200, engine: 12500, maxSpeed: 40, grip: 1.35, stiffness: 22, rest: 0.32 }); break;
+    case 'van': Object.assign(t, { mass: 2300, engine: 11000, maxSpeed: 36, grip: 1.3, stiffness: 24, rest: 0.28 }); break;
+    case 'hatchback': Object.assign(t, { mass: 1250, engine: 8500, maxSpeed: 40, grip: 1.55 }); break;
+    case 'police': Object.assign(t, { mass: 1700, engine: 13500, maxSpeed: 48, grip: 1.75 }); break;
   }
   void base;
   return t;
 }
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
-const _fwd = new THREE.Vector3(), _up = new THREE.Vector3(), _right = new THREE.Vector3();
+const _fwd = new THREE.Vector3(), _up = new THREE.Vector3(), _right = new THREE.Vector3(), _w = new THREE.Vector3();
 
 export class Vehicle implements VehicleHandle {
   id: string;
@@ -191,6 +191,9 @@ export class Vehicle implements VehicleHandle {
     const body = this.body;
     const t = this.tuning;
     const R = this.rapier;
+    // Rapier user forces persist across steps: clear last step's assists before adding new ones.
+    body.resetForces(false);
+    body.resetTorques(false);
     const q = body.rotation();
     _q.set(q.x, q.y, q.z, q.w);
     _fwd.set(0, 0, -1).applyQuaternion(_q);
@@ -225,15 +228,17 @@ export class Vehicle implements VehicleHandle {
       if (parked || dead) b = t.brake * 0.8;
       if (!driven && !parked) b = Math.max(b, 6);
       if (throttle < 0.05 && reverse === 0 && brakeIn === 0 && driven) b = Math.max(b, 1.2); // engine braking
-      const e = (rear && hb) || brakeIn > 0.05 || !driven ? 0 : this.model.id === 'sports' && !rear ? 0 : rear ? ef * 1.2 : ef * 0.8;
-      vc.setWheelEngineForce(i, this.model.id === 'sports' && rear && e !== 0 ? ef * 2 : e);
+      // ef is half the total drive force; split 60/40 rear/front (sports: pure RWD).
+      const rwd = this.model.id === 'sports';
+      const e = (rear && hb) || brakeIn > 0.05 || !driven ? 0 : rwd ? (rear ? ef : 0) : rear ? ef * 0.6 : ef * 0.4;
+      vc.setWheelEngineForce(i, e);
       vc.setWheelBrake(i, e !== 0 ? 0 : b);
-      const grip = t.grip * (rear && hb ? 0.42 : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
+      const grip = t.grip * (rear && hb ? 0.55 : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
       vc.setWheelFrictionSlip(i, grip);
-      vc.setWheelSideFrictionStiffness(i, rear && hb ? 0.6 : 1.0);
+      vc.setWheelSideFrictionStiffness(i, rear && hb ? 0.75 : 1.0);
     }
     // Speed-sensitive steering with smoothing.
-    const steerMax = t.steerMax * THREE.MathUtils.lerp(1, 0.22, clamp(spd / 38, 0, 1));
+    const steerMax = t.steerMax / (1 + spd / 8);
     const target = (driven ? clamp(ctl.steer, -1, 1) : 0) * steerMax;
     const rate = Math.sign(target - this.steerAngle) !== Math.sign(this.steerAngle) ? 7 : 3.5;
     this.steerAngle += clamp(target - this.steerAngle, -rate * dt, rate * dt);
@@ -245,13 +250,13 @@ export class Vehicle implements VehicleHandle {
     // --- Arcade assists ---
     const grounded = this.wheelsOnGround();
     const mass = t.mass;
-    if (grounded >= 2) {
+    if (grounded >= 2 && (driven || spd > 2)) {
       // Downforce
       const df = t.downforce * spd * spd * mass * 0.001;
       body.addForce({ x: -_up.x * df, y: -_up.y * df, z: -_up.z * df }, true);
       // Anti-roll: damp roll rate + restore toward level.
       const av = body.angvel();
-      const w = _v.set(av.x, av.y, av.z);
+      const w = _w.set(av.x, av.y, av.z);
       const rollRate = w.dot(_fwd);
       const rollAngle = Math.asin(clamp(_right.y, -1, 1));
       const kRoll = -(rollRate * 0.35 + rollAngle * 1.2) * mass;
@@ -264,12 +269,20 @@ export class Vehicle implements VehicleHandle {
       const lat = vel.dot(_right);
       this.slip = spd > 3 ? Math.abs(lat) / Math.max(3, Math.hypot(lat, fwdSpeed)) : 0;
       if (hb && driven && spd > 6) {
-        const kick = ctl.steer * -2.2 * mass * Math.min(1, spd / 15);
-        body.addTorque({ x: _up.x * kick, y: _up.y * kick, z: _up.z * kick }, true);
+        // Handbrake: rotate into the drift, but cap the yaw rate so it stays controllable.
+        const kick = ctl.steer * -1.0 * mass * Math.min(1, spd / 15);
+        const cap = Math.abs(yawRate) > 1.3 ? -Math.sign(yawRate) * (Math.abs(yawRate) - 1.3) * 4 * mass : 0;
+        const k = kick + cap;
+        body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
       } else if (driven) {
         // Counter excessive yaw not asked for by steering (prevents spin-outs), weak so drifts can be held.
         const wantYaw = -this.steerAngle * fwdSpeed / 2.8;
-        const k = -(yawRate - wantYaw) * 0.55 * mass * clamp(spd / 10, 0, 1) * (this.slip > 0.35 ? 0.35 : 1);
+        let k = -(yawRate - wantYaw) * 0.7 * mass * clamp(spd / 10, 0, 1);
+        // Drift recovery: swing the nose back toward the direction of travel (auto counter-steer).
+        if (fwdSpeed > 4 && this.slip > 0.15) {
+          const beta = Math.atan2(lat, fwdSpeed); // + = sliding right
+          k += -beta * 1.6 * mass * clamp(spd / 12, 0, 1);
+        }
         body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
         // Lateral grip assist at speed: bleed sideways velocity a bit.
         const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1);

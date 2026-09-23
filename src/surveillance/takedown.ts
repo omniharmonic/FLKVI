@@ -45,7 +45,7 @@ export class Takedowns {
   readonly sparks = new Sparks();
   readonly mist = new Mist();
   readonly glow = new CutGlow();
-  readonly light = new THREE.PointLight(0xff8a2a, 0, 9, 2);
+  readonly light = new THREE.PointLight(0xff8a2a, 0, 7, 2);
   readonly grinder = buildGrinder();
   readonly pole = buildPaintPole();
   readonly root = new THREE.Group();
@@ -242,7 +242,7 @@ export class Takedowns {
       this.sparks.emit(contact, dir, n, cam.groundY, 8.5, 0.5);
       if (Math.random() < 0.3) this.sparks.emit(contact, flat.clone().add(new THREE.Vector3(0, 0.3, 0)).normalize(), 2, cam.groundY, 4, 1.2);
       this.light.position.copy(contact).addScaledVector(flat, 0.25);
-      this.light.intensity = (18 + Math.random() * 30) * (1 + this.h.night() * 1.5);
+      this.light.intensity = (1.2 + Math.random() * 2.6) * (1 + this.h.night() * 0.8);
       this.glow.heat = Math.min(1, 0.25 + a.t * 0.9);
     } else {
       // telescopic paint pole from the hand to just in front of the lens

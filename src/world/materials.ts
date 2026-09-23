@@ -1,7 +1,7 @@
 // Shared world materials: CC0 texture sets from the asset library when available, else procedural fallbacks.
 // All surface UVs are in METERS (texture repeat = 1/sizeM).
 import * as THREE from 'three';
-import { textureSet, type TextureId } from '../assets/library';
+import { textureSet, textureSetReady, type TextureId } from '../assets/library';
 import { procSet } from './textures';
 
 export interface SurfaceMaps { map?: THREE.Texture; normalMap?: THREE.Texture; roughnessMap?: THREE.Texture; aoMap?: THREE.Texture; sizeM: number; fromLibrary: boolean }
@@ -12,6 +12,12 @@ const PROC_FOR: Partial<Record<TextureId, string>> = {
 };
 
 const surfCache = new Map<string, SurfaceMaps>();
+
+/** Wait (bounded) until library texture sets are loaded so clones get real images. */
+export async function ensureSurfaces(ids: string[], timeoutMs = 15000) {
+  const all = Promise.all(ids.map((id) => textureSetReady(id).catch(() => null)));
+  await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
+}
 /** Library texture set cloned with repeat=1/sizeM, or a procedural fallback. */
 export function surface(id: TextureId, fallback?: string): SurfaceMaps {
   const key = id + '|' + (fallback ?? '');
@@ -58,6 +64,10 @@ export interface PatchOpts {
   joints?: number;
   /** Tint variation towards a color by noise (e.g. dry patches). */
   tintVar?: THREE.Color; tintAmt?: number;
+  /** Sample the map with world XZ (meters) instead of mesh UVs (for instanced quads). */
+  worldUv?: boolean;
+  /** Filled in by surfaceMaterial: 1/sizeM for worldUv. */
+  worldUvScale?: number;
   /** Extra per-material hook. */
   extraFrag?: string;
 }
@@ -79,11 +89,15 @@ export function patchSurface(mat: THREE.MeshStandardMaterial, o: PatchOpts) {
         vGtUv = uv;`);
     let mapCode = `
       #ifdef USE_MAP
-        vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+        vec2 gtUv = ${o.worldUv ? `vGtW.xz * ${(o.worldUvScale ?? 1).toFixed(5)}` : 'vMapUv'};
+        vec4 sampledDiffuseColor = texture2D( map, gtUv );
         ${o.antiTile ? `
-        vec4 s2 = texture2D( map, vMapUv * 0.27 + vec2(0.31, 0.77) );
-        float at = smoothstep(0.35, 0.65, gt_noise(vGtW.xz * 0.06));
-        sampledDiffuseColor = mix(sampledDiffuseColor, s2, at * 0.6);` : ''}
+        vec2 ruv = mat2(0.8, 0.6, -0.6, 0.8) * gtUv * 0.61 + vec2(0.37, 0.11);
+        vec4 s2 = texture2D( map, ruv );
+        vec4 s3 = texture2D( map, mat2(0.28, -0.96, 0.96, 0.28) * gtUv * 0.23 + vec2(0.71, 0.53) );
+        float at = smoothstep(0.3, 0.7, gt_noise(vGtW.xz * 0.07));
+        float at2 = smoothstep(0.35, 0.65, gt_noise(vGtW.xz * 0.031 + 5.3));
+        sampledDiffuseColor = mix(mix(sampledDiffuseColor, s2, at * 0.7), s3, at2 * 0.5);` : ''}
         diffuseColor *= sampledDiffuseColor;
       #endif
       ${o.macro ? `
@@ -106,15 +120,15 @@ export function patchSurface(mat: THREE.MeshStandardMaterial, o: PatchOpts) {
   return mat;
 }
 
-export function surfaceMaterial(id: TextureId, opts: { tint?: THREE.ColorRepresentation; roughness?: number; metalness?: number; normalScale?: number; fallback?: string; patch?: PatchOpts; polygonOffset?: number } = {}) {
+export function surfaceMaterial(id: TextureId, opts: { tint?: THREE.ColorRepresentation | THREE.Color; roughness?: number; metalness?: number; normalScale?: number; fallback?: string; patch?: PatchOpts; polygonOffset?: number } = {}) {
   const s = surface(id, opts.fallback);
   const m = new THREE.MeshStandardMaterial({
     map: s.map ?? null, normalMap: s.normalMap ?? null, roughnessMap: s.roughnessMap ?? null, aoMap: s.aoMap ?? null,
-    color: new THREE.Color(opts.tint ?? '#ffffff'), roughness: opts.roughness ?? 1, metalness: opts.metalness ?? 0,
+    color: opts.tint instanceof THREE.Color ? opts.tint.clone() : new THREE.Color(opts.tint ?? '#ffffff'), roughness: opts.roughness ?? 1, metalness: opts.metalness ?? 0,
   });
   if (s.normalMap) m.normalScale.setScalar(opts.normalScale ?? 1);
   if (opts.polygonOffset) { m.polygonOffset = true; m.polygonOffsetFactor = opts.polygonOffset; m.polygonOffsetUnits = opts.polygonOffset; }
   m.name = id;
-  if (opts.patch) patchSurface(m, opts.patch);
+  if (opts.patch) patchSurface(m, opts.patch.worldUv ? { ...opts.patch, worldUvScale: 1 / s.sizeM } : opts.patch);
   return m;
 }

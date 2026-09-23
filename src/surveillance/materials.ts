@@ -2,7 +2,7 @@
 // (galvanized spangle, weathered plastic, solar cells, concrete) so there are no asset dependencies.
 import * as THREE from 'three';
 import { rng } from '../core/geo';
-import { textureSet, pbrMaterial } from '../assets/library';
+
 
 type Mats = ReturnType<typeof createMaterials>;
 let cached: Mats | null = null;
@@ -80,7 +80,7 @@ function galvanizedTextures() {
       const sp = cells[y * S + x];
       const n = nz(u, v, 5, 3);
       const streak = nz(u * 1, v * 0.08 + 0.3, 3, 16); // vertical streaks
-      let g = 150 + (sp - 0.5) * 26 + (n - 0.5) * 40 - Math.max(0, streak - 0.55) * 90;
+      let g = 222 + (sp - 0.5) * 22 + (n - 0.5) * 30 - Math.max(0, streak - 0.55) * 70;
       const i = (y * S + x) * 4;
       img.data[i] = g * 0.98; img.data[i + 1] = g; img.data[i + 2] = g * 1.02; img.data[i + 3] = 255;
     }
@@ -91,7 +91,7 @@ function galvanizedTextures() {
       const sp = cells[y * S + x];
       const n = nz(u + 0.37, v + 0.11, 5, 3);
       const streak = nz(u, v * 0.08 + 0.3, 3, 16);
-      const g = 105 + (sp - 0.5) * 70 + (n - 0.5) * 60 + Math.max(0, streak - 0.55) * 120;
+      const g = 110 + (sp - 0.5) * 40 + (n - 0.5) * 40 + Math.max(0, streak - 0.55) * 90;
       const i = (y * S + x) * 4;
       img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.max(0, Math.min(255, g)); img.data[i + 3] = 255;
     }
@@ -162,7 +162,7 @@ function concreteTextures() {
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const n = nz(x / S, y / S, 6, 4);
       const pit = r() < 0.02 ? -40 : 0;
-      const g = 150 + (n - 0.5) * 60 + pit;
+      const g = 200 + (n - 0.5) * 50 + pit;
       const i = (y * S + x) * 4;
       img.data[i] = g; img.data[i + 1] = g * 0.98; img.data[i + 2] = g * 0.94; img.data[i + 3] = 255;
     }
@@ -207,14 +207,16 @@ export function splatterTexture(seed: number): THREE.CanvasTexture {
 function createMaterials() {
   const galv = galvanizedTextures();
   const grimeW = grimeTextures(31);
-  const conc = textureSet('concrete') ? pbrMaterial('concrete', { tint: '#b8b4ad' }) : null;
+  const conc: THREE.MeshStandardMaterial | null = null; // own procedural concrete (library sets are tiled for large surfaces)
 
+  galv.color.repeat.set(3, 3);
+  galv.rough.repeat.set(3, 3);
   const galvanized = new THREE.MeshStandardMaterial({
-    name: 'surv-galvanized', color: '#c9ccce', map: galv.color, roughnessMap: galv.rough,
-    roughness: 1.0, metalness: 0.88, envMapIntensity: 1.0,
+    name: 'surv-galvanized', color: '#e2e5e6', map: galv.color, roughnessMap: galv.rough,
+    roughness: 1.25, metalness: 0.5, envMapIntensity: 1.0,
   });
   const galvanizedDark = new THREE.MeshStandardMaterial({
-    name: 'surv-galv-dark', color: '#8d9194', map: galv.color, roughnessMap: galv.rough, roughness: 1.15, metalness: 0.8,
+    name: 'surv-galv-dark', color: '#b4b8ba', map: galv.color, roughnessMap: galv.rough, roughness: 1.4, metalness: 0.45,
   });
   const plasticWhite = new THREE.MeshStandardMaterial({
     name: 'surv-plastic-white', color: '#eceae4', map: grimeW.color, roughnessMap: grimeW.rough, roughness: 1.0, metalness: 0.0,
@@ -224,7 +226,7 @@ function createMaterials() {
   });
   const plasticDark = new THREE.MeshStandardMaterial({ name: 'surv-plastic-dark', color: '#26282b', roughness: 0.55, metalness: 0.05, map: grimeW.color });
   const rubber = new THREE.MeshStandardMaterial({ name: 'surv-rubber', color: '#141414', roughness: 0.85, metalness: 0 });
-  const aluminum = new THREE.MeshStandardMaterial({ name: 'surv-aluminum', color: '#cdd0d3', roughness: 0.32, metalness: 1.0, roughnessMap: galv.rough });
+  const aluminum = new THREE.MeshStandardMaterial({ name: 'surv-aluminum', color: '#d6d9dc', roughness: 0.38, metalness: 0.7 });
   const lensGlass = new THREE.MeshPhysicalMaterial({
     name: 'surv-lens', color: '#040507', roughness: 0.04, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6,
   });
@@ -242,8 +244,8 @@ function createMaterials() {
   const concrete = conc ?? new THREE.MeshStandardMaterial({ name: 'surv-concrete', map: concreteTextures(), color: '#c8c4bc', roughness: 0.92, metalness: 0 });
   const paintWhite = new THREE.MeshStandardMaterial({ name: 'surv-paint-white', color: '#e9e8e2', map: grimeW.color, roughnessMap: grimeW.rough, roughness: 0.9, metalness: 0.15 });
   const paintYellow = new THREE.MeshStandardMaterial({ name: 'surv-paint-yellow', color: '#d9a51c', map: grimeW.color, roughnessMap: grimeW.rough, roughness: 0.85, metalness: 0.1 });
-  const steelDark = new THREE.MeshStandardMaterial({ name: 'surv-steel-dark', color: '#3b3d40', roughness: 0.5, metalness: 0.85, roughnessMap: galv.rough });
-  const strap = new THREE.MeshStandardMaterial({ name: 'surv-strap', color: '#b9bcbf', roughness: 0.35, metalness: 1 });
+  const steelDark = new THREE.MeshStandardMaterial({ name: 'surv-steel-dark', color: '#55585c', roughness: 0.5, metalness: 0.6 });
+  const strap = new THREE.MeshStandardMaterial({ name: 'surv-strap', color: '#c9ccce', roughness: 0.35, metalness: 0.7 });
   const cable = new THREE.MeshStandardMaterial({ name: 'surv-cable', color: '#111112', roughness: 0.45, metalness: 0 });
   const signalYellow = new THREE.MeshStandardMaterial({ name: 'surv-signal-housing', color: '#2a2c22', roughness: 0.6, metalness: 0.2 });
   const hiVis = new THREE.MeshStandardMaterial({ name: 'surv-hivis', color: '#d6ff1f', roughness: 0.7, emissive: '#3a4a00', emissiveIntensity: 0.3 });

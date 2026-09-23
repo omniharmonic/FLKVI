@@ -136,7 +136,7 @@ export class CameraRig implements System {
     const ray = new R.Ray({ x: o.x, y: o.y, z: o.z }, { x: d.x, y: d.y, z: d.z });
     const own = this.player.collider;
     const hit = g.physics.castRay(ray, max, true, undefined, undefined, undefined, undefined, (c) => {
-      if (c === own || c.isSensor()) return false;
+      if (c.handle === own.handle || c.isSensor()) return false;
       const v = this.vehicles.colliderMap.get(c.handle);
       if (v) return false; // cars never push the camera around
       if (this.vehicles.parking.colliderToSlot.has(c.handle)) return false;

@@ -1,16 +1,16 @@
 // Building materials: facade/roof PBR (asset library or procedural fallback), trims, metals, fabric,
 // signage, and the window glass with interior mapping + night occupancy.
 import * as THREE from 'three';
-import { textureSet, type TextureId } from '../../assets/library';
+import { textureSet, textureSetReady, type TextureId } from '../../assets/library';
 import { procTexture, TEX_RES } from './textures';
 
 /** Shared uniforms: night factor drives window occupancy and signage glow. */
 export const U = {
   uNight: { value: 0 },
   /** Interior daylight brightness multiplier (tuned against the sun/hemisphere levels). */
-  uInteriorDay: { value: 0.55 },
+  uInteriorDay: { value: 0.3 },
   /** Night lamp intensity. */
-  uLamp: { value: 3.2 },
+  uLamp: { value: 1.25 },
 };
 
 /** GLSL: cheap hash noise used for grime streaks. */
@@ -29,7 +29,7 @@ export const LAYER_IDS = [
   'brick-red', 'brick-brown', 'brick-tan', 'brick-painted', 'stucco', 'lap-siding', 'board-batten', 'stone', 'sandstone',
   'concrete', 'glass-curtain', 'metal-panel', 'adobe', 'wood-shingle', 'plaster',
   'roof-asphalt-shingle', 'roof-clay-tile', 'roof-standing-seam', 'roof-slate', 'roof-membrane', 'roof-gravel',
-  'paint', 'fabric', 'metal', 'concrete-plain', 'wood-planks', 'dark',
+  'paint', 'fabric', 'metal', 'concrete-plain', 'wood-planks', 'dark', 'trim-stone',
 ] as const;
 export type LayerId = (typeof LAYER_IDS)[number];
 
@@ -37,9 +37,11 @@ export type LayerId = (typeof LAYER_IDS)[number];
 const GRIME: Partial<Record<LayerId, number>> = {
   'brick-red': 0.22, 'brick-brown': 0.2, 'brick-tan': 0.24, 'brick-painted': 0.22, stucco: 0.3, 'lap-siding': 0.16,
   'board-batten': 0.16, stone: 0.26, sandstone: 0.26, concrete: 0.32, 'metal-panel': 0.12, adobe: 0.2, 'wood-shingle': 0.12,
-  plaster: 0.2, 'roof-membrane': 0.25, 'roof-asphalt-shingle': 0.1, paint: 0.05, 'concrete-plain': 0.28,
+  plaster: 0.2, 'trim-stone': 0.18, 'roof-membrane': 0.25, 'roof-asphalt-shingle': 0.1, paint: 0.05, 'concrete-plain': 0.28,
 };
-const NO_LIB = new Set(['paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain']);
+/** Corrections for library tile sizes that measure wrong against their brick/shingle modules. */
+const SIZE_FIX: Record<string, number> = { 'brick-tan': 1.35, 'roof-asphalt-shingle': 5.0 };
+const NO_LIB = new Set(['trim-stone', 'paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain']);
 
 export interface LayerInfo { index: number; base: THREE.Color; sizeM: number; rough: number; metal: number }
 const layers = new Map<string, LayerInfo>();
@@ -49,7 +51,7 @@ export let usingLibraryTextures = false;
 
 function drawToCanvas(img: unknown, res: number): HTMLCanvasElement | null {
   const im = img as (CanvasImageSource & { width?: number }) | undefined;
-  if (!im || !(im as { width?: number }).width) return null;
+  if (!im || ((im as { width?: number }).width ?? 0) < 64) return null;
   try {
     const c = document.createElement('canvas'); c.width = c.height = res;
     c.getContext('2d')!.drawImage(im, 0, 0, res, res);
@@ -64,6 +66,14 @@ function averageOf(c: HTMLCanvasElement): THREE.Color {
   let r = 0, gg = 0, b = 0;
   for (let i = 0; i < 64; i++) { r += d[i * 4]; gg += d[i * 4 + 1]; b += d[i * 4 + 2]; }
   return new THREE.Color().setRGB(r / 64 / 255, gg / 64 / 255, b / 64 / 255, THREE.SRGBColorSpace);
+}
+
+/** Wait (bounded) for the library texture sets used by the building layers to finish loading. */
+export async function prepareBuildingTextures(timeoutMs = 10000): Promise<void> {
+  if (surfaceMat) return;
+  const ids = LAYER_IDS.filter((id) => !NO_LIB.has(id));
+  const all = Promise.all(ids.map((id) => textureSetReady(id).catch(() => null)));
+  await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
 }
 
 /** Build (once) the layer texture arrays and the shared surface material. */
@@ -82,7 +92,7 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
       if (a) {
         usingLibraryTextures = true;
         n = lib.maps.normalMap?.image ? drawToCanvas(lib.maps.normalMap.image, R) : null;
-        sizeM = lib.sizeM || 2;
+        sizeM = SIZE_FIX[id] ?? (lib.sizeM || 2);
         const pt = procTexture(id);
         rgh = pt.roughness; mtl = pt.metalness;
         if (!n) n = pt.nrm;
@@ -176,7 +186,7 @@ export function layer(id: string): LayerInfo {
 export function relTint(target: THREE.Color, base: THREE.Color, strength = 1): [number, number, number] {
   const f = (t: number, b: number) => {
     const r = t / Math.max(b, 0.02);
-    return Math.max(0.3, Math.min(2.2, 1 + (r - 1) * strength));
+    return Math.max(0.02, Math.min(3, 1 + (r - 1) * strength));
   };
   return [f(target.r, base.r), f(target.g, base.g), f(target.b, base.b)];
 }
@@ -184,7 +194,7 @@ export function relTint(target: THREE.Color, base: THREE.Color, strength = 1): [
 // ---------------------------------------------------------------------------------------------
 // Signage atlas: canvas with generic business names; emissive at night.
 // ---------------------------------------------------------------------------------------------
-const SIGN_W = 512, SIGN_H = 96, ATLAS_W = 2048, ATLAS_H = 2048;
+const SIGN_W = 512, SIGN_H = 96, ATLAS_W = 2048, ATLAS_H = 4096;
 const COLS = ATLAS_W / SIGN_W, ROWS = Math.floor(ATLAS_H / SIGN_H);
 let signCanvas: HTMLCanvasElement | null = null;
 let signTex: THREE.CanvasTexture | null = null;
@@ -212,8 +222,15 @@ export function signSlot(text: string, style: number): [number, number, number, 
     const x = signCanvas.getContext('2d')!;
     x.fillStyle = '#222'; x.fillRect(0, 0, ATLAS_W, ATLAS_H);
   }
+  if (slot === undefined && signSlots.size >= COLS * ROWS) {
+    // atlas full: reuse any slot with the same text, else a hashed slot
+    for (const [k, v] of signSlots) if (k.startsWith(text + '|')) { slot = v; break; }
+    if (slot === undefined) { let h = 0; for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0; slot = h % (COLS * ROWS); }
+    const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
+    return [cx / ATLAS_W, 1 - (cy + SIGN_H) / ATLAS_H, (cx + SIGN_W) / ATLAS_W, 1 - cy / ATLAS_H];
+  }
   if (slot === undefined) {
-    slot = signSlots.size % (COLS * ROWS);
+    slot = signSlots.size;
     signSlots.set(key, slot);
     const cx = (slot % COLS) * SIGN_W, cy = Math.floor(slot / COLS) * SIGN_H;
     const x = signCanvas.getContext('2d')!;
@@ -309,7 +326,7 @@ float muntinMask(vec2 p, float W, float H, float m){
 }
 vec3 wallPalette(float h, float kind){
   if (kind > 0.5 && kind < 1.5) return mix(vec3(0.62,0.63,0.62), vec3(0.72,0.71,0.68), h);
-  if (kind > 1.5 && kind < 2.5) return mix(vec3(0.78,0.77,0.74), vec3(0.62,0.52,0.42), step(0.7, h));
+  if (kind > 1.5 && kind < 2.5) return h < 0.35 ? vec3(0.62,0.60,0.56) : h < 0.7 ? vec3(0.42,0.33,0.26) : vec3(0.30,0.34,0.33);
   if (kind > 2.5 && kind < 3.5) return vec3(0.42,0.40,0.37);
   if (kind > 4.5 && kind < 5.5) return vec3(0.33,0.33,0.32);
   vec3 a = vec3(0.80,0.76,0.68), b = vec3(0.66,0.70,0.72), c = vec3(0.74,0.66,0.56), d = vec3(0.56,0.60,0.52);
@@ -346,7 +363,7 @@ vec4 shadeWindow(vec3 V, vec3 N){
   float depthF = clamp(hp.z / D, 0.0, 1.0);
   if (t == ty) {
     if (d.y < 0.0) { // floor
-      col = kind < 0.5 ? mix(vec3(0.36,0.24,0.15), vec3(0.45,0.42,0.40), step(0.6, rs)) : kind < 1.5 ? vec3(0.26,0.28,0.30) : kind > 4.5 && kind < 5.5 ? vec3(0.30,0.30,0.29) : vec3(0.55,0.53,0.50);
+      col = kind < 0.5 ? mix(vec3(0.36,0.24,0.15), vec3(0.45,0.42,0.40), step(0.6, rs)) : kind < 1.5 ? vec3(0.26,0.28,0.30) : kind > 4.5 && kind < 5.5 ? vec3(0.30,0.30,0.29) : mix(vec3(0.42,0.30,0.20), vec3(0.35,0.35,0.34), step(0.5, rs));
       if (kind < 0.5 && rs < 0.6) col *= 0.85 + 0.15 * step(0.5, fract(hp.x * 5.0)); // floor boards
     } else { // ceiling
       col = vec3(0.86);
@@ -423,7 +440,7 @@ vec4 shadeWindow(vec3 V, vec3 N){
   vec3 lampPos = vec3(roomW * 0.5, flH - 0.05, D * 0.45);
   float dl = length(hp - lampPos);
   float lampFall = 1.0 / (0.6 + 0.12 * dl * dl);
-  float dayL = (1.0 - night) * uInteriorDay * (0.35 + 0.65 * (1.0 - depthF) * (1.0 - depthF));
+  float dayL = (1.0 - night) * uInteriorDay * (0.35 + 0.65 * (1.0 - depthF) * (1.0 - depthF)) * (kind > 1.5 && kind < 2.5 ? 0.75 : 1.0);
   float nightL = isLit * uLamp * lampFall * (kind > 1.5 && kind < 2.5 ? 1.6 : 1.0);
   vec3 radiance = col * (vec3(dayL) + lampC * nightL);
   // blinds / curtains on the glass
@@ -454,7 +471,7 @@ let glassMat: THREE.MeshStandardMaterial | null = null;
 
 export function glassMaterial(): THREE.MeshStandardMaterial {
   if (glassMat) return glassMat;
-  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.04, metalness: 0.0, vertexColors: true, name: 'bldg:glass', envMapIntensity: 1.0 });
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.04, metalness: 0.0, vertexColors: true, name: 'bldg:glass', envMapIntensity: 2.2 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = U.uNight;
     sh.uniforms.uInteriorDay = U.uInteriorDay;

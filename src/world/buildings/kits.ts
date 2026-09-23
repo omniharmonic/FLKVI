@@ -81,7 +81,7 @@ const AWNING = ['#1f4d3a', '#7b1e1e', '#16324f', '#2e2e2e', '#6b4f2a', '#8a2f3c'
 const SIGN_WORDS = ['CAFE', 'BOOKS', 'GALLERY', 'BAKERY', 'OUTFITTERS', 'TAVERN', 'JEWELRY', 'BOUTIQUE', 'DELI', 'TOYS', 'PHARMACY', 'DINER', 'KITCHEN', 'MERCANTILE', 'FLOWERS', 'COFFEE', 'SHOES', 'ANTIQUES', 'MUSIC', 'OPTICAL', 'CYCLES', 'TEA HOUSE', 'WINE & SPIRITS', 'HARDWARE', 'BARBER', 'SALON', 'PIZZA', 'NOODLES', 'TACOS', 'GIFTS', 'THREADS', 'MARKET'];
 export function signWord(b: RecipeBuilding, r: () => number): string {
   const s = b.signage?.trim();
-  if (s) return s.toUpperCase().slice(0, 22);
+  if (s && !/^(SHOP|FOOD|HOME|STORE)$/i.test(s)) return s.toUpperCase().slice(0, 22);
   return pick(r, SIGN_WORDS);
 }
 

@@ -105,17 +105,82 @@ export class Character {
     this.loaded = true;
   }
 
-  /** Recolor the suit into a dark hoodie + jeans look. */
+  /**
+   * Procedural outfit: per-vertex cloth colors from the dominant skin bones (hoodie on torso/arms, jeans on
+   * legs, sneakers on feet), cloth inflated slightly off the body, muscle normal-map suppressed under cloth.
+   */
   private dress(m: THREE.Mesh) {
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    for (const mat of mats as THREE.MeshStandardMaterial[]) {
-      if (!mat || !('color' in mat)) continue;
-      if (/Superhero|Male|Body|Suit/i.test(mat.name)) {
-        mat.color = new THREE.Color(0.55, 0.57, 0.62);
-        mat.roughness = 0.85;
-        mat.metalness = 0;
+    const mat0 = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
+    if (/hair/i.test(mat0?.name ?? '')) { m.visible = false; return; } // hood up
+    const sk = m as THREE.SkinnedMesh;
+    if (!sk.isSkinnedMesh || !/Superhero|Male|Body/i.test(mat0?.name ?? '')) return;
+    const geo = sk.geometry;
+    const si = geo.attributes.skinIndex as THREE.BufferAttribute, sw = geo.attributes.skinWeight as THREE.BufferAttribute;
+    const pos = geo.attributes.position as THREE.BufferAttribute, nor = geo.attributes.normal as THREE.BufferAttribute;
+    const names = sk.skeleton.bones.map((b) => b.name);
+    const HOODIE = new THREE.Color('#2e3136'), JEANS = new THREE.Color('#283248'), SHOE = new THREE.Color('#d9d6cf'), SOLE = new THREE.Color('#2a2a2a');
+    type Cl = { c: THREE.Color; mask: number; inflate: number };
+    const classify = (n: string): Cl => {
+      if (/^spine_0[23]/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.04 };
+      if (/^spine_01/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.045 };
+      if (/^clavicle/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.028 };
+      if (/^upperarm/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.026 };
+      if (/^lowerarm/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.022 };
+      if (/^neck/.test(n)) return { c: HOODIE, mask: 1, inflate: 0.03 };
+      if (/^pelvis/.test(n)) return { c: JEANS, mask: 1, inflate: 0.03 };
+      if (/^thigh/.test(n)) return { c: JEANS, mask: 1, inflate: 0.02 };
+      if (/^calf/.test(n)) return { c: JEANS, mask: 1, inflate: 0.016 };
+      if (/^foot/.test(n)) return { c: SHOE, mask: 1, inflate: 0.012 };
+      if (/^ball/.test(n)) return { c: SOLE, mask: 1, inflate: 0.012 };
+      return { c: HOODIE, mask: 0, inflate: 0 }; // hands, head, fingers: skin
+    };
+    const cls = names.map(classify);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const upm = Math.max(bb.max.y - bb.min.y, bb.max.z - bb.min.z, bb.max.x - bb.min.x) / 1.78; // local units per meter
+    for (const c of cls) c.inflate *= upm;
+    const cloth = new Float32Array(pos.count * 4);
+    const col = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      col.setRGB(0, 0, 0);
+      let mask = 0, infl = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = sw.getComponent(i, k);
+        if (w <= 0) continue;
+        const c = cls[si.getComponent(i, k)] ?? cls[0];
+        col.r += c.c.r * w; col.g += c.c.g * w; col.b += c.c.b * w;
+        mask += c.mask * w; infl += c.inflate * w;
       }
+      // Hoodie hem / cuffs: sharpen mask so skin/cloth borders are crisp.
+      mask = THREE.MathUtils.smoothstep(mask, 0.35, 0.65);
+      cloth.set([col.r, col.g, col.b, mask], i * 4);
+      if (infl > 0) pos.setXYZ(i, pos.getX(i) + nor.getX(i) * infl, pos.getY(i) + nor.getY(i) * infl, pos.getZ(i) + nor.getZ(i) * infl);
     }
+    geo.setAttribute('clothColor', new THREE.BufferAttribute(cloth, 4));
+    pos.needsUpdate = true;
+    const mat = mat0.clone();
+    mat.roughness = 1;
+    mat.metalness = 0;
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec4 clothColor;\nvarying vec4 vCloth;\nvarying vec3 vObjPos;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\nvCloth = clothColor;\nvObjPos = position / ${upm.toFixed(5)};`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec4 vCloth;\nvarying vec3 vObjPos;\nfloat gtHash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,37.719))) * 43758.5453); }')
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          {
+            // Fabric: knit micro-variation + soft folds.
+            float n = gtHash(floor(vObjPos * 900.0)) * 0.08 + sin(vObjPos.y * 90.0 + sin(vObjPos.x * 40.0) * 2.0) * 0.03;
+            vec3 fabric = vCloth.rgb * (0.92 + n);
+            diffuseColor.rgb = mix(diffuseColor.rgb, fabric, vCloth.a);
+          }`)
+        .replace('#include <normal_fragment_maps>', `vec3 gtGeomNormal = normal;
+          #include <normal_fragment_maps>
+          normal = normalize(mix(normal, gtGeomNormal, vCloth.a));`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.95, vCloth.a);');
+    };
+    mat.customProgramCacheKey = () => 'gt-protagonist-cloth';
+    sk.material = mat;
   }
 
   /** Backpack + hood attached to the skeleton. */
@@ -127,13 +192,13 @@ export class Character {
       spine.getWorldScale(worldScale);
       const inv = 1 / (worldScale.x || 1);
       const pack = new THREE.Group();
-      const fabric = new THREE.MeshStandardMaterial({ color: 0x2b3a2e, roughness: 0.9 });
-      const strapM = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.8 });
-      const bag = new THREE.Mesh(roundBox(0.3, 0.4, 0.16, 0.06), fabric);
-      const pocket = new THREE.Mesh(roundBox(0.24, 0.16, 0.06, 0.03), fabric);
-      pocket.position.set(0, -0.1, -0.1);
-      const top = new THREE.Mesh(roundBox(0.28, 0.06, 0.14, 0.03), strapM);
-      top.position.set(0, 0.2, 0);
+      const fabric = new THREE.MeshStandardMaterial({ color: 0x23282a, roughness: 0.92 });
+      const strapM = new THREE.MeshStandardMaterial({ color: 0x121314, roughness: 0.8 });
+      const bag = new THREE.Mesh(roundBox(0.28, 0.38, 0.14, 0.06), fabric);
+      const pocket = new THREE.Mesh(roundBox(0.22, 0.15, 0.05, 0.025), fabric);
+      pocket.position.set(0, -0.09, 0.08);
+      const top = new THREE.Mesh(roundBox(0.26, 0.05, 0.12, 0.024), strapM);
+      top.position.set(0, 0.18, 0);
       pack.add(bag, pocket, top);
       for (const sx of [-0.1, 0.1]) {
         const strap = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.42, 0.015), strapM);
@@ -149,8 +214,12 @@ export class Character {
     if (head) {
       head.getWorldScale(worldScale);
       const inv = 1 / (worldScale.x || 1);
-      const hoodMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.95, side: THREE.DoubleSide });
-      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 12, Math.PI * 0.15, Math.PI * 1.7, 0, Math.PI * 0.62), hoodMat);
+      const hoodMat = new THREE.MeshStandardMaterial({ color: 0x2a2d31, roughness: 0.97, side: THREE.DoubleSide });
+      // Opening faces −Z (the face). Elongated toward the back like a draped hood.
+      const hg = new THREE.SphereGeometry(0.128, 20, 14, Math.PI * 1.76, Math.PI * 1.48, 0, Math.PI * 0.7);
+      hg.scale(1.12, 1.14, 1.2);
+      hg.translate(0, 0, 0.02);
+      const hood = new THREE.Mesh(hg, hoodMat);
       hood.castShadow = true;
       head.add(hood);
       hood.scale.setScalar(inv);
@@ -177,8 +246,8 @@ export class Character {
       obj.quaternion.copy(bq.invert().multiply(rootQ));
     };
     // In root space the character faces −Z: "behind" is +Z.
-    place(this.pack, new THREE.Vector3(0, -0.02, 0.2));
-    place(this.hood, new THREE.Vector3(0, 0.06, 0.035));
+    place(this.pack, new THREE.Vector3(0, -0.06, 0.19));
+    place(this.hood, new THREE.Vector3(0, 0.115, -0.012));
   }
 
   private buildFallback() {

@@ -21,8 +21,8 @@ export const POLICE_TUNING = {
   /** idle patrol cars at heat 0 (Escalation director may change via g.ai.setPatrolDensity) */
   patrolDensity: 2,
   maxCars: 11,
-  spawnMin: 170,
-  spawnMax: 330,
+  spawnMin: 130,
+  spawnMax: 270,
   sightPatrol: 60,
   sightPursuit: 100,
   sightOfficer: 45,
@@ -269,6 +269,7 @@ export class PoliceSystem {
   private ensureLane(u: Unit): boolean {
     if (!this.traffic) return false;
     if (u.car.mode === 'lane') return true;
+    if (u.car.mode === 'parked') return false; // crashed: physics owns it
     if (this.traffic.sim.attachToLane(u.car, 10)) return true;
     return false;
   }
@@ -469,29 +470,30 @@ export class PoliceSystem {
     const sim = this.traffic!.sim;
     const L = this.heat.level;
     const dP = Math.sqrt(dist2(c.x, c.z, P.x, P.z));
+    if (c.mode === 'parked' && u.mode !== 'roadblock') {
+      // crashed car (dynamic physics): crew bails out and chases on foot
+      if (u.mode === 'pursue' && !P.inVehicle && dP < 60) this.deployOfficers(u, 2, 'chase');
+      return;
+    }
 
     switch (u.mode) {
       case 'patrol': {
         c.sirens = false;
         c.speedCap = Infinity;
-        if (c.mode !== 'lane') this.ensureLane(u);
+        if (c.mode !== 'lane' && !this.ensureLane(u)) this.driveToRoad(u, dt, P, 8);
         break;
       }
       case 'leave': {
         u.leaveT += dt;
         c.sirens = false;
-        if (c.mode !== 'lane' && !this.ensureLane(u)) this.driveFree(u, c.x + Math.sin(c.h) * 30, c.z - Math.cos(c.h) * 30, 10, dt, P, false);
+        if (c.mode !== 'lane' && !this.ensureLane(u)) this.driveToRoad(u, dt, P, 10);
         break;
       }
       case 'respond': {
         c.sirens = true;
         c.speedCap = Infinity;
         if (c.mode !== 'lane') {
-          if (!this.ensureLane(u)) {
-            const lk = this.heat.lastKnown ?? [P.x, P.z];
-            this.driveFree(u, lk[0], lk[1], 16, dt, P, false);
-            break;
-          }
+          if (!this.ensureLane(u)) { this.driveToRoad(u, dt, P, 14); break; }
         }
         u.routeT += dt;
         const lk = this.heat.lastKnown;
@@ -503,10 +505,8 @@ export class PoliceSystem {
         c.sirens = true;
         c.speedCap = 10;
         u.searchT += dt;
-        if (c.mode !== 'lane' && !this.ensureLane(u)) {
-          this.driveFree(u, u.searchC[0], u.searchC[1], 8, dt, P, false);
-          if (dist2(c.x, c.z, u.searchC[0], u.searchC[1]) < 15 * 15) this.nextSearchPoint(u);
-        } else if (!c.route) this.nextSearchPoint(u);
+        if (c.mode !== 'lane' && !this.ensureLane(u)) this.driveToRoad(u, dt, P, 9);
+        else if (!c.route) this.nextSearchPoint(u);
         break;
       }
       case 'investigate': {
@@ -539,7 +539,7 @@ export class PoliceSystem {
             }
           }
         } else if (c.mode !== 'lane' && !this.ensureLane(u)) {
-          this.driveFree(u, u.invP[0], u.invP[1], 12, dt, P, false);
+          this.driveToRoad(u, dt, P, 10);
         }
         break;
       }
@@ -609,6 +609,18 @@ export class PoliceSystem {
   }
 
   private lastAnySeen = -1e9;
+
+  /** Off-road car (after a free pursuit): drive back to the nearest lane, then re-attach. */
+  private driveToRoad(u: Unit, dt: number, P: PlayerInfo, v: number) {
+    const c = u.car;
+    const r = this.net.nearestLane(c.x, c.z, 120);
+    if (!r) { this.driveFree(u, c.x + Math.sin(c.h) * 20, c.z - Math.cos(c.h) * 20, v, dt, P, false); return; }
+    const E = this.net.edges[r.e];
+    // aim a bit ahead along the lane so we merge in the travel direction
+    const sp = samplePoly(this.net.lanePoly(E, r.lane), Math.min(this.net.laneEnd(E), r.s + 8));
+    this.driveFree(u, sp.x, sp.z, v, dt, P, false);
+    if (r.d < 7 && Math.abs(angleDiff(sp.h, c.h)) < 0.7) this.traffic!.sim.attachToLane(c, 8);
+  }
 
   private deployOfficers(u: Unit, n: number, state: Officer['state']) {
     if (u.deployed) return;
@@ -844,7 +856,7 @@ export class PoliceSystem {
     if (spotted) this.lastAnySeen = g.elapsed;
     this.stats.spottedBy = by;
     this.heat.now = g.elapsed - dt;
-    this.heat.update(dt, spotted && !this.busted, P.ok ? [P.x, P.z] : undefined, this.camSeen);
+    if (!this.busted) this.heat.update(dt, spotted, P.ok ? [P.x, P.z] : undefined, this.camSeen);
     this.camSeen = false;
     if (spotted) {
       this.spottedEmitT -= dt;
@@ -954,7 +966,7 @@ export class PoliceSystem {
       } else if (u.siren) { u.siren.stop(); u.siren = null; }
       u.noiseT -= dt;
       if (u.noiseT <= 0) { u.noiseT = 3; g.events.emit('noise', { p: [c.x, c.z], radius: 100, kind: 'siren' }); }
-      if (this.traffic && Math.abs(c.v) > 4) {
+      if (this.traffic) {
         const fx = Math.sin(c.h), fz = -Math.cos(c.h);
         this.traffic.sim.hash.query(c.x + fx * 20, c.z + fz * 20, 28, (o) => {
           const oc = o.car;

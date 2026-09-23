@@ -88,16 +88,53 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.NoColorSpace;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-  return { tex, origin: new THREE.Vector2(hf.ox, hf.oz), size: new THREE.Vector2(cw * res, ch * res) };
+  // hardscape: paved aprons around non-residential buildings + plazas
+  const hc = document.createElement('canvas'); hc.width = cw; hc.height = ch;
+  const hx = hc.getContext('2d')!;
+  hx.fillStyle = '#000'; hx.fillRect(0, 0, cw, ch);
+  hx.fillStyle = '#fff'; hx.strokeStyle = '#fff'; hx.lineJoin = 'round';
+  hx.filter = 'blur(1px)';
+  for (const b of recipe.buildings) {
+    if (b.use === 'residential-single' || b.use === 'agricultural' || !b.footprint?.length) continue;
+    const apron = b.use === 'residential-multi' ? 2.5 : 6;
+    hx.lineWidth = (apron * 2) / res;
+    hx.beginPath();
+    b.footprint.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
+    hx.closePath(); hx.fill(); hx.stroke();
+  }
+  for (const a of recipe.areas) {
+    if (a.kind !== 'pedestrian' && a.kind !== 'plaza' && a.kind !== 'parking') continue;
+    hx.lineWidth = 2 / res;
+    hx.beginPath();
+    a.poly.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
+    hx.closePath(); hx.fill(); hx.stroke();
+  }
+  // parks/lawns win over aprons
+  hx.fillStyle = '#000';
+  for (const a of recipe.areas) {
+    if (!['park', 'grass', 'pitch', 'cemetery', 'forest', 'playground'].includes(a.kind)) continue;
+    hx.beginPath();
+    a.poly.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
+    hx.closePath(); hx.fill();
+  }
+  const hard = new THREE.CanvasTexture(hc);
+  hard.colorSpace = THREE.NoColorSpace;
+  hard.wrapS = hard.wrapT = THREE.ClampToEdgeWrapping;
+  return { tex, hard, origin: new THREE.Vector2(hf.ox, hf.oz), size: new THREE.Vector2(cw * res, ch * res) };
 }
 
 export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLandMask>) {
-  const grass = surface('grass'), dirt = surface('dirt');
+  const grass = surface('grass'), dirt = surface('dirt'), dry = surface('grass-dry', 'grass'), conc = surface('concrete');
   const arid = recipe.climate === 'arid';
   const mat = new THREE.MeshStandardMaterial({ map: grass.map ?? null, normalMap: grass.normalMap ?? null, roughness: 0.95, metalness: 0 });
   mat.name = 'terrain';
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.dirtMap = { value: dirt.map };
+    sh.uniforms.dryMap = { value: dry.map };
+    sh.uniforms.dryScale = { value: 1 / dry.sizeM };
+    sh.uniforms.hardMap = { value: mask.hard };
+    sh.uniforms.concMap = { value: conc.map };
+    sh.uniforms.concScale = { value: 1 / conc.sizeM };
     sh.uniforms.maskMap = { value: mask.tex };
     sh.uniforms.maskOrigin = { value: mask.origin };
     sh.uniforms.maskSize = { value: mask.size };
@@ -109,7 +146,7 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vGtW; uniform sampler2D dirtMap; uniform sampler2D maskMap; uniform vec2 maskOrigin; uniform vec2 maskSize;
-        uniform float grassScale; uniform float dirtScale;
+        uniform float grassScale; uniform float dirtScale; uniform sampler2D dryMap; uniform float dryScale; uniform sampler2D hardMap; uniform sampler2D concMap; uniform float concScale;
         ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
         vec2 wuv = vGtW.xz;
@@ -120,17 +157,30 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
         vec3 dirtC = mix(texture2D(dirtMap, wuv * dirtScale).rgb, texture2D(dirtMap, wuv * dirtScale * 0.31 + 0.5).rgb, 0.4);
         vec4 m = texture2D(maskMap, (wuv - maskOrigin) / maskSize);
         float lawn = m.r, bare = m.g, forest = m.b;
-        vec3 dryGrass = grassC * vec3(1.35, 1.12, 0.72);
-        vec3 lushGrass = grassC * vec3(0.92, 1.1, 0.88);
-        float dirtAmt = smoothstep(0.52, 0.72, nA + 0.18 * gt_noise(wuv * 0.45)) * ${arid ? '0.85' : '0.45'};
-        vec3 base = mix(dryGrass, lushGrass, clamp(lawn + ${arid ? '0.0' : '0.35'}, 0.0, 1.0));
-        base *= 0.85 + 0.3 * gt_fbm(wuv * 0.11 + 7.0);
+        vec3 d1 = texture2D(dryMap, wuv * dryScale).rgb;
+        vec3 d2 = texture2D(dryMap, wuv * dryScale * 0.23 + vec2(0.61, 0.29)).rgb;
+        vec3 dryGrass = mix(d1, d2, smoothstep(0.3, 0.7, gt_noise(wuv * 0.043 + 3.0)) * 0.6) * 1.05;
+        vec3 lushGrass = grassC * vec3(0.95, 1.0, 0.9);
+        dryGrass = mix(dryGrass, lushGrass * 0.85, ${arid ? '0.3' : '0.5'} * smoothstep(0.35, 0.7, gt_fbm(wuv * 0.07 + 11.0)));
+        float dirtAmt = smoothstep(0.58, 0.78, nA + 0.18 * gt_noise(wuv * 0.45)) * ${arid ? '0.7' : '0.35'};
+        float lushAmt = clamp(lawn * (0.75 + 0.35 * gt_noise(wuv * 0.08)) + ${arid ? '0.0' : '0.4'}, 0.0, 1.0);
+        vec3 base = mix(dryGrass, lushGrass, lushAmt);
+        base *= 0.88 + 0.24 * gt_fbm(wuv * 0.11 + 7.0);
         base = mix(base, dirtC, clamp(max(dirtAmt * (1.0 - lawn), bare), 0.0, 1.0));
         base = mix(base, mix(dirtC * 0.55, grassC * 0.6, 0.5), forest * 0.6);
         float slope = 1.0 - abs(normalize(cross(dFdx(vGtW), dFdy(vGtW))).y);
         base = mix(base, dirtC * vec3(0.95, 0.9, 0.85), smoothstep(0.25, 0.45, abs(slope)));
+        float hard = texture2D(hardMap, (wuv - maskOrigin) / maskSize).r;
+        if (hard > 0.01) {
+          vec3 cc = mix(texture2D(concMap, wuv * concScale).rgb, texture2D(concMap, wuv * concScale * 0.29 + 0.4).rgb, 0.35) * vec3(1.62, 1.58, 1.5);
+          vec2 jg = abs(fract(wuv / 1.5 + 0.5) - 0.5) * 1.5;
+          cc *= 1.0 - 0.35 * (1.0 - smoothstep(0.005, 0.02, min(jg.x, jg.y)));
+          cc *= 0.9 + 0.2 * gt_fbm(wuv * 0.2);
+          base = mix(base, cc, smoothstep(0.35, 0.65, hard));
+        }
         diffuseColor.rgb *= base;
-      `);
+      `)
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1.0 - 0.85 * hard);'));
   };
   mat.customProgramCacheKey = () => 'gt-terrain-' + arid;
   return mat;

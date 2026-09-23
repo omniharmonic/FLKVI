@@ -48,7 +48,13 @@ export class Minimap {
     ctx.save();
     ctx.translate(R, R); ctx.rotate(-yaw); ctx.scale(k, k); ctx.translate(-px, -pz);
     const b = g.recipe?.bounds;
-    if (this.base && b) ctx.drawImage(this.base, b.minX, b.minZ, this.base.width / this.baseScale, this.base.height / this.baseScale);
+    if (this.base && b) {
+      // Only blit the part of the base image around the player (rotation-safe square).
+      const S = this.baseScale; const half = (R / k) * 1.45;
+      const x0 = Math.max(b.minX, px - half), z0 = Math.max(b.minZ, pz - half);
+      const x1 = Math.min(b.minX + this.base.width / S, px + half), z1 = Math.min(b.minZ + this.base.height / S, pz + half);
+      if (x1 > x0 && z1 > z0) ctx.drawImage(this.base, (x0 - b.minX) * S, (z0 - b.minZ) * S, (x1 - x0) * S, (z1 - z0) * S, x0, z0, x1 - x0, z1 - z0);
+    }
     // route
     if (nav.route && nav.route.length > 1) {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';

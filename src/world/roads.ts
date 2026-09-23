@@ -1,7 +1,7 @@
 // Road network assembly: chains, junction polygons with filleted curbs, raised sidewalks, markings, paths, bridges.
 import * as THREE from 'three';
 import type { Recipe, RecipeRoad, Vec2, RoadClass } from '../core/types';
-import { ChunkBatcher, MeshBuilder, Grid, cumLen, sampleAt, slicePolyline, polyNormals, lineIntersect, dist2, triangulate } from './util';
+import { ChunkBatcher, MeshBuilder, Grid, cumLen, sampleAt, slicePolyline, polyNormals, lineIntersect, dist2, triangulate, pointInPoly } from './util';
 import type { Heightfield } from './terrain';
 
 export const VEHICULAR = new Set<RoadClass>(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'living_street', 'unclassified']);
@@ -26,9 +26,11 @@ export interface Chain {
   /** Crosswalk at end / stop control at end. */
   cross: [boolean, boolean];
   stopCtl: [boolean, boolean];
+  /** Short link inside a merged junction cluster: not rendered separately. */
+  internal?: boolean;
 }
 
-export interface JunctionArm { chain: Chain; atStart: boolean; u: Vec2; w: number; s: number; trim: number; ang: number }
+export interface JunctionArm { chain: Chain; atStart: boolean; /** chain end point (arm origin) */ o: Vec2; u: Vec2; w: number; s: number; trim: number; ang: number }
 export interface Junction { key: string; p: Vec2; y: number; arms: JunctionArm[]; signal: boolean; stop: boolean; graphNode: number }
 
 export interface SurfaceSeg { ax: number; az: number; bx: number; bz: number; ya: number; yb: number; o0: number; o1: number; kind: 'sidewalk' | 'deck' | 'road' }
@@ -43,7 +45,8 @@ export class RoadNetwork {
   walkGrid = new Grid<number>(40);
   /** Vehicular corridor grid (for path clipping / placement). */
   private corr = new Grid<{ c: Chain; i: number }>(30);
-  private cornerPolys: { poly: Vec2[]; y: number }[] = [];
+  private cornerGrid = new Grid<{ poly: Vec2[]; y: number }>(24);
+  private jGrid = new Grid<Junction>(40);
   paths: RecipeRoad[] = [];
 
   constructor(private recipe: Recipe) {}
@@ -141,12 +144,51 @@ export class RoadNetwork {
       const d = Math.min(10, c.len * 0.5);
       const q = sampleAt(c.pts, c.L, e === 0 ? d : c.len - d);
       let ux = q.x - p[0], uz = q.z - p[1]; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
-      J.arms.push({ chain: c, atStart: e === 0, u: [ux, uz], w: c.w, s: c.s, trim: 0.3, ang: Math.atan2(uz, ux) });
+      J.arms.push({ chain: c, atStart: e === 0, o: p, u: [ux, uz], w: c.w, s: c.s, trim: 0.3, ang: Math.atan2(uz, ux) });
     }
+    this.mergeClusters();
     for (const J of this.junctions.values()) {
+      this.jGrid.add(J.p[0], J.p[1], J);
       J.arms.sort((a, b) => a.ang - b.ang);
       J.y = J.arms.reduce((s, a) => s + (a.atStart ? a.chain.ys[0] : a.chain.ys[a.chain.ys.length - 1]), 0) / J.arms.length;
       this.computeTrims(J);
+    }
+  }
+
+  /** Merge junctions linked by very short chains (OSM double nodes, divided roads) into one polygon. */
+  private mergeClusters() {
+    const parent = new Map<string, string>();
+    const find = (k: string): string => { let r = k; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(k, r); return r; };
+    for (const k of this.junctions.keys()) parent.set(k, k);
+    const maxW = (J: Junction) => Math.max(...J.arms.map((a) => a.w));
+    for (const c of this.chains) {
+      const [k0, k1] = c.ends;
+      if (!k0 || !k1 || k0 === k1) continue;
+      const J0 = this.junctions.get(k0)!, J1 = this.junctions.get(k1)!;
+      if (J0.arms.length < 3 && J1.arms.length < 3) continue;
+      const thr = 2 * Math.max(maxW(J0), maxW(J1)) + 4;
+      if (c.len < thr) { c.internal = true; parent.set(find(k0), find(k1)); }
+    }
+    const groups = new Map<string, Junction[]>();
+    for (const [k, J] of this.junctions) { const r = find(k); (groups.get(r) ?? groups.set(r, []).get(r)!).push(J); }
+    for (const [root, members] of groups) {
+      if (members.length < 2) continue;
+      const keys = new Set(members.map((m) => m.key));
+      const p: Vec2 = [members.reduce((s, m) => s + m.p[0], 0) / members.length, members.reduce((s, m) => s + m.p[1], 0) / members.length];
+      const sig = members.find((m) => m.signal);
+      const J: Junction = {
+        key: root, p, y: 0, arms: [], signal: !!sig, stop: members.some((m) => m.stop),
+        graphNode: sig ? sig.graphNode : members.find((m) => m.graphNode >= 0)?.graphNode ?? -1,
+      };
+      for (const m of members) for (const a of m.arms) {
+        const c = a.chain;
+        if (c.internal && c.ends[0] && c.ends[1] && keys.has(c.ends[0]) && keys.has(c.ends[1])) continue;
+        const q: Vec2 = [a.o[0] + a.u[0] * 8 - p[0], a.o[1] + a.u[1] * 8 - p[1]];
+        a.ang = Math.atan2(q[1], q[0]);
+        J.arms.push(a);
+      }
+      for (const m of members) this.junctions.delete(m.key);
+      if (J.arms.length) this.junctions.set(root, J);
     }
   }
 
@@ -163,9 +205,9 @@ export class RoadNetwork {
     const sA = A.s || B.s, sB = B.s || A.s;
     const straight = gap > (150 * Math.PI) / 180;
     if (straight) return { straight: true as const, sA, sB, pA, pB };
-    const eA: Vec2 = [P[0] + pA[0] * A.w, P[1] + pA[1] * A.w], eB: Vec2 = [P[0] - pB[0] * B.w, P[1] - pB[1] * B.w];
+    const eA: Vec2 = [A.o[0] + pA[0] * A.w, A.o[1] + pA[1] * A.w], eB: Vec2 = [B.o[0] - pB[0] * B.w, B.o[1] - pB[1] * B.w];
     const X = lineIntersect(eA, A.u, eB, B.u);
-    const oA: Vec2 = [P[0] + pA[0] * (A.w + sA), P[1] + pA[1] * (A.w + sA)], oB: Vec2 = [P[0] - pB[0] * (B.w + sB), P[1] - pB[1] * (B.w + sB)];
+    const oA: Vec2 = [A.o[0] + pA[0] * (A.w + sA), A.o[1] + pA[1] * (A.w + sA)], oB: Vec2 = [B.o[0] - pB[0] * (B.w + sB), B.o[1] - pB[1] * (B.w + sB)];
     const XO = lineIntersect(oA, A.u, oB, B.u);
     if (!X || !XO || X[0] < -1 || X[1] < -1 || X[0] > 45 || X[1] > 45) return { straight: true as const, sA, sB, pA, pB };
     const r = this.cornerRadius(A, B);
@@ -209,7 +251,7 @@ export class RoadNetwork {
     const best = new Float32Array(hf.cols * hf.rows).fill(0);
     const target = new Float32Array(hf.cols * hf.rows);
     const BL = 5;
-    const apply = (ax: number, az: number, bx: number, bz: number, ya: number, yb: number, hw: number) => {
+    const apply = (ax: number, az: number, bx: number, bz: number, ya: number, yb: number, hw: number, _prio = false, drop = 0.03) => {
       const x0 = Math.min(ax, bx) - hw - BL, x1 = Math.max(ax, bx) + hw + BL, z0 = Math.min(az, bz) - hw - BL, z1 = Math.max(az, bz) + hw + BL;
       const c0 = Math.max(0, Math.floor((x0 - hf.ox) / hf.cell)), c1 = Math.min(hf.cols - 1, Math.ceil((x1 - hf.ox) / hf.cell));
       const r0 = Math.max(0, Math.floor((z0 - hf.oz) / hf.cell)), r1 = Math.min(hf.rows - 1, Math.ceil((z1 - hf.oz) / hf.cell));
@@ -221,7 +263,11 @@ export class RoadNetwork {
         let wgt = d <= hw ? 1 : d >= hw + BL ? 0 : 1 - (d - hw) / BL;
         wgt = wgt * wgt * (3 - 2 * wgt);
         const k = r * hf.cols + cc;
-        if (wgt > best[k]) { best[k] = wgt; target[k] = ya + (yb - ya) * t - 0.03; }
+        if (wgt > best[k] || wgt >= 0.999) {
+          const y = ya + (yb - ya) * t - drop;
+          if (wgt >= 0.999 && best[k] >= 0.999) target[k] = Math.min(target[k], y); else target[k] = y;
+          best[k] = Math.max(best[k], wgt);
+        }
       }
     };
     for (const c of this.chains) {
@@ -231,17 +277,17 @@ export class RoadNetwork {
     }
     for (const J of this.junctions.values()) {
       if (J.arms.every((a) => a.chain.bridge)) continue;
-      const rad = Math.max(...J.arms.map((a) => a.trim + a.s)) + 1;
-      apply(J.p[0], J.p[1], J.p[0] + 0.01, J.p[1], J.y, J.y, rad);
+      const rad = Math.max(...J.arms.map((a) => dist2(a.o, J.p) + a.trim + a.s)) + 1;
+      apply(J.p[0], J.p[1], J.p[0] + 0.01, J.p[1], J.y, J.y, rad, true, 0.06);
     }
     for (let k = 0; k < best.length; k++) if (best[k] > 0) hf.h[k] = hf.h[k] + (target[k] - hf.h[k]) * best[k];
   }
 
   // ---------------------------------------------------------------- geometry
   build(B: ChunkBatcher, hf: Heightfield, crosswalkProps: Vec2[]) {
-    for (const c of this.chains) this.buildChain(B, c);
+    for (const c of this.chains) if (!c.internal) this.buildChain(B, c);
     for (const J of this.junctions.values()) this.buildJunction(B, J);
-    for (const c of this.chains) this.buildMarkings(B, c);
+    for (const c of this.chains) if (!c.internal) this.buildMarkings(B, c);
     for (const p of crosswalkProps) this.crosswalkAtPoint(B, p);
     for (const r of this.paths) this.buildPath(B, r, hf);
   }
@@ -391,7 +437,7 @@ export class RoadNetwork {
     const poly: Vec2[] = [];
     const at = (A: JunctionArm, sign: number, off: number, t: number): Vec2 => {
       const p: Vec2 = [-A.u[1], A.u[0]];
-      return [P[0] + p[0] * off * sign + A.u[0] * t, P[1] + p[1] * off * sign + A.u[1] * t];
+      return [A.o[0] + p[0] * off * sign + A.u[0] * t, A.o[1] + p[1] * off * sign + A.u[1] * t];
     };
     const bez = (a: Vec2, c: Vec2, b: Vec2, k: number): Vec2[] => {
       const out: Vec2[] = [];
@@ -439,7 +485,8 @@ export class RoadNetwork {
     const base = mb.count;
     for (const p of tri.pts) mb.v(p[0], y + ROAD_LIFT, p[1], 0, 1, 0, p[0], p[1]);
     for (let t = 0; t < tri.tris.length; t += 3) this.upTri(mb, base + tri.tris[t], base + tri.tris[t + 1], base + tri.tris[t + 2]);
-    this.segGrid.addBox(P[0] - 40, P[1] - 40, P[0] + 40, P[1] + 40, { ax: P[0], az: P[1], bx: P[0] + 0.01, bz: P[1], ya: y, yb: y, o0: -Math.max(...J.arms.map((a) => a.trim)), o1: Math.max(...J.arms.map((a) => a.trim)), kind: J.arms.some((a) => a.chain.bridge) ? 'deck' : 'road' });
+    const jr = Math.max(...J.arms.map((a) => dist2(a.o, P) + Math.min(a.trim, Math.hypot(a.trim, a.w))));
+    this.segGrid.addBox(P[0] - jr, P[1] - jr, P[0] + jr, P[1] + jr, { ax: P[0], az: P[1], bx: P[0] + 0.01, bz: P[1], ya: y, yb: y, o0: -jr, o1: jr, kind: J.arms.some((a) => a.chain.bridge) ? 'deck' : 'road' });
   }
 
   /** Ensure triangle faces up (+Y) given 2D xz positions in builder. */
@@ -459,12 +506,9 @@ export class RoadNetwork {
     const cb = B.get('curb', J.p[0], J.p[1]);
     for (let i = 0; i + 1 < curb.length; i++) this.vface(cb, curb[i], curb[i + 1], J.y - 0.05, y, J.p);
     for (let i = 0; i + 1 < outer.length; i++) this.vface(cb, outer[i], outer[i + 1], J.y - 0.35, y, null, J.p);
-    this.cornerPolys.push({ poly, y });
     for (const p of tri.pts) this.addWalk(p);
-    // groundAt: approximate with a segment through the corner
-    const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cz = poly.reduce((s, p) => s + p[1], 0) / poly.length;
-    const rad = Math.max(...poly.map((p) => dist2(p, [cx, cz]))) * 0.8;
-    this.segGrid.addBox(cx - rad, cz - rad, cx + rad, cz + rad, { ax: cx, az: cz, bx: cx + 0.01, bz: cz, ya: y, yb: y, o0: -rad, o1: rad, kind: 'sidewalk' });
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    this.cornerGrid.addBox(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs), { poly, y });
   }
 
   /** Vertical quad a→b facing toward `toward` (or away from `away`). */
@@ -575,13 +619,13 @@ export class RoadNetwork {
   inCorridor(x: number, z: number, extra = 0): Chain | null {
     const h = this.nearestChain([x, z], 30);
     if (h && h.d < h.c.w + h.c.s + extra && h.s > 0.01 && h.s < h.c.len - 0.01) return h.c;
-    for (const J of this.junctions.values()) {
-      // cheap early reject
-      if (Math.abs(J.p[0] - x) > 40 || Math.abs(J.p[1] - z) > 40) continue;
-      const r = Math.max(...J.arms.map((a) => Math.max(a.trim, a.w + a.s)));
-      if (Math.hypot(J.p[0] - x, J.p[1] - z) < r + extra) return J.arms[0].chain;
-    }
-    return null;
+    let found: Chain | null = null;
+    this.jGrid.query(x, z, 60, (J) => {
+      if (found) return;
+      const r = Math.max(...J.arms.map((a) => dist2(a.o, J.p) + Math.max(a.trim, a.w + a.s)));
+      if (Math.hypot(J.p[0] - x, J.p[1] - z) < r + extra) found = J.arms[0].chain;
+    });
+    return found;
   }
 
   // ---------------------------------------------------------------- paths
@@ -680,6 +724,7 @@ export class RoadNetwork {
   /** Highest walkable road-network surface at x,z (sidewalk/deck/road), or null. */
   surfaceAt(x: number, z: number): { y: number; kind: SurfaceSeg['kind'] } | null {
     let best: { y: number; kind: SurfaceSeg['kind'] } | null = null;
+    this.cornerGrid.query(x, z, 0, (c) => { if ((!best || c.y > best.y) && pointInPoly(x, z, c.poly)) best = { y: c.y, kind: 'sidewalk' }; });
     this.segGrid.query(x, z, 0, (s) => {
       const dx = s.bx - s.ax, dz = s.bz - s.az, l2 = dx * dx + dz * dz;
       if (l2 < 0.001) {

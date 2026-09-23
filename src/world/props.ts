@@ -21,7 +21,7 @@ function makeMaterials() {
   const conc = procSet('concrete');
   const concMap = conc.map.clone(); concMap.repeat.set(0.5, 0.5); concMap.needsUpdate = true;
   const M: Record<string, THREE.Material> = {
-    galv: std(0x9ea3a6, 0.42, 0.75),
+    galv: std(0x80868b, 0.5, 0.6),
     dark: std(0x26292b, 0.5, 0.55),
     green: std(0x24382c, 0.55, 0.4),
     wood: std(0x5a4632, 0.92, 0),
@@ -52,11 +52,11 @@ const sph = (r: number, sx: number, sy: number, sz: number, x = 0, y = 0, z = 0,
 
 function kitStreetlight(): Part[] {
   // Cobra-head: 9 m tapered pole, arm along +X reaching 2.4 m, head at the tip.
-  const pole = cyl(0.075, 0.13, 8.6, 12);
-  const base = cyl(0.2, 0.22, 0.5, 12);
-  const arm = new THREE.CylinderGeometry(0.045, 0.055, 2.5, 8); arm.rotateZ(Math.PI / 2 - 0.12); arm.translate(1.25, 8.75, 0);
-  const head = sph(1, 0.42, 0.13, 0.22, 2.55, 8.83, 0, 16);
-  const lens = sph(1, 0.3, 0.05, 0.16, 2.6, 8.73, 0, 12);
+  const pole = cyl(0.075, 0.13, 8.6, 8);
+  const base = cyl(0.2, 0.22, 0.5, 8);
+  const arm = new THREE.CylinderGeometry(0.045, 0.055, 2.5, 6); arm.rotateZ(Math.PI / 2 - 0.12); arm.translate(1.25, 8.75, 0);
+  const head = sph(1, 0.42, 0.13, 0.22, 2.55, 8.83, 0, 10);
+  const lens = sph(1, 0.3, 0.05, 0.16, 2.6, 8.73, 0, 8);
   return [{ geo: mergeGeometries([pole, base, arm]), mat: 'galv' }, { geo: head, mat: 'galv' }, { geo: lens, mat: 'lamp' }];
 }
 export const LAMP_OFFSET = new THREE.Vector3(2.6, 8.68, 0);
@@ -122,7 +122,7 @@ function kitBusStop(): Part[] {
 }
 function kitBikeRack(): Part[] {
   const loops: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < 3; i++) { const t = new THREE.TorusGeometry(0.4, 0.025, 6, 16, Math.PI); t.translate(0, 0.45, 0); t.scale(1, 1.4, 1); t.translate(-0.8 + i * 0.8, 0, 0); t.rotateY(0); loops.push(t); }
+  for (let i = 0; i < 3; i++) { const t = new THREE.TorusGeometry(0.4, 0.025, 4, 10, Math.PI); t.translate(0, 0.45, 0); t.scale(1, 1.4, 1); t.translate(-0.8 + i * 0.8, 0, 0); t.rotateY(0); loops.push(t); }
   for (const g of loops) { const p = g.getAttribute('position'); for (let i = 0; i < p.count; i++) p.setY(i, Math.max(0, p.getY(i))); }
   return [{ geo: mergeGeometries(loops.map((l) => { const c = l.clone(); c.rotateY(Math.PI / 2); return c; })), mat: 'galv' }];
 }
@@ -255,7 +255,7 @@ export class PropSystem {
         case 'newspaper-box': kits.news.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;
         case 'parking-meter': kits.meter.add(this.mat(x, y, z, faceRoad(pr.p, pr.rot))); break;
         case 'planter': kits.planter.add(this.mat(x, y, z, R0() * 6.28)); this.colliders.push({ kind: 'box', x, y, z, hx: 0.6, hy: 0.3, hz: 0.6, rot: 0 }); break;
-        case 'manhole': manholes.push(pr.p); break;
+        case 'manhole': break; // road decals (decals.ts)
         case 'hedge': hedges.push(pr); break;
         case 'fence': fences.push(pr); break;
         case 'traffic-signal': break; // generated from junction data (see below)
@@ -375,7 +375,7 @@ export class PropSystem {
         const c = A.chain;
         if (c.oneway && A.atStart) continue;
         const tx = -A.u[0], tz = -A.u[1], rx = -tz, rz = tx;
-        const p: Vec2 = [J.p[0] + A.u[0] * (A.trim + 0.8) + rx * (A.w + 0.5), J.p[1] + A.u[1] * (A.trim + 0.8) + rz * (A.w + 0.5)];
+        const p: Vec2 = [A.o[0] + A.u[0] * (A.trim + 0.8) + rx * (A.w + 0.5), A.o[1] + A.u[1] * (A.trim + 0.8) + rz * (A.w + 0.5)];
         if (stopPts.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 10) || this.inBuilding(p[0], p[1])) continue;
         placeStop(p, A.u);
       }
@@ -546,7 +546,7 @@ export class PropSystem {
     this.night = f;
     const lamp = this.M.lamp as THREE.MeshStandardMaterial;
     lamp.emissiveIntensity = f * 9;
-    if (this.poolMat) this.poolMat.opacity = f * 0.55;
+    if (this.poolMat) this.poolMat.opacity = f * 0.32;
     if (this.pools) this.pools.visible = f > 0.02;
   }
 
@@ -588,7 +588,7 @@ export class PropSystem {
       l.position.copy(p);
       l.target.position.set(p.x, p.y - 10, p.z);
       l.target.updateMatrixWorld();
-      l.intensity = this.night * 1400;
+      l.intensity = this.night * 380;
     });
   }
 }

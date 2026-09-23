@@ -1,5 +1,6 @@
 // Traffic system: binds TrafficSim cars to gameplay VehicleHandles, spawns/despawns a ring of cars
 // around the player, feeds obstacles (player, peds, other vehicles), handles rams/panic.
+import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { VehicleHandle } from '../core/api';
 import { rng } from '../core/geo';
@@ -31,11 +32,17 @@ export function trafficTimeFactor(h: number): number {
   return 0.42;
 }
 
+const UP = new THREE.Vector3();
+
 interface CarData {
   handle: VehicleHandle;
   acc: number;
   y: number;
   hazard: number;
+  /** knocked into dynamic physics by a crash: physics owns the pose until it settles */
+  crashed: boolean;
+  settle: number;
+  prevMode: 'lane' | 'free' | 'parked';
 }
 
 export class TrafficSystem {
@@ -83,7 +90,7 @@ export class TrafficSystem {
     }
     handle.driver = 'ai';
     const y = groundY(this.g, c.x, c.z);
-    c.data = { handle, acc: 0, y, hazard: 0 } as CarData;
+    c.data = { handle, acc: 0, y, hazard: 0, crashed: false, settle: 0, prevMode: 'lane' } as CarData;
     if (kind === 'police') c.halfLen = 2.45;
     this.handleIds.add(handle.id);
     this.sync(c);
@@ -119,6 +126,7 @@ export class TrafficSystem {
     const d = c.data as CarData | null;
     if (!d) return;
     const h = d.handle;
+    if (d.crashed) return;
     h.position.set(c.x, d.y, c.z);
     h.heading = c.h;
     h.speed = c.v;
@@ -225,6 +233,35 @@ export class TrafficSystem {
       }
     }
 
+    // cars knocked into dynamic physics by a crash (gameplay sets handle.crashed / physicsMode)
+    for (const c of this.sim.cars) {
+      const d = c.data as CarData | null;
+      if (!d) continue;
+      const hv = d.handle as any;
+      const dyn = hv.physicsMode === 'dynamic' || hv.crashed;
+      if (dyn && !d.crashed) {
+        d.crashed = true;
+        d.settle = 0;
+        d.prevMode = c.mode;
+        this.sim.leaveJunction(c);
+        c.mode = 'parked';
+        if (c.kind === 'civilian') this.panicCar(c);
+      }
+      if (d.crashed) {
+        c.x = d.handle.position.x; c.z = d.handle.position.z; c.h = d.handle.heading; c.v = d.handle.speed;
+        d.y = d.handle.position.y;
+        if (Math.abs(d.handle.speed) < 0.4) d.settle += dt; else d.settle = 0;
+        const upright = !hv.object || UP.set(0, 1, 0).applyQuaternion(hv.object.quaternion).y > 0.8;
+        if (d.settle > 2.5 && upright && typeof hv.makeKinematic === 'function' && !d.handle.destroyed) {
+          hv.makeKinematic();
+          d.crashed = false;
+          c.v = 0;
+          c.mode = 'free';
+          if (c.kind === 'civilian' && !this.sim.attachToLane(c, 6)) c.dead = true;
+        }
+      }
+    }
+
     // external obstacles
     const ext = this.external;
     ext.length = 0;
@@ -276,8 +313,6 @@ export class TrafficSystem {
           if (c.kind === 'civilian' && !c.panicMode) {
             this.panicCar(c);
             this.lastRam = g.elapsed;
-            g.events.emit('crime', { kind: 'reckless', p: [c.x, c.z], severity: 1 });
-            playSound(g, 'crash', { at: [c.x, (c.data as CarData).y + 0.8, c.z], volume: Math.min(1, P.speed / 15) });
           }
           if (c.kind === 'civilian') c.v = Math.max(0, c.v - 4);
         }

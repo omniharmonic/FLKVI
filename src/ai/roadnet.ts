@@ -240,7 +240,7 @@ export class RoadNet {
         pedKey.add(pk);
         const walkOnly = WALKONLY.has(cls);
         const sw = walkOnly ? 0 : sidewalk;
-        const off = walkOnly ? 0 : width / 2 + Math.max(sw, 1.4) / 2;
+        const off = walkOnly ? 0 : Math.max(2.5, width / 2) + Math.max(sw, 1.4) / 2;
         const ps: PedSeg = {
           i: this.peds.length, a: ge.from, b: ge.to, center, off, sides: walkOnly ? [0] : [1, -1], cls, width,
           hasSidewalk: walkOnly || sw > 0.5, trimA: 0, trimB: 0, polys: new Map(), ...bbox(center),

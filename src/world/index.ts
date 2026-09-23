@@ -10,9 +10,10 @@ import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes,
 import { RoadNetwork } from './roads';
 import { buildAreas, waterUniforms } from './areas';
 import { ChunkBatcher, Grid, pointInPoly, yieldFrame } from './util';
-import { surfaceMaterial } from './materials';
+import { surfaceMaterial, ensureSurfaces } from './materials';
 import { markingWearTexture } from './textures';
 import { PropSystem } from './props';
+import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, makeLos } from './physics';
 import { Nav } from './nav';
@@ -22,7 +23,12 @@ export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups 
 export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const recipe = g.recipe;
   const t0 = performance.now();
-  const P = (s: string, f: number) => onProgress(s, Math.max(0, Math.min(1, f)));
+  const times: string[] = [];
+  let tl = performance.now(), lastStage = 'init';
+  const P = (s: string, f: number) => {
+    if (s !== lastStage) { const n = performance.now(); times.push(`${lastStage} ${(n - tl).toFixed(0)}`); tl = n; lastStage = s; }
+    onProgress(s, Math.max(0, Math.min(1, f)));
+  };
   P('Loading materials', 0);
   try { await preloadLibrary((f) => P('Loading materials', f * 0.15)); } catch (e) { console.warn('[world] preloadLibrary failed', e); }
 
@@ -33,6 +39,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // ---- ground data
   P('Shaping terrain', 0.16);
   await yieldFrame();
+  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving']);
   const hf = makeFineHeightfield(recipe.terrain);
   const roads = new RoadNetwork(recipe);
   roads.analyze();
@@ -60,11 +67,11 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   roads.build(B, hf, crosswalks);
 
   const mats: Record<string, THREE.Material> = {
-    asphalt: surfaceMaterial('asphalt-worn', { fallback: 'asphalt', tint: '#d6d6d6', roughness: 1, polygonOffset: -1, patch: { macro: 0.16, macroScale: 22, antiTile: true, tintVar: new THREE.Color(0.75, 0.74, 0.72), tintAmt: 0.45 } }),
-    lot: surfaceMaterial('asphalt', { tint: '#c9c9c9', roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 15, antiTile: true } }),
-    sidewalk: surfaceMaterial('concrete-sidewalk', { fallback: 'concrete', tint: '#e2ded6', roughness: 1, patch: { joints: 1.52, macro: 0.08, macroScale: 12 } }),
-    curb: surfaceMaterial('curb', { fallback: 'curb', tint: '#d8d4cc', roughness: 1, patch: { macro: 0.06 } }),
-    footway: surfaceMaterial('concrete-sidewalk', { fallback: 'concrete', tint: '#dcd8d0', polygonOffset: -1, patch: { joints: 1.52, macro: 0.1 } }),
+    asphalt: surfaceMaterial('asphalt', { tint: new THREE.Color(2.1, 2.08, 2.05), roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 26, antiTile: true, tintVar: new THREE.Color(1.25, 1.24, 1.22), tintAmt: 0.5 } }),
+    lot: surfaceMaterial('asphalt', { tint: new THREE.Color(2.3, 2.28, 2.25), roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 15, antiTile: true } }),
+    sidewalk: surfaceMaterial('concrete', { tint: new THREE.Color(1.75, 1.7, 1.62), roughness: 1, patch: { joints: 1.52, macro: 0.07, macroScale: 12, antiTile: true } }),
+    curb: surfaceMaterial('concrete', { tint: new THREE.Color(1.85, 1.82, 1.76), roughness: 1, patch: { macro: 0.06 } }),
+    footway: surfaceMaterial('concrete', { tint: new THREE.Color(1.7, 1.66, 1.6), polygonOffset: -1, patch: { joints: 1.52, macro: 0.1, antiTile: true } }),
     gravel: surfaceMaterial('gravel', { polygonOffset: -1, patch: { macro: 0.12 } }),
     paving: surfaceMaterial('paving', { polygonOffset: -2, patch: { macro: 0.1, antiTile: true } }),
     bridgeRail: new THREE.MeshStandardMaterial({ color: 0x5a5f63, metalness: 0.6, roughness: 0.5, side: THREE.DoubleSide }),
@@ -80,6 +87,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const roadGroup = new THREE.Group(); roadGroup.name = 'roads';
   B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true }, renderOrder: { marking: 1 } });
   root.add(roadGroup, waterGroup);
+  try { roadGroup.add(buildRoadDecals(roads, recipe.props.filter((p) => p.type === 'manhole').map((p) => p.p), (x, z) => roads.surfaceAt(x, z)?.y ?? hf.sample(x, z))); } catch (e) { console.warn('[world] decals failed', e); }
 
   // ---- terrain
   P('Growing ground cover', 0.3);
@@ -180,6 +188,8 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       buildings?.update?.(dt, game);
     },
   });
+  P('done', 1);
+  console.info('[world] stage ms: ' + times.join(' | '));
   console.info(`[world] built in ${(performance.now() - t0).toFixed(0)} ms: ${roads.chains.length} road chains, ${roads.junctions.size} junctions, ${treeList.length} trees, ${props.lamps.length} lamps`);
   P('World ready', 1);
 }

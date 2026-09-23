@@ -40,8 +40,8 @@ const NEAR_DIST = 45;
 const MAX_DIST = 520;
 const EXTRA = 24;
 
-/** Recipe prop rot → heading (see util.ts heading convention). The recipe rot is a THREE-style yaw. */
-export function rotToHeading(rot: number) { return -rot; }
+/** Recipe prop rot → heading. The compiler uses the same convention (headingOf = atan2(dx, −dz)). */
+export function rotToHeading(rot: number) { return rot; }
 
 export class ParkingSystem {
   readonly group = new THREE.Group();

@@ -239,7 +239,7 @@ export class TrafficSim {
       // obstacle footprint: cars are long; widen threshold along their heading when crossing
       let rad = o.kind === 'ped' || o.kind === 'player' ? 0.45 : 1.05;
       if (isCar && dh > 0.6 && dh < Math.PI - 0.6) rad = Math.min(o.r, 1.05 + o.r * Math.sin(dh));
-      if (lat > rad + 1.05) return;
+      if (lat > rad + (c.sirens ? 0.85 : 1.05)) return;
       if (isCar && dh > 0.9 && dh < Math.PI - 0.9 && o.car) {
         // crossing car: only matters if it is inside/entering the junction and we are not already committed
         if (inJunction && d > 7) return;
@@ -369,11 +369,13 @@ export class TrafficSim {
         c.honkCd = 3 + c.rnd() * 4;
         this.hooks.honk?.(c);
       }
-      if ((byPlayer && c.blockedTime > 4) || (c.blockedBy === 'vehicle' && c.blockedTime > 5) || (police && c.sirens && c.blockedTime > 1)) {
-        c.swerve = police ? 3 : 5;
+      if (siren) {
+        if (c.blockedTime > 0.8 && c.swerve <= 0) c.swerve = 3;
+      } else if ((byPlayer && c.blockedTime > 4) || (c.blockedBy === 'vehicle' && c.blockedTime > 5)) {
+        c.swerve = 5;
         c.blockedTime = 0;
       }
-      if (c.blockedBy === 'car' && c.blockedTime > 9 && !c.control) {
+      if (c.blockedBy === 'car' && (c.blockedTime > 9 && !c.control || (siren && c.blockedTime > 2.5))) {
         c.ghost = 2.5;
         c.blockedTime = 0;
       }
@@ -384,9 +386,11 @@ export class TrafficSim {
     if (c.stuck > 25 && !c.control) c.dead = true; // hopeless jam: owner recycles out of view
 
     // lateral offset target
-    if (c.swerve > 0) c.latTarget = -(E.laneW + 0.9);
-    else if (c.pullOver > 0) c.latTarget = police ? 0 : 1.7;
-    else c.latTarget = 0;
+    if (c.swerve > 0 && c.leg === 'lane') c.latTarget = -(E.laneW + 0.9);
+    else if (c.pullOver > 0 && !police) {
+      const laneOff = E.lane0 + c.lane * E.laneW;
+      c.latTarget = Math.max(0.6, Math.min(2.4, Math.max(2.5, E.width / 2) - laneOff - 1.0));
+    } else c.latTarget = 0;
     const latRate = 1.6 * Math.min(1, 0.3 + c.v / 4);
     const dl = c.latTarget - c.latOff;
     c.latOff += Math.sign(dl) * Math.min(Math.abs(dl), latRate * dt);

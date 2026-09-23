@@ -45,6 +45,9 @@ interface Variant {
   ratio: number;
   barkMat: THREE.MeshStandardMaterial; leafMat: THREE.MeshStandardMaterial;
   nearBark?: THREE.InstancedMesh; nearLeaves?: THREE.InstancedMesh;
+  /** reduced LOD */
+  bark1?: THREE.BufferGeometry; leaves1?: THREE.BufferGeometry;
+  midBark?: THREE.InstancedMesh; midLeaves?: THREE.InstancedMesh;
   atlasIdx: number;
 }
 
@@ -76,7 +79,7 @@ function windPatch(mat: THREE.MeshStandardMaterial, leaves: boolean) {
   mat.customProgramCacheKey = () => 'gt-tree-' + leaves;
 }
 
-function makeVariant(profileKey: string, seed: number): Omit<Variant, 'atlasIdx'> {
+function makeVariant(profileKey: string, seed: number, lod = 0): Omit<Variant, 'atlasIdx'> {
   const P = PROFILES[profileKey];
   const t = new Tree();
   t.loadPreset(P.preset);
@@ -88,6 +91,12 @@ function makeVariant(profileKey: string, seed: number): Omit<Variant, 'atlasIdx'
   o.branch.sections = { 0: Math.min(o.branch.sections[0], 10), 1: Math.min(o.branch.sections[1], 7), 2: Math.min(o.branch.sections[2], 5), 3: Math.min(o.branch.sections[3], 3) };
   o.branch.segments = { 0: Math.min(o.branch.segments[0], 8), 1: Math.min(o.branch.segments[1], 5), 2: Math.min(o.branch.segments[2], 3), 3: 3 };
   P.tweak?.(o);
+  if (lod > 0) {
+    o.leaves.count = Math.max(1, Math.round(o.leaves.count * 0.42));
+    o.leaves.size *= 1.5;
+    o.branch.sections = { 0: Math.max(3, Math.round(o.branch.sections[0] / 2)), 1: Math.max(2, Math.round(o.branch.sections[1] / 2)), 2: 2, 3: 2 };
+    o.branch.segments = { 0: 5, 1: 3, 2: 3, 3: 3 };
+  }
   t.generate();
   const bark = t.branchesMesh.geometry.clone();
   const leaves = t.leavesMesh.geometry.clone();
@@ -169,8 +178,10 @@ export class TreeSystem {
   private far!: THREE.InstancedMesh;
   private farAtlas!: THREE.InstancedBufferAttribute;
   private nearCount: number[] = [];
+  private midCount: number[] = [];
+  fullDist = 55;
   private frame = 0;
-  nearDist = 170;
+  nearDist = 150;
   /** Trunk cylinders for physics: x,z,y,radius,height */
   trunks: { x: number; z: number; y: number; r: number; h: number }[] = [];
 
@@ -192,6 +203,7 @@ export class TreeSystem {
         try {
           const v = makeVariant(k, seed) as Variant;
           v.atlasIdx = 0;
+          try { const l1 = makeVariant(k, seed, 1); v.bark1 = l1.bark; v.leaves1 = l1.leaves; l1.barkMat.dispose(); l1.leafMat.dispose(); } catch { /* no lod1 */ }
           ids.push(this.variants.length);
           this.variants.push(v);
         } catch (e) { console.warn('[world] tree variant failed', k, e); }
@@ -226,13 +238,16 @@ export class TreeSystem {
       const cap = Math.max(1, Math.min(counts[i], 1500));
       V.nearBark = new THREE.InstancedMesh(V.bark, V.barkMat, cap);
       V.nearLeaves = new THREE.InstancedMesh(V.leaves, V.leafMat, cap);
-      for (const m of [V.nearBark, V.nearLeaves]) {
-        m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.count = 0;
+      V.midBark = new THREE.InstancedMesh(V.bark1 ?? V.bark, V.barkMat, cap);
+      V.midLeaves = new THREE.InstancedMesh(V.leaves1 ?? V.leaves, V.leafMat, cap);
+      V.midBark.castShadow = false;
+      for (const m of [V.nearBark, V.nearLeaves, V.midBark, V.midLeaves]) {
+        m.castShadow = m !== V.midBark; m.receiveShadow = true; m.frustumCulled = false; m.count = 0;
         m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         m.name = 'tree_' + V.key;
         this.group.add(m);
       }
-      this.nearCount[i] = 0;
+      this.nearCount[i] = 0; this.midCount[i] = 0;
     });
     // impostors
     let atlas: THREE.Texture | null = null, cols = 1;
@@ -298,8 +313,8 @@ export class TreeSystem {
     this.pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pm);
     const cx = camera.position.x, cz = camera.position.z;
-    const nd2 = this.nearDist * this.nearDist;
-    for (let i = 0; i < this.nearCount.length; i++) this.nearCount[i] = 0;
+    const nd2 = this.nearDist * this.nearDist, fd2 = this.fullDist * this.fullDist;
+    for (let i = 0; i < this.nearCount.length; i++) { this.nearCount[i] = 0; this.midCount[i] = 0; }
     let fc = 0;
     const farArr = this.far.instanceMatrix.array as Float32Array;
     const atl = this.farAtlas.array as Float32Array;
@@ -308,12 +323,20 @@ export class TreeSystem {
       if (!this.frustum.intersectsSphere(this.sph)) continue;
       const d2 = (T.x - cx) ** 2 + (T.z - cz) ** 2;
       const V = this.variants[T.v];
-      if (d2 < nd2) {
+      if (d2 < fd2) {
         const n = this.nearCount[T.v];
         if (n < V.nearBark!.instanceMatrix.count) {
           (V.nearBark!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
           (V.nearLeaves!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
           this.nearCount[T.v] = n + 1;
+          continue;
+        }
+      } else if (d2 < nd2) {
+        const n = this.midCount[T.v];
+        if (n < V.midBark!.instanceMatrix.count) {
+          (V.midBark!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
+          (V.midLeaves!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
+          this.midCount[T.v] = n + 1;
           continue;
         }
       }
@@ -324,6 +347,8 @@ export class TreeSystem {
     this.variants.forEach((V, i) => {
       V.nearBark!.count = V.nearLeaves!.count = this.nearCount[i];
       V.nearBark!.instanceMatrix.needsUpdate = V.nearLeaves!.instanceMatrix.needsUpdate = true;
+      V.midBark!.count = V.midLeaves!.count = this.midCount[i];
+      V.midBark!.instanceMatrix.needsUpdate = V.midLeaves!.instanceMatrix.needsUpdate = true;
     });
     this.far.count = fc;
     this.far.instanceMatrix.needsUpdate = true;

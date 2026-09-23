@@ -8,7 +8,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Game } from '../../core/game';
 import { hashString } from '../../core/geo';
 import type { RecipeCamera, Vec2 } from '../../core/types';
-import { setupRendering } from '../../render';
+import { setupRendering, setRain } from '../../render';
+import { preloadLibrary } from '../../assets/library';
 import { setupSurveillance, startNewRun, type Surveillance } from '../index';
 
 const Q = new URLSearchParams(location.search);
@@ -77,6 +78,7 @@ async function main() {
   g.camera.far = 3000;
   await setupRendering(g, { dev: true });
   if (g.sky) { g.sky.time = Number(Q.get('hour') ?? 15.5); g.sky.timeScale = 0; }
+  setRain(g, Q.has('rain'));
 
   // ground: asphalt road + concrete sidewalk + dirt verge
   const asphalt = canvasTex(512, (c) => noiseFill(c, 512, [58, 58, 60], 26));
@@ -109,6 +111,7 @@ async function main() {
     g.scene.add(b);
     boxes.push(b);
   }
+  g.scene.updateMatrixWorld(true);
   const ray = new THREE.Raycaster();
   g.world = {
     heightAt: () => 0, groundAt: () => 0,
@@ -137,6 +140,7 @@ async function main() {
   g.player = player as any;
   g.audio = { play: () => null, listener: null };
 
+  try { await preloadLibrary(); } catch (e) { console.warn(e); }
   await setupSurveillance(g);
   const s = g.surveillance as unknown as Surveillance;
   if (Q.has('cones')) s.vision.forceAll = true;

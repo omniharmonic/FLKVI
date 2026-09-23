@@ -22,6 +22,7 @@ async function boot() {
     const g = new Game(recipe, container);
     (window as any).game = g; // debug handle
     g.rapier = RAPIER;
+    g.mode = loc.mode ?? 'takedown';
     g.physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     loading.update('Lighting the sky', 0.42);
     await setupRendering(g);

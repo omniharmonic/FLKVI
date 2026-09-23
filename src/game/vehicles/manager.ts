@@ -188,7 +188,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     const g = this.g;
     v.lastImpact = mag;
     v.lastImpactDir.copy(dv).normalize();
-    const dmg = (mag - 2) * 7;
+    const dmg = (mag - 2) * 3.2;
     this.damage(v, dmg, dv);
     playSound(g, 'crash', { at: v3(v.position), volume: clamp(mag / 12, 0.2, 1) });
     g.events.emit('noise', { p: [v.position.x, v.position.z], radius: 25 + mag * 6, kind: 'crash' });

@@ -41,7 +41,7 @@ export const LOOKS: Record<string, LookPreset> = {
     shadowTint: [1.0, 0.98, 0.99], highlightTint: [1.05, 1.0, 0.92], clouds: 0.12, cityGlow: 1.1, rainChance: 0.03,
   },
   mountain: {
-    ...base, name: 'mountain', mie: 0.75, mieG: 0.82, haze: 1 / 26000, heightFog: 1 / 14000, heightFalloff: 1 / 70,
+    ...base, name: 'mountain', mie: 0.85, mieG: 0.82, haze: 1 / 17000, heightFog: 1 / 14000, heightFalloff: 1 / 70,
     wb: [1.0, 1.0, 1.02], saturation: 1.08, contrast: 1.1,
     shadowTint: [0.96, 0.99, 1.05], highlightTint: [1.03, 1.0, 0.96], clouds: 0.3, cityGlow: 0.9, rainChance: 0.1,
   },

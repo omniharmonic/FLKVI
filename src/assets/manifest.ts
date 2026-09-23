@@ -84,6 +84,8 @@ const ch = (path: string, outfit: Outfit, tags: string[]): ModelEntry => ({ path
  * Model registry. Characters face +Z, feet at y=0, meters. Load with loadModel / loadModelWithAnimations.
  */
 export const MODELS: Record<string, ModelEntry> = {
+  'character-police': ch(M, { top: '#1b2638', bottom: '#141b28', shoes: '#0a0a0a', longSleeves: true, hair: '#1a1410', cap: '#141c2b' }, ['police', 'male']),
+  'character-police-f': ch(F, { top: '#1b2638', bottom: '#141b28', shoes: '#0a0a0a', longSleeves: true, hair: '#2a1d14', cap: '#141c2b', skin: '#9a7058' }, ['police', 'female']),
   'character-ped-1': ch(M, { top: '#2f4a6b', bottom: '#2b2f3a', shoes: '#e8e6e0', hair: '#2a1d14' }, ['civilian', 'male']),
   'character-ped-2': ch(F, { top: '#b8433a', bottom: '#3a4d6e', shoes: '#f0efe9', hair: '#5a3a22' }, ['civilian', 'female']),
   'character-ped-3': ch(M, { top: '#c9c3b5', bottom: '#6b5b45', shoes: '#3a2a1e', longSleeves: true, skin: '#7a5a48', hair: '#0e0c0b' }, ['civilian', 'male']),
@@ -92,8 +94,6 @@ export const MODELS: Record<string, ModelEntry> = {
   'character-ped-6': ch(F, { top: '#e0c14a', bottom: '#e6e2d8', shoes: '#b04a3a', shorts: true, skin: '#8a6450', hair: '#15100c' }, ['civilian', 'female']),
   'character-ped-7': ch(M, { top: '#1c1c1f', bottom: '#1c1c1f', shoes: '#101010', longSleeves: true, hair: '#1a1410' }, ['civilian', 'male', 'dark-clothes']),
   'character-worker': ch(M, { top: '#e8762c', bottom: '#3d4a5c', shoes: '#2a2018', longSleeves: true, skin: '#d8b8a0', hair: '#3a2a1a' }, ['worker', 'male']),
-  'character-police': ch(M, { top: '#1b2638', bottom: '#141b28', shoes: '#0a0a0a', longSleeves: true, hair: '#1a1410', cap: '#141c2b' }, ['police', 'male']),
-  'character-police-f': ch(F, { top: '#1b2638', bottom: '#141b28', shoes: '#0a0a0a', longSleeves: true, hair: '#2a1d14', cap: '#141c2b', skin: '#9a7058' }, ['police', 'female']),
   /** Player default: dark hoodie look. */
   'character-player': ch(M, { top: '#26282c', bottom: '#2e3542', shoes: '#2a2a2a', longSleeves: true, hair: '#1a1410' }, ['player', 'male']),
   // Poly Haven props (CC0, photoscanned/PBR, real scale in meters)

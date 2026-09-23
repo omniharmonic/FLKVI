@@ -99,6 +99,14 @@ export class MB {
     this.idx.push3(i0, i0 + 2, i0 + 3);
   }
 
+  /** Quad with explicit per-vertex normals (smooth curved surfaces). */
+  quadN(p: [V3, V3, V3, V3], n: [V3, V3, V3, V3], uv: [number, number, number, number, number, number, number, number], ao: [number, number, number, number] = [1, 1, 1, 1]) {
+    const i0 = this.vc;
+    for (let k = 0; k < 4; k++) this.vert(p[k][0], p[k][1], p[k][2], n[k][0], n[k][1], n[k][2], uv[k * 2], uv[k * 2 + 1], ao[k]);
+    this.idx.push3(i0, i0 + 1, i0 + 2);
+    this.idx.push3(i0, i0 + 2, i0 + 3);
+  }
+
   /** Planar polygon (3D points) with optional holes; normal given; uv function. */
   polygon(pts: V3[], normal: V3, uvf: (p: V3) => [number, number], ao: (p: V3) => number = () => 1, holes?: V3[][]) {
     if (pts.length < 3) return;

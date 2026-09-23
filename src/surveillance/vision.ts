@@ -124,7 +124,7 @@ export class VisionViz {
         const d = playerPos ? Math.hypot(cam.work.x - playerPos.x, cam.work.z - playerPos.z) : 0;
         if (this.forceAll) want = 1;
         else if (this.scanning && d < TUNE.scanRadius) want = 1;
-        else if (d < TUNE.proximityConeRadius) want = 0.55 + 0.45 * (1 - d / TUNE.proximityConeRadius);
+        else if (d < TUNE.proximityConeRadius) want = 0.35 + 0.4 * (1 - d / TUNE.proximityConeRadius);
         if (cam.seesPlayer && d < 120) want = 1;
       }
       let v = this.viz.get(cam.rc.id);
@@ -137,10 +137,10 @@ export class VisionViz {
       v.root.matrix.copy(cam.headM);
       v.root.matrixWorldNeedsUpdate = true;
       const col = cam.seesPlayer ? this.red : cam.rc.plateReader ? this.amber : night > 0.5 ? this.nightC : this.day;
-      const base = (this.scanning ? 0.34 : 0.22) + night * 0.35;
+      const base = (this.scanning ? 0.045 : 0.026) + night * 0.008;
       for (const m of v.mats) {
         m.uniforms.uColor.value.lerp(col, Math.min(1, dt * 8));
-        m.uniforms.uIntensity.value = v.fade * (m.userData.fan ? base * 1.25 : base) * (cam.seesPlayer ? 1.6 : 1);
+        m.uniforms.uIntensity.value = v.fade * (m.userData.fan ? base : base * 0.6) * (cam.seesPlayer ? 1.5 : 1);
         m.uniforms.uTime.value = t;
       }
       // fans live in the ground plane under the camera and rotate with the sweep

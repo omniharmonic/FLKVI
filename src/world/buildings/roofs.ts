@@ -76,18 +76,26 @@ function dome(c: BCtx, ring: Vec2[], obb: OBB): RoofInfo {
     const p = (a: number, y: number): V3 => [cx + Math.cos(a) * R, y, cz + Math.sin(a) * R];
     mb.quad(p(a1, y0), p(a0, y0), p(a0, y0 + drumH), p(a1, y0 + drumH), [a1 * R, y0, a0 * R, y0, a0 * R, y0 + drumH, a1 * R, y0 + drumH], [0.8, 0.8, 1, 1]);
   }
-  const rm = surf(B, 2, 'roof-standing-seam', C(b.roof.color || '#6f8f7f'), 0.9);
-  const rings = 8;
+  const domeCol = C(['#5f8f7a', '#7d8a8c', '#b8963e', '#6b7478'][c.b.seed % 4]);
+  const rm = surf(B, 2, 'roof-standing-seam', domeCol, 1);
+  const rings = 12, segD = 32;
   const yb = y0 + drumH;
+  const H = R * 0.9;
   for (let j = 0; j < rings; j++) {
     const t0 = (j / rings) * Math.PI / 2, t1 = ((j + 1) / rings) * Math.PI / 2;
-    for (let i = 0; i < seg; i++) {
-      const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
-      const p = (a: number, t: number): V3 => [cx + Math.cos(a) * R * Math.cos(t), yb + R * 0.9 * Math.sin(t), cz + Math.sin(a) * R * Math.cos(t)];
-      rm.quad(p(a1, t0), p(a0, t0), p(a0, t1), p(a1, t1), [a1 * R * Math.cos(t0), t0 * R, a0 * R * Math.cos(t0), t0 * R, a0 * R * Math.cos(t1), t1 * R, a1 * R * Math.cos(t1), t1 * R]);
+    for (let i = 0; i < segD; i++) {
+      const a0 = (i / segD) * Math.PI * 2, a1 = ((i + 1) / segD) * Math.PI * 2;
+      const p = (a: number, t: number): V3 => [cx + Math.cos(a) * R * Math.cos(t), yb + H * Math.sin(t), cz + Math.sin(a) * R * Math.cos(t)];
+      const nrm = (a: number, t: number): V3 => { const nx = Math.cos(a) * Math.cos(t) / R, ny = Math.sin(t) / H, nz = Math.sin(a) * Math.cos(t) / R; const l = Math.hypot(nx, ny, nz); return [nx / l, ny / l, nz / l]; };
+      rm.quadN([p(a1, t0), p(a0, t0), p(a0, t1), p(a1, t1)], [nrm(a1, t0), nrm(a0, t0), nrm(a0, t1), nrm(a1, t1)],
+        [a1 * R, t0 * R, a0 * R, t0 * R, a0 * R, t1 * R, a1 * R, t1 * R], [0.9, 0.9, 1, 1]);
     }
   }
-  return { ridgeY: yb + R * 0.9, obb };
+  // lantern
+  const lm = surf(B, 2, c.st.wallTex, c.st.wallColor);
+  lm.obox(cx, yb + H + 0.8, cz, R * 0.12, 0.8, R * 0.12, 0, [0.8, 1]);
+  surf(B, 2, 'roof-standing-seam', domeCol, 1).obox(cx, yb + H + 1.7, cz, R * 0.15, 0.1, R * 0.15, 0, [0.8, 1]);
+  return { ridgeY: yb + H + 1.8, obb };
 }
 
 function pitchedRoof(c: BCtx, ring: Vec2[], obb: OBB, type: RecipeBuilding['roof']['type']): RoofInfo {

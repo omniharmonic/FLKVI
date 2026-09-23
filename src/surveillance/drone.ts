@@ -146,7 +146,7 @@ export class Drone {
     this.cone.scale.set(h, h, h);
     this.cone.rotation.set(-this.obj.rotation.x, 0, -this.obj.rotation.z);
     this.coneMat.color.set(this.seesPlayer ? 0xff2a1a : 0x88c0ff);
-    this.coneMat.opacity = (this.seesPlayer ? 0.12 : 0.045) * (1 + night * 1.5);
+    this.coneMat.opacity = (this.seesPlayer ? 0.05 : 0.018) * (1 + night * 0.4);
     this.light.intensity = night > 0.3 ? 900 * night : 0;
   }
 
