@@ -5,7 +5,7 @@ import type { Game, System } from '../../core/game';
 import type { VehiclesAPI, VehicleHandle } from '../../core/api';
 import type { Vec2 } from '../../core/types';
 import { hashString } from '../../core/geo';
-import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
+import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModel, type CarModelId } from './carModels';
 import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
 import { Vehicle, DRIFT } from './vehicle';
 import { strobe } from './visual';
@@ -15,7 +15,7 @@ import { FarTrafficBatch, WheelBatch } from './farBatch';
 import { Smoke } from '../effects';
 import { SkidMarks, Sparks } from './fx';
 import { Knockables } from './knockables';
-import { clamp, nightFactor, playSound, v3 } from '../util';
+import { clamp, groundY, nightFactor, playSound, v3 } from '../util';
 
 const PROMOTE_RADIUS = 32;
 const DEMOTE_RADIUS = 60;
@@ -133,7 +133,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     const slot = this.parking.query(p[0], p[1], radius)[0];
     if (slot) {
       const d = (slot.x - p[0]) ** 2 + (slot.z - p[1]) ** 2;
-      if (d < bd) return this.promote(slot);
+      if (d < bd) return this.promote(slot) ?? best;
     }
     return best;
   }
@@ -142,7 +142,7 @@ export class VehicleSystem implements VehiclesAPI, System {
   nearestEnterable(p: THREE.Vector3, reach: number): Vehicle | undefined {
     let best: Vehicle | undefined, bd = reach;
     const cand = [...this.vehicles.values()];
-    for (const s of this.parking.query(p.x, p.z, reach + 3)) cand.push(this.promote(s));
+    for (const s of this.parking.query(p.x, p.z, reach + 3)) { const v = this.promote(s); if (v) cand.push(v); }
     for (const v of cand) {
       if (v.destroyed || v.driver === 'player') continue;
       const d = this.hullDistance(v, p);
@@ -158,11 +158,20 @@ export class VehicleSystem implements VehiclesAPI, System {
     return Math.hypot(dx, dz);
   }
 
-  promote(slot: ParkedSlot): Vehicle {
+  /**
+   * Promote a parked slot to a live (sleeping, dynamic) Vehicle. A slot whose hull overlaps other
+   * geometry (landmark / prop colliders added after the parking pass) would explode on wake-up, so
+   * it is first nudged to the nearest clear spot, or dropped for good if there is none.
+   */
+  promote(slot: ParkedSlot): Vehicle | null {
     for (const v of this.vehicles.values()) if (v.parkedSlot && v.parkedSlot.index === slot.index) return v;
     this.parking.activate(slot);
+    const model = getCarModel(slot.model);
+    const clear = this.clearSpot(model, slot.x, slot.y, slot.z, slot.heading);
+    if (!clear) { slot.dead = true; return null; } // stays hidden (active) and never comes back
+    if (clear[0] !== slot.x || clear[1] !== slot.z) { slot.x = clear[0]; slot.z = clear[1]; slot.y = groundY(this.g, slot.x, slot.z); slot.m = undefined; }
     const v = new Vehicle(this.g, {
-      id: `veh${this.nextId++}`, kind: 'civilian', model: getCarModel(slot.model), color: slot.color, seed: slot.seed,
+      id: `veh${this.nextId++}`, kind: 'civilian', model, color: slot.color, seed: slot.seed,
       x: slot.x, z: slot.z, y: slot.y, heading: slot.heading, mode: 'dynamic', colliderMap: this.colliderMap,
     });
     v.driver = 'none';
@@ -171,6 +180,29 @@ export class VehicleSystem implements VehiclesAPI, System {
     v.body.sleep();
     v.sync(0);
     return v;
+  }
+
+  /** Nearest pose (x, z) near the given one where the car's hull (above curb height) overlaps nothing solid. */
+  private clearSpot(m: CarModel, x: number, y: number, z: number, heading: number): [number, number] | null {
+    const R = this.g.rapier;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -heading);
+    const rot = { x: q.x, y: q.y, z: q.z, w: q.w };
+    // Test box: from 0.25 m above the hull bottom (clears curbs / slope) up to the roof, slightly inset.
+    const y0 = m.colCenter.y - m.colHalf.y + 0.25, y1 = Math.max(y0 + 0.2, m.roofY - 0.05);
+    const shape = new R.Cuboid(m.colHalf.x - 0.08, (y1 - y0) / 2, m.colHalf.z - 0.08);
+    const f = new THREE.Vector3(Math.sin(heading), 0, -Math.cos(heading)), r = new THREE.Vector3(-f.z, 0, f.x);
+    for (const [a, b] of [[0, 0], [0, 0.6], [0, -0.6], [0.5, 0], [-0.5, 0], [0, 1.4], [0, -1.4], [0.5, 1], [0.5, -1], [-0.5, 1], [-0.5, -1], [0, 2.4], [0, -2.4]]) {
+      const px = x + r.x * a + f.x * b, pz = z + r.z * a + f.z * b;
+      const gy = a === 0 && b === 0 ? y : groundY(this.g, px, pz);
+      let hit = false;
+      this.g.physics.intersectionsWithShape({ x: px, y: gy + (y0 + y1) / 2, z: pz }, rot, shape, (c) => {
+        if (c.isSensor() || this.parking.colliderToSlot.has(c.handle)) return true;
+        hit = true;
+        return false;
+      });
+      if (!hit) return [px, pz];
+    }
+    return null;
   }
 
   private demotable(v: Vehicle) {
@@ -217,10 +249,30 @@ export class VehicleSystem implements VehiclesAPI, System {
     for (const v of this.vehicles.values()) {
       if (v.physicsMode === 'dynamic' && v.body.isSleeping() && v.driver === 'none') continue;
       v.fixedUpdate(dt);
+      if (v.physicsMode === 'dynamic' && v.id !== playerVid) this.sanitize(v, dt);
       if (v.physicsMode === 'dynamic') this.detectImpact(v, dt);
       if (v.id === playerVid || (v.physicsMode === 'dynamic' && v.driver !== 'none')) this.knockables.check(v, dt);
       if (v.id === playerVid) { this.scrape(v, dt); if (v.stuckT > 0.5) this.unpin(v); }
     }
+  }
+
+  /**
+   * Physics-explosion guard for cars nobody is driving (woken parked cars, crashed AI): clamp absurd
+   * velocities / spin, and put back on the ground any car stranded > 3 m above it (trees, roofs, air).
+   */
+  private sanitize(v: Vehicle, dt: number) {
+    const lv = v.body.linvel(), av = v.body.angvel();
+    const h = Math.hypot(lv.x, lv.z);
+    if (Math.abs(lv.y) > 30 || h > 60) {
+      const k = Math.min(1, 60 / Math.max(h, 1e-3));
+      v.body.setLinvel({ x: lv.x * k, y: clamp(lv.y, -30, 30), z: lv.z * k }, true);
+    }
+    const w = Math.hypot(av.x, av.y, av.z);
+    if (w > 12) { const k = 12 / w; v.body.setAngvel({ x: av.x * k, y: av.y * k, z: av.z * k }, true); }
+    if (v.driver === 'player') return;
+    const t = v.body.translation();
+    if (t.y - groundY(this.g, t.x, t.z) > 3) v.strandedT += dt; else v.strandedT = 0;
+    if (v.strandedT > 1.5) { v.strandedT = 0; v.flipUpright(); }
   }
 
   /** Solver contact point between a vehicle hull and anything else (world space), or null. */
@@ -357,6 +409,12 @@ export class VehicleSystem implements VehiclesAPI, System {
         }
         this.promote(s);
         promoted++;
+      }
+      // A sleeping undriven car resting > 3 m up (tree canopy, roof ledge): wake it so sanitize() recovers it.
+      for (const v of this.vehicles.values()) {
+        if (v.physicsMode !== 'dynamic' || v.driver === 'player' || !v.body.isSleeping()) continue;
+        const t = v.body.translation();
+        if (t.y - groundY(g, t.x, t.z) > 3) v.body.wakeUp();
       }
       // Demote far, untouched ones.
       for (const v of [...this.vehicles.values()]) {

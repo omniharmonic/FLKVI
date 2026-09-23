@@ -23,6 +23,8 @@ export interface ParkedSlot {
   heading: number;
   seed: number;
   active: boolean; // true while promoted (hidden from instancing)
+  /** Hull overlapped static geometry with no clear spot nearby: removed for good. */
+  dead?: boolean;
   /** perf: promoted but still asleep and untouched — keep drawing it via instancing (its Vehicle visual is hidden). */
   sleepy?: boolean;
   colliders: RAPIER_NS.Collider[];

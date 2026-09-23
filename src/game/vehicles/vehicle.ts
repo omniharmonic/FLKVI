@@ -123,6 +123,8 @@ export class Vehicle implements VehicleHandle {
   private hbReleaseT = 0;
   private hbWas = false;
   private prevBeta = 0;
+  /** Seconds spent stranded > 3 m above the ground while undriven (manager recovers it). */
+  strandedT = 0;
   /** Seconds since spawn/last touched (for parked demotion). */
   idleTime = 0;
   /** Turn signal: −1 left, 1 right, 2 hazards, 0 off. */

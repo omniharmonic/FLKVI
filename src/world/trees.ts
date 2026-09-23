@@ -370,7 +370,11 @@ class ImpostorAtlas {
     const key = `${m.uuid}|${alphaTest}|${k}`;
     let c = this.mats.get(key);
     if (!c) {
-      c = m.clone(); c.onBeforeCompile = () => {}; c.customProgramCacheKey = () => 'bake-' + k; c.alphaTest = alphaTest;
+      // Lambert, not the PBR source material: the impostor tiles are tiny and ~diffuse anyway, and the
+      // Lambert program compiles several times faster (bake compiles dominated the old loading freeze)
+      const s = m as THREE.MeshStandardMaterial;
+      c = new THREE.MeshLambertMaterial({ map: s.map ?? null, normalMap: s.normalMap ?? null, color: s.color ?? 0xffffff, vertexColors: s.vertexColors, alphaTest, side: s.side });
+      c.name = 'veg-bake-' + k;
       this.mats.set(key, c);
     }
     return c;
@@ -388,7 +392,13 @@ class ImpostorAtlas {
     const grps = variants.map((V) => this.groupFor(V));
     for (const g of grps) this.scene.add(g);
     const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, -10, 10);
-    try { await renderer.compileAsync(this.scene, cam); } catch { /* compiled lazily on first bake */ }
+    // compile against the atlas target (program variants depend on the target's colour space / tone mapping)
+    const prev = renderer.getRenderTarget();
+    let ready: Promise<unknown> | null = null;
+    renderer.setRenderTarget(this.rt);
+    try { ready = renderer.compileAsync(this.scene, cam); } catch { /* compiled lazily on first bake */ }
+    renderer.setRenderTarget(prev);
+    try { await ready; } catch { /* ignore */ }
     for (const g of grps) this.scene.remove(g);
   }
   bake(renderer: THREE.WebGLRenderer, V: Variant, idx: number) {
@@ -543,15 +553,18 @@ export class TreeSystem {
     const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
     const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;
     this.pending = order.filter((i) => !eager.includes(i));
+    const __T: string[] = [];
     let done = 0, t0 = performance.now();
     const step = async (f: number) => {
       onProgress?.(f);
-      if (performance.now() - t0 > 24) { await yieldFrame(); t0 = performance.now(); }
+      if (performance.now() - t0 > 24) { const y0 = performance.now(); await yieldFrame(); t0 = performance.now(); __T.push('y' + (t0 - y0).toFixed(0)); }
     };
     const built: number[] = [];
-    const __T: string[] = []; let __a = performance.now();
+    let __a = performance.now();
     for (const i of eager) {
+      const g0 = performance.now();
       if (this.generate(i)) built.push(i);
+      __T.push('g' + (performance.now() - g0).toFixed(0));
       await step((++done / eager.length) * 0.8);
     }
     __T.push('gen ' + (performance.now() - __a).toFixed(0)); __a = performance.now();

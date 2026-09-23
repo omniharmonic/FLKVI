@@ -2,6 +2,17 @@
   "name": "groundtruth",
   "private": true,
   "version": "0.1.0",
+  "description": "Browser open-world game: take down surveillance cameras in photoreal 3D versions of real US places, compiled at runtime from OpenStreetMap and open terrain data.",
+  "license": "MIT",
+  "author": "Benjamin Life",
+  "homepage": "https://omniharmonic.github.io/groundtruth/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omniharmonic/groundtruth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/omniharmonic/groundtruth/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +20,8 @@
     "build:fast": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "compile:city": "node --experimental-strip-types tools/compile-city.ts"
+    "compile:city": "node --experimental-strip-types tools/compile-city.ts",
+    "check:licenses": "node --experimental-strip-types tools/check-licenses.ts"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
