@@ -242,7 +242,7 @@ function skirt(b: PlantBuilder, center: V3, rTop: number, rBot: number, len: num
 
 function sphereBlob(b: PlantBuilder, c: V3, rx: number, ry: number, cell: CellId, col: THREE.Color, R: () => number, detail = 1, flex = 0.2, jitter = 0.12) {
   const g = new THREE.IcosahedronGeometry(1, detail);
-  const ng = g.toNonIndexed();
+  const ng = g.index ? g.toNonIndexed() : g;
   const p = ng.getAttribute('position');
   const cache = new Map<string, number>();
   for (let i = 0; i < p.count; i++) {
@@ -260,7 +260,7 @@ function sphereBlob(b: PlantBuilder, c: V3, rx: number, ry: number, cell: CellId
     }
     b.idx.push(j);
   }
-  g.dispose(); ng.dispose();
+  g.dispose(); if (ng !== g) ng.dispose();
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -313,7 +313,7 @@ function palmFan(b: PlantBuilder, H: number, R: () => number, lo: boolean, sabal
   const r0 = sabal ? 0.24 : 0.3, r1 = sabal ? 0.22 : 0.19;
   const lean = V((R() - 0.5) * 0.06 * trunkH, 0, (R() - 0.5) * 0.06 * trunkH);
   const P = (t: number) => V(lean.x * t * t, t * trunkH, lean.z * t * t);
-  const col = sabal ? C(0xa89a8a) : C(0xa08d7a);
+  const col = sabal ? C(0xa89a8a) : C(0x9c9286);
   tube(b, P, {
     n: lo ? 6 : 12, segs: lo ? 6 : 10, cell: sabal ? 'trunkBoot' : 'trunkRing', mpr: sabal ? 1.4 : 1.1,
     color: (t) => shade(col, 0.8 + 0.2 * t), rad: (t) => (r0 + (r1 - r0) * Math.min(1, t * 1.4)) * (1 + 0.5 * Math.max(0, 0.06 - t) / 0.06),
@@ -328,7 +328,7 @@ function palmFan(b: PlantBuilder, H: number, R: () => number, lo: boolean, sabal
     tube(b, (t) => top.clone().add(V(0, -0.9 + t * 1.1, 0)), { n: 2, segs: 8, cell: 'trunkBoot', mpr: 1.2, color: () => C(0x9a8a70), rad: (t) => r1 + 0.1 + 0.12 * t });
   }
   // fronds
-  const n = lo ? (sabal ? 18 : 16) : (sabal ? 34 : 30);
+  const n = lo ? (sabal ? 18 : 14) : (sabal ? 34 : 24);
   const tint = sabal ? C(0x8a9c78) : C(0xa8b884);
   for (let i = 0; i < n; i++) {
     const k = i / n;
@@ -336,8 +336,8 @@ function palmFan(b: PlantBuilder, H: number, R: () => number, lo: boolean, sabal
     const elev = sabal ? 1.2 - k * 1.9 : 1.25 - k * 1.7;
     const dead = !sabal && k > 0.85 && R() < 0.6;
     fanLeaf(b, top.clone().add(V(0, 0.1 + (1 - k) * 0.4, 0)), az, {
-      petL: (sabal ? 1.2 : 1.0) + R() * 0.4, R: (sabal ? 1.1 : 0.85) + R() * 0.2, elev, span: sabal ? 3.4 : 3.8, cup: sabal ? 0.55 : 0.35,
-      pleat: sabal ? 0.1 : 0.07, dead, tint: dead ? C(0xc0a888) : shade(tint, 0.85 + R() * 0.25), petTint: sabal ? C(0x8a8a6a) : C(0xa09a70), aseg: lo ? 6 : 10,
+      petL: (sabal ? 1.2 : 1.1) + R() * 0.4, R: (sabal ? 1.1 : 1.0) + R() * 0.2, elev, span: sabal ? 3.4 : 3.6, cup: sabal ? 0.55 : 0.5,
+      pleat: sabal ? 0.08 : 0.04, dead, tint: dead ? C(0xc0a888) : shade(tint, 0.85 + R() * 0.25), petTint: sabal ? C(0x8a8a6a) : C(0xa09a70), aseg: lo ? 6 : 10,
       hang: sabal ? -0.4 : -0.2,
     }, crownC);
   }
@@ -580,16 +580,16 @@ function flowerBed(b: PlantBuilder, H: number, R: () => number, warm: boolean) {
 function shrub(b: PlantBuilder, H: number, R: () => number, lo: boolean, cell: CellId, tint: THREE.Color, widthK: number, loose: number) {
   const rx = H * widthK * 0.5, ry = H * 0.5;
   const c = V(0, ry * 0.95, 0);
-  sphereBlob(b, c, rx * 0.88, ry * 0.88, 'leafSolid', shade(tint, 0.8), R, lo ? 1 : 2, 0.15, 0.1 + loose * 0.5);
+  sphereBlob(b, c, rx * (lo ? 0.9 : 0.72), ry * (lo ? 0.9 : 0.74), 'leafSolid', shade(tint, 0.62), R, lo ? 1 : 2, 0.15, 0.12 + loose * 0.5);
   if (lo) return;
-  const n = 34;
+  const n = 56;
   for (let i = 0; i < n; i++) {
     // points on the upper ~80% of the ellipsoid, cards roughly tangent-crossing (fuzzy leafy silhouette)
     const u = R(), v = 0.15 + R() * 0.85;
     const th = u * Math.PI * 2, ph = Math.acos(1 - 2 * v * 0.92);
     const d = V(Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th));
     const p = c.clone().add(V(d.x * rx, d.y * ry, d.z * rx).multiplyScalar(0.92 + loose * R()));
-    const sz = H * (0.42 + R() * 0.25);
+    const sz = H * (0.36 + R() * 0.22);
     const rt = V(-d.z, 0, d.x).normalize();
     if (rt.lengthSq() < 0.1) rt.set(1, 0, 0);
     const up = d.clone().cross(rt).normalize().multiplyScalar(-1);

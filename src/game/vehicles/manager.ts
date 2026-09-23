@@ -77,7 +77,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     // Strobe lights cast on surroundings: one per police car, for the 2 nearest with sirens on
     // (color follows the bar pattern; constant light count → no shader recompiles).
     for (let i = 0; i < 2; i++) {
-      const p = new THREE.PointLight(0xff1020, 0, 30, 1.6);
+      const p = new THREE.PointLight(0xff1020, 0, 24, 1.8);
       p.name = 'siren-light';
       this.group.add(p);
       this.sirenLights.push(p);
@@ -439,8 +439,8 @@ export class VehicleSystem implements VehiclesAPI, System {
         const st = strobe(g.elapsed + (hashString(c.id) % 7) * 0.13);
         const side = st.red && !st.blue ? lb.redPos : st.blue && !st.red ? lb.bluePos : lb.redPos.clone().lerp(lb.bluePos, 0.5);
         L.position.copy(side).setY(side.y + 0.35).applyMatrix4(c.object.matrixWorld);
-        L.color.setHex(st.red && st.blue ? 0xd070ff : st.red ? 0xff1020 : 0x2448ff);
-        L.intensity = st.red || st.blue ? 8 + 55 * night : 0;
+        L.color.setHex(st.red && (!st.blue || Math.floor(g.elapsed * 20) % 2) ? 0xff1020 : 0x2448ff);
+        L.intensity = st.red || st.blue ? 5 + 28 * night : 0;
       } else L.intensity = 0;
     }
   }

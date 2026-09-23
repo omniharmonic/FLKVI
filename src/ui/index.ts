@@ -11,22 +11,43 @@ import { runStats } from './runstats';
 import { h, uiRoot } from './dom';
 import { setDuck } from '../audio/engine';
 import { stopMenuAmbience } from '../audio';
+import { unsupportedReason, showUnsupported } from './guard';
+import { playArrival as runArrival } from './intro';
+import { createPhotoMode, type PhotoMode } from './photo';
+import { setupResScale, setupFpsOverlay } from './perf';
+import { trackTakedownShots } from './sharecard';
 
 export { showLoading } from './loading';
 export { settings } from './settings';
 
 export async function showSpawnPicker(): Promise<SpawnLocation> {
+  const bad = unsupportedReason();
+  if (bad) { showUnsupported(bad); return new Promise<SpawnLocation>(() => {}); }
   return autostartLocation() ?? pickerFlow();
+}
+
+/** Hooks set by setupHUD for the arrival fly-in. */
+let arrival: { begin(): void; end(): void; gesture(): void } | null = null;
+
+/** Arrival fly-in after the world is ready (main.ts awaits this before runStart). `?nointro` skips it. */
+export async function playArrival(g: Game): Promise<void> {
+  if (new URLSearchParams(location.search).has('nointro') || !arrival) return;
+  arrival.begin();
+  try { await runArrival(g, { onGestureSkip: () => arrival?.gesture() }); } catch (e) { console.warn('[intro]', e); }
+  arrival.end();
 }
 
 export function setupHUD(g: Game): void {
   if (chosen?.mode && g.mode !== chosen.mode) g.mode = chosen.mode;
   runStats(g);
+  setupResScale(g);
+  setupFpsOverlay(g);
+  trackTakedownShots(g);
   const hud = new HUD(g);
   uiRoot().appendChild(hud.el);
   const map = new CameraMap(g);
-  const state = { pause: null as ReturnType<typeof openPause> | null, results: null as HTMLElement | null, busted: null as HTMLElement | null, clickplay: null as HTMLElement | null, pauseAt: 0 };
-  const menuOpen = () => !!(state.pause || state.results || state.busted || map.isOpen);
+  const state = { pause: null as ReturnType<typeof openPause> | null, results: null as HTMLElement | null, busted: null as HTMLElement | null, clickplay: null as HTMLElement | null, pauseAt: 0, intro: false, photo: null as PhotoMode | null };
+  const menuOpen = () => !!(state.pause || state.results || state.busted || map.isOpen || state.intro || state.photo?.isOpen);
   (window as any).gtUI = { hud, map, state }; // debug handle
 
   const setPaused = (p: boolean) => {
@@ -59,13 +80,42 @@ export function setupHUD(g: Game): void {
     if (map.isOpen) map.close();
     hideClickPlay(); exitLock(); setPaused(true);
     state.pauseAt = performance.now();
-    state.pause = openPause(g, resume);
+    state.pause = openPause(g, resume, { photo: () => { state.pause?.close(); state.pause = null; openPhoto(); } });
   };
   const resume = () => {
     state.pause?.close(); state.pause = null;
     setPaused(false);
     try { g.input.requestPointerLock(); } catch { /* */ }
     if (!document.pointerLockElement) showClickPlay();
+  };
+
+  // ---------- photo mode ----------
+  const photo = createPhotoMode(g, {
+    onOpen: () => { hideClickPlay(); setPaused(true); hud.setVisible(false); setDuck(0.4); },
+    onClose: (relock) => {
+      setPaused(false); setDuck(1); hud.setVisible(true);
+      // Esc exits pointer lock at the browser level, so re-locking on Esc would bounce straight into the pause menu
+      if (relock) { try { g.input.requestPointerLock(); } catch { /* */ } }
+      if (!document.pointerLockElement) showClickPlay();
+    },
+  });
+  state.photo = photo;
+  const openPhoto = () => {
+    if (photo.isOpen || state.results || state.busted || state.intro) return;
+    if (map.isOpen) map.close();
+    photo.open(); // open first so the pointerlockchange handler sees a menu open
+    exitLock();
+  };
+
+  // ---------- arrival fly-in ----------
+  arrival = {
+    begin: () => { state.intro = true; hideClickPlay(); hud.setVisible(false); },
+    end: () => {
+      state.intro = false; hud.setVisible(true);
+      hud.el.classList.add('gt-hud-in'); setTimeout(() => hud.el.classList.remove('gt-hud-in'), 1200);
+      if (!document.pointerLockElement && !menuOpen()) showClickPlay();
+    },
+    gesture: () => { try { g.input.requestPointerLock(); } catch { /* */ } },
   };
 
   // ---------- camera map ----------
@@ -80,6 +130,8 @@ export function setupHUD(g: Game): void {
 
   addEventListener('keydown', (e) => {
     if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+    if (state.intro || photo.isOpen) return; // those own the keyboard while active
+    if (e.code === 'KeyP' && !e.repeat && !state.pause && !state.results && !state.busted && !map.isOpen) { e.preventDefault(); openPhoto(); return; }
     if (e.code === 'Escape') {
       if (map.isOpen) { map.close(); e.preventDefault(); return; }
       if (state.pause) { if (performance.now() - state.pauseAt > 350) resume(); return; }
@@ -120,6 +172,7 @@ export function setupHUD(g: Game): void {
         freeRoam: () => restart('freeroam'),
         newLocation: () => { location.href = location.pathname; },
       });
+      setTimeout(() => (state.results?.querySelector('.gt-btn.primary') as HTMLElement | null)?.focus(), 50);
     }, delay);
   });
   // Arrest in free roam (no runEnd from surveillance): recover after the sting.
@@ -131,6 +184,7 @@ export function setupHUD(g: Game): void {
   const restart = (mode: 'takedown' | 'freeroam') => {
     state.results?.remove(); state.results = null;
     state.busted?.remove(); state.busted = null;
+    document.querySelector('.gt-share')?.remove();
     g.mode = mode;
     const fn = (surveillance as any).startNewRun as ((g: Game) => void) | undefined;
     try {
@@ -156,6 +210,6 @@ export function setupHUD(g: Game): void {
   };
   requestAnimationFrame(tick);
 
-  g.events.on('worldReady', () => { stopMenuAmbience(); setTimeout(showClickPlay, 600); });
+  g.events.on('worldReady', () => { stopMenuAmbience(); setTimeout(() => { if (!state.intro && !document.pointerLockElement) showClickPlay(); }, 600); });
   g.events.on('runStart', () => { try { g.player.controlsEnabled = true; } catch { /* */ } });
 }

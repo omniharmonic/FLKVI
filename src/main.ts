@@ -9,7 +9,7 @@ import { setupGameplay } from './game';
 import { setupAI } from './ai';
 import { setupSurveillance } from './surveillance';
 import { setupAudio } from './audio';
-import { showSpawnPicker, showLoading, setupHUD } from './ui';
+import { showSpawnPicker, showLoading, setupHUD, playArrival } from './ui';
 
 async function boot() {
   const container = document.getElementById('app')!;
@@ -38,6 +38,7 @@ async function boot() {
     g.events.emit('worldReady', {});
     loading.done();
     g.start();
+    await playArrival(g); // cinematic fly-in (skippable; ?nointro skips)
     g.events.emit('runStart', {});
   } catch (e) {
     console.error(e);

@@ -1,5 +1,6 @@
 // Per-vehicle scene graph built from a shared CarModel (geometries + materials are shared).
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarModel } from './carModels';
 import { mats, paintMaterial, plateMaterial, beamMaterial, PLATE_CELLS } from './materials';
 
@@ -78,9 +79,9 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   const head = add(model.head, mats.headOff)!;
   const tail = add(model.tail, mats.tailOff)!;
   const rev = add(model.reverse, mats.revOff)!;
-  add(model.interior, mats.interior);
-  const driver = add(model.drivers[seed % model.drivers.length], mats.interior)!;
-  driver.visible = false;
+  // Cabin: interior shell alone, or interior + seated driver merged (one draw either way).
+  const cabinGeo = [model.interior, cabinWithDriver(model, seed % model.drivers.length)];
+  const cabin = add(model.interior, mats.interior)!;
   const signals = add(model.signals, [mats.amber, mats.amber] as unknown as THREE.Material)!;
   const sigMats: THREE.Material[] = [mats.amber, mats.amber];
   signals.material = sigMats;
@@ -134,7 +135,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       chassis.visible = !f;
       for (const w of wheels) w.visible = !f;
     },
-    setDriver(on: boolean) { driver.visible = on; },
+    setDriver(on: boolean) { const g = cabinGeo[on ? 1 : 0]; if (cabin.geometry !== g) cabin.geometry = g; },
     setLights(s) {
       beam.visible = !!s.beam && s.head && !isFar;
       const blink = ((s.t + phase) % 0.7) < 0.36;
@@ -177,6 +178,14 @@ export function strobe(t: number) {
   const pulse = Math.floor(k * 8) % 2 === 0 && k < 0.78; // 4 quick flashes
   const burst = c > 0.84;
   return { red: (half && pulse) || burst, blue: (!half && pulse) || burst, wig: Math.floor(c / 0.225) % 2 === 1 };
+}
+
+const cabinCache = new Map<string, THREE.BufferGeometry>();
+function cabinWithDriver(model: CarModel, variant: number) {
+  const key = `${model.id}:${variant}`;
+  let g = cabinCache.get(key);
+  if (!g) { g = mergeGeometries([model.interior, model.drivers[variant]], false)!; cabinCache.set(key, g); }
+  return g;
 }
 
 let _beam: THREE.BufferGeometry | null = null;

@@ -56,7 +56,7 @@ export function reducedMotion(): boolean {
 }
 
 function syncMotionClass() {
-  try { document.documentElement.classList.toggle('gt-reduce-motion', reducedMotion()); } catch { /* */ }
+  try { const r = document.documentElement.classList; r.toggle('gt-reduce-motion', reducedMotion()); r.toggle('gt-motion-full', settings.reduceMotion === 'off'); } catch { /* */ }
 }
 syncMotionClass();
 onSettingsChange(syncMotionClass);

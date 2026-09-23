@@ -1,15 +1,14 @@
 // Pause menu: Resume / Settings / Controls / Credits / Quit to map.
 import type { Game } from '../core/game';
-import * as render from '../render';
 import { h, uiRoot, fmt, fmtTime } from './dom';
 import { controlsGrid } from './controls';
-import { settings, saveSettings } from './settings';
+import { settingsRows } from './settingsPanel';
 import { sfx } from '../audio/sfx';
 import { runStats } from './runstats';
 
 type Section = 'run' | 'settings' | 'controls' | 'credits';
 
-export function openPause(g: Game, onResume: () => void): { close(): void; el: HTMLElement } {
+export function openPause(g: Game, onResume: () => void, extra?: { photo?: () => void }): { close(): void; el: HTMLElement } {
   const content = h('div', { class: 'content' });
   const items: Record<string, HTMLElement> = {};
   const item = (id: string, label: string, fn: () => void) => {
@@ -27,6 +26,7 @@ export function openPause(g: Game, onResume: () => void): { close(): void; el: H
       item('resume', 'Resume', () => onResume()),
       item('run', 'Current run', () => show('run')),
       item('settings', 'Settings', () => show('settings')),
+      ...(extra?.photo ? [item('photo', 'Photo mode', () => extra.photo!())] : []),
       item('controls', 'Controls', () => show('controls')),
       item('credits', 'Credits', () => show('credits')),
       item('quit', 'Quit to map', () => { location.href = location.pathname; }),
@@ -35,6 +35,7 @@ export function openPause(g: Game, onResume: () => void): { close(): void; el: H
   );
   uiRoot().appendChild(el);
   show('run');
+  setTimeout(() => items.resume?.focus(), 0);
   return { el, close() { el.remove(); } };
 }
 
@@ -51,32 +52,7 @@ function section(g: Game, s: Section): HTMLElement[] {
   }
   if (s === 'controls') return [h('h2', {}, 'Controls'), controlsGrid()];
   if (s === 'credits') return [h('h2', {}, 'Credits & attribution'), credits(g)];
-  // settings
-  const row = (label: string, input: HTMLElement, val?: HTMLElement) => h('div', { class: 'gt-set' }, h('label', {}, label), input, val ?? h('span'));
-  const slider = (label: string, min: number, max: number, step: number, value: number, fmtV: (v: number) => string, on: (v: number) => void) => {
-    const v = h('span', { class: 'v' }, fmtV(value));
-    const i = h('input', { type: 'range', min, max, step, value });
-    i.addEventListener('input', () => { const x = parseFloat(i.value); v.textContent = fmtV(x); on(x); });
-    return row(label, i, v);
-  };
-  const opts = <T extends string>(label: string, list: T[], cur: T, on: (v: T) => void) => {
-    const wrap = h('div', { class: 'opts' });
-    const paint = (c: T) => wrap.replaceChildren(...list.map((o) => h("button", { class: o === c ? "on" : "", onclick: () => { sfx("ui-click"); on(o); paint(o); } }, o)));
-    paint(cur);
-    return row(label, wrap);
-  };
-  const skyTime = (() => { try { return g.sky?.time ?? 12; } catch { return 12; } })();
-  return [h('h2', {}, 'Settings'),
-    opts('Graphics quality', (['low', 'medium', 'high'] as ('low' | 'medium' | 'high')[]), g.quality ?? settings.quality, (q) => {
-      g.quality = q; saveSettings({ quality: q });
-      try { (render as any).setQuality?.(g, q); } catch (e) { console.warn(e); }
-    }),
-    slider('Time of day', 0, 24, 0.25, skyTime, (v) => `${String(Math.floor(v) % 24).padStart(2, '0')}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`, (v) => { try { if (g.sky) g.sky.time = v; } catch { /* */ } }),
-    slider('Mouse sensitivity', 0.2, 3, 0.05, settings.mouseSensitivity, (v) => `${v.toFixed(2)}×`, (v) => saveSettings({ mouseSensitivity: v })),
-    opts('Invert Y', ['off', 'on'], settings.invertY ? 'on' : 'off', (v) => saveSettings({ invertY: v === 'on' })),
-    slider('Master volume', 0, 1, 0.01, settings.volume, (v) => `${Math.round(v * 100)}%`, (v) => saveSettings({ volume: v })),
-    slider('Music volume', 0, 1, 0.01, settings.musicVolume, (v) => `${Math.round(v * 100)}%`, (v) => saveSettings({ musicVolume: v })),
-  ];
+  return [h('h2', {}, 'Settings'), ...settingsRows(g)];
 }
 
 function credits(g: Game): HTMLElement {

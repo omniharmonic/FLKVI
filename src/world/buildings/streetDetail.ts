@@ -96,7 +96,7 @@ export function ghostSign(c: BCtx, surf: Surf, f: Frame, L: number, y1: number, 
   const mb = surf(c.B, 2, st.wallTex, st.wallColor);
   mb.layer += OVERLAY;
   const k = seed % 4;
-  const vl = 1 - (k + 1) / 4 + 0.004, vh = 1 - k / 4 - 0.004;
+  const vl = 1 - (k + 1) / 4 + 0.012, vh = 1 - k / 4 - 0.012;
   mb.wxq = [0, 0, 0, vl, 0, 0, 1, vl, 0, 0, 1, vh, 0, 0, 0, vh];
   const u0 = f.u0, d = 0.012;
   mb.quad(f.pt(s0, y0, d), f.pt(s1, y0, d), f.pt(s1, y1, d), f.pt(s0, y1, d), [u0 + s0, y0, u0 + s1, y0, u0 + s1, y1, u0 + s0, y1]);

@@ -8,9 +8,9 @@ import { renderAndGrab, canvasBlob, downloadBlob, fileStamp } from './perf';
 import { settings } from './settings';
 import { sfx } from '../audio/sfx';
 
-export interface PhotoMode { readonly isOpen: boolean; open(): void; close(): void }
+export interface PhotoMode { readonly isOpen: boolean; open(): void; close(relock?: boolean): void }
 
-export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(): void }): PhotoMode {
+export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(relock: boolean): void }): PhotoMode {
   let open = false;
   let el: HTMLElement | null = null;
   let raf = 0;
@@ -51,7 +51,7 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(): voi
         h('span', {}, h('kbd', {}, 'W A S D'), ' move'), h('span', {}, h('kbd', {}, 'Q'), h('kbd', {}, 'E'), ' down / up'),
         h('span', {}, h('kbd', {}, 'Drag'), ' look'), h('span', {}, h('kbd', {}, 'H'), ' hide panel'),
         h('span', {}, h('kbd', {}, 'Enter'), ' save'), h('span', {}, h('kbd', {}, 'P'), h('kbd', {}, 'Esc'), ' exit')),
-      h('div', { class: 'btns' }, shot, h('button', { class: 'gt-btn', onclick: () => close() }, 'Exit')),
+      h('div', { class: 'btns' }, shot, h('button', { class: 'gt-btn', onclick: () => close(true) }, 'Exit')),
     );
     (panel as any)._speedV = speedV;
     const flash = h('div', { class: 'flash' });
@@ -74,7 +74,7 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(): voi
   const onKeyDown = (ev: KeyboardEvent) => {
     if (!open) return;
     if ((ev.target as HTMLElement)?.tagName === 'INPUT' && ev.code !== 'Escape') return;
-    if (ev.code === 'Escape' || ev.code === 'KeyP') { ev.preventDefault(); ev.stopImmediatePropagation(); close(); return; }
+    if (ev.code === 'Escape' || ev.code === 'KeyP') { ev.preventDefault(); ev.stopImmediatePropagation(); close(ev.code !== 'Escape'); return; }
     if (ev.code === 'KeyH') { el?.classList.toggle('bare'); ev.stopImmediatePropagation(); return; }
     if (ev.code === 'Enter') { ev.preventDefault(); save(); return; }
     if (ev.code === 'F3') return;
@@ -152,7 +152,7 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(): voi
     last = performance.now();
     raf = requestAnimationFrame(loop);
   }
-  function close() {
+  function close(relock = true) {
     if (!open) return;
     open = false;
     cancelAnimationFrame(raf);
@@ -165,7 +165,7 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(): voi
     try { (g.sky as any).cyclePaused = prevCycle; } catch { /* */ }
     cam.fov = restoreFov; cam.updateProjectionMatrix();
     el?.remove(); el = null;
-    hooks.onClose();
+    hooks.onClose(relock);
   }
 
   return { get isOpen() { return open; }, open: openMode, close };

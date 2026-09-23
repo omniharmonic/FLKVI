@@ -17,7 +17,6 @@ export const U = {
   /** debug: 0 off, 1 interior only, 2 reflection only, 3 fresnel */
   uGDbg: { value: 0 },
 };
-(globalThis as unknown as { __bldgU: typeof U }).__bldgU = U;
 
 /** GLSL: cheap hash noise used for grime streaks. */
 const NOISE_GLSL = /* glsl */ `
@@ -258,7 +257,7 @@ ${NOISE_GLSL}`)
   if (vLayer >= ${OVERLAY}) { // faded painted sign over the wall texture
     vec4 gp = texture(uAlbArr, vec3(vWx.zw, ${LAYER_IDS.indexOf('ghost')}.0));
     float lum = dot(bTex.rgb, vec3(0.3, 0.55, 0.15));
-    bTex.rgb = mix(bTex.rgb, gp.rgb * (0.6 + 0.9 * lum), gp.a);
+    bTex.rgb = mix(bTex.rgb, gp.rgb * (0.45 + 1.3 * lum), gp.a * 0.62);
   }
   diffuseColor.rgb *= bTex.rgb;`)
       .replace('#include <color_fragment>', `#include <color_fragment>

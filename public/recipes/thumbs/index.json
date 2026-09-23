@@ -1,0 +1,52 @@
+{
+ "austin-soco": {
+  "region": "south-central",
+  "cams": 35,
+  "bldgs": 1256
+ },
+ "boulder": {
+  "region": "mountain-west",
+  "cams": 35,
+  "bldgs": 1093
+ },
+ "chicago-loop": {
+  "region": "midwest",
+  "cams": 43,
+  "bldgs": 652
+ },
+ "miami-beach": {
+  "region": "southeast",
+  "cams": 35,
+  "bldgs": 688
+ },
+ "nola-quarter": {
+  "region": "south-central",
+  "cams": 43,
+  "bldgs": 1880
+ },
+ "nyc-village": {
+  "region": "northeast",
+  "cams": 43,
+  "bldgs": 3006
+ },
+ "phoenix-downtown": {
+  "region": "southwest",
+  "cams": 35,
+  "bldgs": 325
+ },
+ "savannah": {
+  "region": "southeast",
+  "cams": 35,
+  "bldgs": 976
+ },
+ "seattle-caphill": {
+  "region": "pacific",
+  "cams": 43,
+  "bldgs": 1460
+ },
+ "sf-mission": {
+  "region": "pacific",
+  "cams": 43,
+  "bldgs": 2701
+ }
+}

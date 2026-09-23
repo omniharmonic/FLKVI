@@ -99,6 +99,8 @@ export class Vehicle implements VehicleHandle {
   burnout = false;
   /** Seconds the driver has been pushing against something without moving. */
   stuckT = 0;
+  /** Seconds spent in a held power drift. */
+  driftT = 0;
   /** Seconds since spawn/last touched (for parked demotion). */
   idleTime = 0;
   /** Turn signal: −1 left, 1 right, 2 hazards, 0 off. */
@@ -304,18 +306,30 @@ export class Vehicle implements VehicleHandle {
         const k = kick + cap;
         body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
       } else if (driven) {
+        // Power drift: once sliding, holding throttle keeps the slide alive (assists back off) so a
+        // handbrake entry can be held through the corner; lifting off lets the car straighten itself.
+        const drifting = this.slip > 0.16 && spd > 8 && throttle > 0.5;
+        this.driftT = drifting ? Math.min(3, this.driftT + dt) : Math.max(0, this.driftT - dt * 2);
+        const hold = drifting ? 0.35 : 1;
         // Counter excessive yaw not asked for by steering (prevents spin-outs), weak so drifts can be held.
         const wantYaw = -this.steerAngle * fwdSpeed / 2.8;
-        let k = -(yawRate - wantYaw) * 0.7 * mass * clamp(spd / 10, 0, 1);
+        let k = -(yawRate - wantYaw) * 0.7 * mass * clamp(spd / 10, 0, 1) * hold;
         // Drift recovery: swing the nose back toward the direction of travel (auto counter-steer).
         if (fwdSpeed > 4 && this.slip > 0.15) {
           const beta = Math.atan2(lat, fwdSpeed); // + = sliding right
-          k += -beta * 1.6 * mass * clamp(spd / 12, 0, 1);
+          k += -beta * 1.6 * mass * clamp(spd / 12, 0, 1) * (drifting ? 0.45 : 1);
+          // Never let a held drift exceed ~55° of slip: beyond that, recover hard.
+          if (Math.abs(beta) > 0.95) k += -Math.sign(beta) * (Math.abs(beta) - 0.95) * 6 * mass;
         }
         body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
         // Lateral grip assist at speed: bleed sideways velocity a bit.
-        const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1);
+        const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1) * (drifting ? 0.55 : 1);
         body.addForce({ x: _right.x * latF, y: 0, z: _right.z * latF }, true);
+        // High-speed stability: a little extra steering-independent yaw damping above ~25 m/s.
+        if (!drifting && spd > 25) {
+          const kd = -(yawRate - wantYaw) * 0.4 * mass * clamp((spd - 25) / 15, 0, 1);
+          body.addTorque({ x: _up.x * kd, y: _up.y * kd, z: _up.z * kd }, true);
+        }
       }
     } else {
       // Air: mild self-righting and damping.

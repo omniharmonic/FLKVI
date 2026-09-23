@@ -6,6 +6,9 @@ import { h, btn, ICON, uiRoot } from './dom';
 import { showControls } from './controls';
 import { sfx } from '../audio/sfx';
 import { startMenuAmbience } from '../audio';
+import { showSettingsModal } from './settingsPanel';
+import { loadThumbs, fetchRecipe, REGION_LABEL, type CityMeta } from './thumbs';
+import { createTitleBackdrop, type TitleBackdrop } from './titlebg';
 
 export interface FeaturedCity { id: string; name: string; lat: number; lon: number; blurb: string }
 
@@ -123,18 +126,30 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
         cityList,
         h('div', { class: 'gt-label', style: 'margin-top:20px' }, 'Or click anywhere on the map'),
       ),
-      h('div', { class: 'foot' }, selBox, seg, h('div', { class: 'gt-row' }, deploy, btn('Controls', showControls, 'gt-btn'))),
+      h('div', { class: 'foot' }, selBox, seg, h('div', { class: 'gt-row' }, deploy, btn('Controls', showControls, 'gt-btn'), btn('Settings', showSettingsModal, 'gt-btn'))),
     );
     el.append(panel, h('div', { class: 'gt-maphint gt-glass', html: 'CLICK MAP TO DROP A PIN · SCROLL TO ZOOM' }));
 
     const cityBtns: HTMLElement[] = [];
     const missing = new Set<string>();
+    const cardMeta = new Map<string, HTMLElement>();
+    const cardThumb = new Map<string, HTMLElement>();
+    const pbOf = (id: string) => { try { const r = localStorage.getItem(`groundtruth.pb.${id}`); return r ? JSON.parse(r) as { streak: number } : null; } catch { return null; } };
     for (const c of cities) {
-      const b = h('button', { class: 'gt-city', onmouseenter: () => sfx('ui-hover'), onclick: () => { sfx('ui-click'); pickCity(c); } },
-        h('div', { class: 'ic', html: ICON.cam }),
-        h('div', {}, h('div', { class: 'nm' }, c.name), h('div', { class: 'bl' }, c.blurb)),
-        h('span', { class: 'gt-tier S' }, 'S'));
+      const [main, sub] = c.name.includes(' — ') ? [c.name.split(' — ')[1], c.name.split(' — ')[0]] : [c.name, ''];
+      const thumb = h('div', { class: 'th' }, h('div', { class: 'ph' }));
+      const meta = h('div', { class: 'mt' });
+      const pb = pbOf(c.id);
+      const b = h('button', { class: 'gt-city', 'aria-label': `${c.name}. ${c.blurb}`, onmouseenter: () => sfx('ui-hover'), onclick: () => { sfx('ui-click'); if (sel?.baked === c.id || (sel && sel.lat === c.lat && sel.lon === c.lon && !sel.baked && missing.has(c.id))) finish(); else pickCity(c); } },
+        thumb,
+        h('div', { class: 'tx' },
+          h('div', { class: 'nm' }, main, sub ? h('span', { class: 'sb' }, sub) : null),
+          h('div', { class: 'bl' }, c.blurb),
+          meta),
+        h('span', { class: 'gt-tier S', title: 'World quality tier' }, 'S'),
+        pb && pb.streak > 0 ? h('span', { class: 'pbb', title: 'Your best streak here' }, `BEST ${pb.streak}`) : null);
       (b as any)._id = c.id;
+      cardMeta.set(c.id, meta); cardThumb.set(c.id, thumb);
       // Baked recipe not shipped yet? Fall back to a live compile at the same spot.
       fetch(`${import.meta.env.BASE_URL}recipes/${c.id}.json`, { method: 'HEAD' }).then((r) => {
         const ct = r.headers.get('content-type') ?? '';
@@ -143,6 +158,12 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       cityBtns.push(b); cityList.append(b);
       L.marker([c.lat, c.lon], { icon: cityIcon }).addTo(map).on('click', () => pickCity(c)).bindTooltip(c.name, { direction: 'top', offset: [0, -8] });
     }
+    const applyMeta = (id: string, m: CityMeta) => {
+      const th = cardThumb.get(id); const mt = cardMeta.get(id);
+      if (th) { const img = h('img', { src: m.img, alt: '', draggable: 'false', decoding: 'async' }); img.addEventListener('load', () => th.classList.add('on')); th.replaceChildren(img); }
+      if (mt) mt.replaceChildren(h('span', {}, REGION_LABEL[m.region] ?? String(m.region)), h('span', { class: 'cm' }, `${m.cams} cameras`), h('span', {}, `${m.bldgs.toLocaleString('en-US')} buildings`));
+    };
+    loadThumbs(cities.map((c) => c.id), applyMeta);
 
     function renderSel() {
       cityBtns.forEach((b) => b.classList.toggle('sel', !!sel && cities.some((c) => c.id === (b as any)._id && c.lat === sel!.lat && c.lon === sel!.lon)));
@@ -252,6 +273,18 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       h('div', { class: 'foot', html: 'Real US places, built from OpenStreetMap. A work of fiction: no real brands, agencies or insignia.' }),
     );
     el.append(title);
+    // cinematic backdrop: the default city at golden hour (small separate WebGL context, disposed on dismiss)
+    let backdrop: TitleBackdrop | null = null;
+    const bgId = cities[0]?.id ?? 'boulder';
+    // start the (~3 MB) recipe fetch only once the title has painted, so it never delays first paint
+    const startBackdrop = () => fetchRecipe(bgId).then((r) => {
+      if (!r || !titleUp) return;
+      try {
+        backdrop = createTitleBackdrop(r, () => title.classList.add('has-bg'));
+        if (backdrop) title.prepend(backdrop.el);
+      } catch (e) { console.warn('[title] backdrop failed', e); }
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { if (titleUp) startBackdrop(); }, 300)));
     const tc = title.querySelector('.tc') as HTMLElement;
     const tcTimer = setInterval(() => { const d = new Date(); tc.innerHTML = `CAM 04 · GRID 7<br>${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)}`; }, 1000);
     // slow cinematic drift
@@ -264,13 +297,13 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       titleUp = false; drift = false; clearInterval(tcTimer);
       sfx('ui-click'); startMenuAmbience();
       title.classList.add('out');
-      setTimeout(() => title.remove(), 900);
+      setTimeout(() => { backdrop?.dispose(); backdrop = null; title.remove(); }, 900);
       panel.style.display = '';
       map.flyTo([39.2, -100.5], 4.5, { duration: 1.2 });
       removeEventListener('keydown', onKey);
       setTimeout(() => input.focus(), 900);
     };
-    const onKey = (e: KeyboardEvent) => { if (!e.metaKey && !e.ctrlKey) dismiss(); };
+    const onKey = (e: KeyboardEvent) => { if (!e.metaKey && !e.ctrlKey && !['Shift', 'Alt', 'Control', 'Meta', 'Tab'].includes(e.key)) { e.preventDefault(); dismiss(); } };
     title.addEventListener('click', dismiss);
     addEventListener('keydown', onKey);
 

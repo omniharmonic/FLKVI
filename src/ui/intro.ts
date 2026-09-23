@@ -26,7 +26,7 @@ export function placeLine(name: string): string {
 const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 /** Mostly ease-out: fast sweep from altitude, long gentle settle. */
-const flyEase = (t: number) => { const a = 1 - Math.pow(1 - t, 2.2); return a * 0.8 + easeInOut(t) * 0.2; };
+const flyEase = (t: number) => { const a = 1 - Math.pow(1 - t, 1.8); return a * 0.55 + easeInOut(t) * 0.45; };
 
 export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}): Promise<void> {
   return new Promise((resolve) => {
@@ -53,8 +53,8 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
       cand.sort((a, b) => (Math.abs(a.along - ideal) + a.lat * 0.8) - (Math.abs(b.along - ideal) + b.lat * 0.8));
       return cand[0]?.c;
     };
-    let camA = pick(150, 420, 240);
-    let camB = pick(25, 150, 70, camA);
+    let camA: Cam | undefined = pick(150, 420, 240);
+    let camB: Cam | undefined = pick(25, 150, 70, camA);
     if (!camA && !camB) { // nothing behind the spawn: take the nearest ones anywhere
       const near = [...scored].filter((s) => s.d > 20 && s.d < 320).sort((a, b) => a.d - b.d);
       camB = near[0]?.c; camA = near.find((s) => s.c !== camB && s.d > 90)?.c;
@@ -63,6 +63,17 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
     const featured = [camA, camB].filter(Boolean) as Cam[];
 
     // ---------- spline ----------
+    const trees = g.recipe.trees ?? [];
+    /** Highest tree crown top near x,z (so the camera doesn't fly through canopies). */
+    const canopy = (x: number, z: number, pad = 3) => {
+      let top = -Infinity;
+      for (const t of trees) {
+        const r = Math.max(2, t.crown / 2) + pad;
+        const dx = t.p[0] - x, dz = t.p[1] - z;
+        if (dx * dx + dz * dz < r * r) top = Math.max(top, t.y + t.height);
+      }
+      return top;
+    };
     const up = (v: THREE.Vector3, y: number) => v.clone().setY(v.y + y);
     const P0 = S.clone().addScaledVector(fwd, -620).addScaledVector(side, 140); P0.y = S.y + 400;
     const L0 = S.clone().addScaledVector(fwd, 260); L0.y = S.y + 30;
@@ -77,13 +88,15 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
     }
     if (camB) {
       const b = head(camB);
-      const p = b.clone().addScaledVector(fwd, -30).addScaledVector(side, -12); p.y = Math.max(b.y + 20, ground(p.x, p.z) + 18);
+      const p = b.clone().addScaledVector(fwd, -30).addScaledVector(side, -12); p.y = Math.max(b.y + 20, ground(p.x, p.z) + 18, canopy(p.x, p.z) + 4);
       pos.push(p); look.push(up(b, -1));
     }
-    const approach = S.clone().addScaledVector(fwd, -14); approach.y = S.y + 8;
+    const approach = S.clone().addScaledVector(fwd, -7); approach.y = Math.max(S.y + 9, canopy(approach.x, approach.z, 4) + 3);
     const endPos = S.clone().addScaledVector(fwd, -4.2).addScaledVector(side, 0.5); endPos.y = S.y + 1.9;
     pos.push(approach, endPos);
-    look.push(up(S.clone().addScaledVector(fwd, 12), 1.5), up(S.clone().addScaledVector(fwd, 14), 1.6));
+    look.push(up(S.clone().addScaledVector(fwd, 45), 5), up(S.clone().addScaledVector(fwd, 14), 1.6));
+    // Spawn under a tree canopy? Then the last beat is a quick dip-to-black cut instead of a descent through leaves.
+    const underCanopy = canopy(endPos.x, endPos.z, 0.5) > S.y + 2.5 || canopy(S.x, S.z, 0.5) > S.y + 2.5;
     const posCurve = new THREE.CatmullRomCurve3(pos, false, 'centripetal', 0.5);
     const lookCurve = new THREE.CatmullRomCurve3(look, false, 'catmullrom', 0.3);
     // Where along the path (0..1 arc length) each featured camera is closest, for highlight timing.
@@ -116,7 +129,7 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
     }
     const skip = h('div', { class: 'skip' }, h('kbd', {}, 'ANY KEY'), ' SKIP');
     const root = h('div', { class: `gt-arrival gt-passthrough ${rm ? 'rm' : ''}` },
-      h('div', { class: 'grade' }), brackets, h('div', { class: 'bar top' }), h('div', { class: 'bar bot' }), titleEl, skip);
+      h('div', { class: 'grade' }), h('div', { class: 'dip' }), brackets, h('div', { class: 'bar top' }), h('div', { class: 'bar bot' }), titleEl, skip);
     uiRoot().appendChild(root);
     requestAnimationFrame(() => root.classList.add('in'));
 
@@ -135,7 +148,7 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
       g.removeSystem('ui-arrival');
       removeEventListener('keydown', onKey, true);
       removeEventListener('mousedown', onMouse, true);
-      try { g.player.controlsEnabled = wasEnabled || true; } catch { /* */ }
+      try { g.player.controlsEnabled = true; void wasEnabled; } catch { /* */ }
       root.classList.remove('in'); root.classList.add('out');
       setTimeout(() => root.remove(), 700);
       resolve();
@@ -178,7 +191,8 @@ export function playArrival(g: Game, opts: { onGestureSkip?: () => void } = {}):
         q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), bank));
         let fov = THREE.MathUtils.lerp(40, 52, smooth(0, 0.6, t));
         // blend into the rig
-        const w = smooth(0.74, 1.0, t);
+        const w = underCanopy ? (t >= 0.93 ? 1 : 0) : smooth(0.8, 1.0, t);
+        if (underCanopy) root.classList.toggle('dipping', skipAt < 0 && t >= 0.89 && t < 0.95);
         p.lerp(rigPos, w); q.slerp(rigQ, w); fov = THREE.MathUtils.lerp(fov, rigFov, w);
         if (skipAt >= 0 && skipFrom) {
           const k = easeInOut(Math.min(1, (now - skipAt) / (rm ? 250 : 650)));

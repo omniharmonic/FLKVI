@@ -49,6 +49,10 @@ export class HeatState {
   now = 0;
   /** Game time of the last heat raise (police use it to know a fresh incident happened). */
   lastRaise = -1e9;
+  /** Evasion speed multiplier (e.g. switched cars out of sight → police lose the description). */
+  decayMul = 1;
+  /** Search area (center + radius) while police have lost sight; null otherwise. */
+  searchArea: { p: Vec2; r: number } | null = null;
   private lastBump = { camera: -1e9, npc: -1e9, police: -1e9 };
   private pending: { at: number; w: Witness }[] = [];
   /** Called for every applied witness report (after delay). */
@@ -168,7 +172,7 @@ export class HeatState {
       return;
     }
     this.pursuitTime = Math.max(0, this.pursuitTime - dt * 0.5);
-    this.unseen += dt;
+    this.unseen += dt * this.decayMul;
     const need = this.tuning.decay[this.level];
     this.progress = Math.min(1, this.unseen / need);
     if (this.unseen >= need) this.setLevel(this.level - 1);

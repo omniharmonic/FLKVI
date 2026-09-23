@@ -8,7 +8,7 @@ import type { RecipeTree } from '../core/types';
 import { rng, hashString } from '../core/geo';
 import { textureSet } from '../assets/library';
 import { yieldFrame } from './util';
-import { plantAtlas } from './plantAtlas';
+import { plantAtlas, foliageTexture } from './plantAtlas';
 import { buildProc, mossFor, blossomsFor, PROC_REF_H, type ProcKind } from './plants';
 
 type BarkKind = 'lib' | 'birch' | 'pine' | 'oak' | 'willow';
@@ -21,6 +21,8 @@ interface EzProfile {
   barkRep?: [number, number];
   tweak?: (o: any) => void;
   leafType?: 'oak' | 'ash' | 'aspen' | 'pine';
+  /** custom canvas leaf-card texture (plantAtlas.foliageTexture) */
+  foliage?: 'fine' | 'small';
   leafRough?: number;
   extra?: 'moss' | 'blossom';
   extraTint?: number;
@@ -34,7 +36,7 @@ type Profile = EzProfile | ProcProfile;
 const lowBranch = (o: any, start: number) => { o.branch.start[1] = start; };
 const PROFILES: Record<string, Profile> = {
   // --- broadleaf street & park trees
-  locust: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xc8d890, barkTint: 0x8a8078, bark: 'lib', leafType: 'ash', tweak: (o) => { o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); o.branch.angle[1] = 55; } },
+  locust: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xc8d890, barkTint: 0x8a8078, bark: 'lib', leafType: 'ash', foliage: 'fine', tweak: (o) => { o.leaves.size *= 1.2; o.leaves.count = Math.round(o.leaves.count * 1.4); o.branch.angle[1] = 55; } },
   broadleaf: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8c080, barkTint: 0x9a9088, bark: 'lib' },
   oak: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x9cb878, barkTint: 0x8a8278, bark: 'lib', tweak: (o) => { o.branch.children[0] = 8; o.leaves.count = Math.round(o.leaves.count * 1.15); } },
   maple: { kind: 'ez', preset: 'Oak Medium', leafTint: 0xa8c47c, barkTint: 0x908a84, bark: 'lib', leafType: 'aspen', tweak: (o) => { o.leaves.size *= 1.1; o.leaves.count = Math.round(o.leaves.count * 1.25); o.branch.angle[1] = 42; } },
@@ -50,22 +52,21 @@ const PROFILES: Record<string, Profile> = {
   eucalyptus: { kind: 'ez', preset: 'Ash Large', leafTint: 0xa8b898, barkTint: 0xe8e0d0, bark: 'birch', leafType: 'ash', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 0.8); o.branch.angle[1] = 32; }, fallback: 'broadleaf' },
   // --- southern
   liveoak: {
-    kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', trunkK: 0.035,
+    kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', foliage: 'small', trunkK: 0.035,
     tweak: (o) => { o.branch.start[1] = 0.18; o.branch.angle[1] = 78; o.branch.angle[2] = 50; o.branch.length[1] *= 1.35; o.branch.force.strength = -0.03; o.branch.gnarliness[1] = 0.25; o.leaves.size *= 0.6; o.leaves.count = Math.round(o.leaves.count * 1.8); o.branch.radius[0] *= 1.3; },
   },
   liveoakmoss: {
-    kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', extra: 'moss', trunkK: 0.035, fallback: 'liveoak',
+    kind: 'ez', preset: 'Oak Large', leafTint: 0x8aa468, barkTint: 0x6e665e, bark: 'lib', leafType: 'oak', foliage: 'small', extra: 'moss', trunkK: 0.035, fallback: 'liveoak',
     tweak: (o) => { o.branch.start[1] = 0.18; o.branch.angle[1] = 78; o.branch.angle[2] = 50; o.branch.length[1] *= 1.35; o.branch.force.strength = -0.03; o.branch.gnarliness[1] = 0.25; o.leaves.size *= 0.6; o.leaves.count = Math.round(o.leaves.count * 1.8); o.branch.radius[0] *= 1.3; },
   },
   magnolia: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x6f9058, barkTint: 0x7a746e, bark: 'lib', leafType: 'aspen', leafRough: 0.45, tweak: (o) => { o.branch.angle[1] = 50; lowBranch(o, 0.12); o.leaves.size *= 1.25; o.leaves.count = Math.round(o.leaves.count * 1.5); o.branch.length[1] *= 0.8; }, fallback: 'broadleaf' },
-  crape: { kind: 'ez', preset: 'Aspen Small', leafTint: 0x98b474, barkTint: 0xc8a898, bark: 'birch', barkRep: [1, 0.5], leafType: 'oak', extra: 'blossom', extraTint: 0xf07ab0, tweak: (o) => { o.branch.angle[1] = 35; lowBranch(o, 0.1); o.branch.children[0] = 6; o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'ornamental' },
-  crapewhite: { kind: 'ez', preset: 'Aspen Small', leafTint: 0x98b474, barkTint: 0xc8a898, bark: 'birch', barkRep: [1, 0.5], leafType: 'oak', extra: 'blossom', extraTint: 0xfff0f6, tweak: (o) => { o.branch.angle[1] = 35; lowBranch(o, 0.1); o.branch.children[0] = 6; o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'crape' },
+  crape: { kind: 'ez', preset: 'Aspen Small', leafTint: 0x98b474, barkTint: 0xc8a898, bark: 'birch', barkRep: [1, 0.5], leafType: 'oak', foliage: 'small', extra: 'blossom', extraTint: 0xf07ab0, tweak: (o) => { o.branch.angle[1] = 35; lowBranch(o, 0.1); o.branch.children[0] = 6; o.leaves.size *= 0.7; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'ornamental' },
   gumbo: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xa8c47c, barkTint: 0xd89878, bark: 'birch', leafType: 'aspen', tweak: (o) => { o.branch.angle[1] = 60; o.leaves.count = Math.round(o.leaves.count * 0.9); }, fallback: 'broadleaf' },
   seagrape: { kind: 'ez', preset: 'Bush 2', leafTint: 0x90b070, barkTint: 0x7a6a5a, bark: 'lib', leafType: 'aspen', leafRough: 0.5, tweak: (o) => { o.leaves.size *= 1.5; }, fallback: 'broadleaf' },
   // --- desert
-  paloverde: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xc8d890, barkTint: 0xb8d890, bark: 'birch', barkRep: [1, 0.6], leafType: 'ash', trunkK: 0.02, tweak: (o) => { lowBranch(o, 0.08); o.branch.angle[1] = 62; o.branch.children[0] = 5; o.leaves.size *= 0.45; o.leaves.count = Math.round(o.leaves.count * 1.2); o.branch.gnarliness[1] = 0.3; } },
-  mesquite: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x9aac70, barkTint: 0x5a4e46, bark: 'lib', leafType: 'ash', trunkK: 0.03, tweak: (o) => { lowBranch(o, 0.1); o.branch.angle[1] = 70; o.branch.gnarliness[0] = 0.2; o.branch.gnarliness[1] = 0.35; o.branch.force.strength = -0.04; o.leaves.size *= 0.55; o.leaves.count = Math.round(o.leaves.count * 1.6); } },
-  desertwillow: { kind: 'ez', preset: 'Aspen Small', leafTint: 0xb0c080, barkTint: 0x8a7a6a, bark: 'lib', leafType: 'ash', tweak: (o) => { lowBranch(o, 0.15); o.branch.angle[1] = 50; o.leaves.size *= 0.6; o.leaves.count = Math.round(o.leaves.count * 1.4); }, fallback: 'mesquite' },
+  paloverde: { kind: 'ez', preset: 'Ash Medium', leafTint: 0xc8d890, barkTint: 0xb8d890, bark: 'birch', barkRep: [1, 0.6], leafType: 'ash', foliage: 'fine', trunkK: 0.02, tweak: (o) => { lowBranch(o, 0.08); o.branch.angle[1] = 62; o.branch.children[0] = 5; o.leaves.size *= 1.3; o.leaves.count = Math.round(o.leaves.count * 2.2); o.branch.gnarliness[1] = 0.3; } },
+  mesquite: { kind: 'ez', preset: 'Oak Medium', leafTint: 0x9aac70, barkTint: 0x5a4e46, bark: 'lib', leafType: 'ash', foliage: 'fine', trunkK: 0.03, tweak: (o) => { lowBranch(o, 0.1); o.branch.angle[1] = 70; o.branch.gnarliness[0] = 0.2; o.branch.gnarliness[1] = 0.35; o.branch.force.strength = -0.04; o.leaves.size *= 1.3; o.leaves.count = Math.round(o.leaves.count * 2.2); } },
+  desertwillow: { kind: 'ez', preset: 'Aspen Small', leafTint: 0xb0c080, barkTint: 0x8a7a6a, bark: 'lib', leafType: 'ash', foliage: 'fine', tweak: (o) => { lowBranch(o, 0.15); o.branch.angle[1] = 50; o.leaves.size *= 1.1; o.leaves.count = Math.round(o.leaves.count * 1.6); }, fallback: 'mesquite' },
   // --- conifers
   spruce: { kind: 'ez', preset: 'Pine Medium', leafTint: 0x9fbcc4, barkTint: 0x8a7a6a, bark: 'pine', tweak: (o) => { o.leaves.count = Math.round(o.leaves.count * 1.1); o.leaves.size *= 1.05; o.branch.start[1] = 0.1; } },
   pine: { kind: 'ez', preset: 'Pine Large', leafTint: 0xbcd08c, barkTint: 0xd8a07a, bark: 'pine', tweak: (o) => { o.branch.start[1] = 0.45; o.branch.angle[1] = 100; } },
@@ -136,12 +137,13 @@ export function profileFor(species: string): string {
   if (s.includes('juniper') || s.includes('cypress') || s.includes('arbor')) return 'juniper';
   if (s.includes('locust') || s.includes('mimosa') || s.includes('coffee')) return 'locust';
   if (s.includes('plane') || s.includes('sycamore')) return 'plane';
+  if (s.includes('oak') || s.includes('pecan')) return 'oak';
+  if (s.includes('tulip')) return 'maple';
   if (s.includes('cottonwood') || s.includes('poplar') || s.includes('willow')) return 'cottonwood';
   if (s.includes('aspen') || s.includes('birch')) return 'aspen';
   if (s.includes('elm')) return 'elm';
   if (s.includes('ash') || s.includes('hackberry')) return 'ash';
   if (s.includes('maple') || s.includes('tulip')) return 'maple';
-  if (s.includes('oak') || s.includes('pecan')) return 'oak';
   if (s.includes('linden') || s.includes('basswood')) return 'linden';
   if (s.includes('pear')) return 'pear';
   if (s.includes('ginkgo')) return 'ginkgo';
@@ -321,10 +323,10 @@ function makeEzVariant(key: string, P: EzProfile, seed: number): Omit<Variant, '
     bark1 = g1.bark; leaves1 = g1.leaves;
   } catch { /* no lod1 */ }
   const barkMat = barkMaterial(P, g0.srcBark);
-  const lk = `${P.leafType ?? P.preset}|${P.leafTint}|${P.leafRough ?? 0.8}`;
+  const lk = `${P.foliage ?? P.leafType ?? P.preset}|${P.leafTint}|${P.leafRough ?? 0.8}`;
   let leafMat = leafMatCache.get(lk);
   if (!leafMat) {
-    leafMat = new THREE.MeshStandardMaterial({ map: g0.srcLeaf.map, color: new THREE.Color(P.leafTint).multiplyScalar(0.8), alphaTest: 0.5, side: THREE.DoubleSide, roughness: P.leafRough ?? 0.8 });
+    leafMat = new THREE.MeshStandardMaterial({ map: P.foliage ? foliageTexture(P.foliage) : g0.srcLeaf.map, color: new THREE.Color(P.leafTint).multiplyScalar(0.8), alphaTest: 0.5, side: THREE.DoubleSide, roughness: P.leafRough ?? 0.8 });
     (leafMat as any).shadowSide = THREE.DoubleSide;
     leafMat.name = 'veg-leaf';
     vegPatch(leafMat, 'leaf');
@@ -332,7 +334,7 @@ function makeEzVariant(key: string, P: EzProfile, seed: number): Omit<Variant, '
   }
   let extra: THREE.BufferGeometry | null = null;
   if (P.extra === 'moss') extra = mossFor(g0.bark, seed, 140, 0.13);
-  else if (P.extra === 'blossom') extra = blossomsFor(g0.leaves, seed, 70, 0.14, new THREE.Color(P.extraTint ?? 0xf080b0));
+  else if (P.extra === 'blossom') extra = blossomsFor(g0.leaves, seed, 70, 0.14, new THREE.Color([0xf07ab0, 0xd04890, 0xfff0f6, 0xc8a0e8][seed % 4]));
   return { key, bark: g0.bark, leaves: g0.leaves, extra, ratio, uniform: false, refH: 0, barkMat, leafMat, extraMat: extra ? proceduralMaterial() : null, bark1, leaves1 };
 }
 
@@ -593,6 +595,7 @@ export class TreeSystem {
     this.group.add(si);
     this.shadowImpostors = si;
     this.cols = cols;
+    (globalThis as any).__gtVegList = trees; // debug: inspected by dev tools
     console.info(`[veg] ${this.variants.length} variants (${[...this.byProfile.keys()].join(', ')}), ${this.insts.length} plants`);
   }
   private cols = 1;

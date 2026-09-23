@@ -87,6 +87,8 @@ export interface HeatAPI {
   readonly arrestMeter: number;
   add(amount: number, p: Vec2): void;
   clear(): void;
+  /** Optional (ai): area police are searching while they've lost sight (level > 0, not spotted). Minimap draws it. */
+  readonly searchArea?: { p: Vec2; r: number } | null;
 }
 
 /** Owned by src/ai (optional). Hooks for the surveillance Escalation director / debugging. */

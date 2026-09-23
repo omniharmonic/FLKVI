@@ -407,3 +407,73 @@ export function plantAtlasDataURL(): string {
   plantAtlas();
   return (atlasTex!.image as HTMLCanvasElement).toDataURL('image/png');
 }
+
+const foliageCache = new Map<string, THREE.CanvasTexture>();
+/**
+ * Leaf-card textures for ez-tree canopies whose stock textures read wrong: 'fine' = bipinnate sprays of
+ * tiny leaflets (palo verde, mesquite, honey locust), 'small' = dense small simple leaves (live oak, elm,
+ * crape myrtle). Card UV: base at bottom-center, tip at top (matches ez-tree leaf quads).
+ */
+export function foliageTexture(kind: 'fine' | 'small'): THREE.Texture {
+  const hit = foliageCache.get(kind);
+  if (hit) return hit;
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d')!;
+  const R = rng(kind === 'fine' ? 501 : 502);
+  const twig = (x0: number, y0: number, a: number, L: number, w: number) => {
+    ctx.strokeStyle = hsl(30, 20, 30); ctx.lineWidth = w; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + Math.cos(a) * L, y0 + Math.sin(a) * L); ctx.stroke();
+  };
+  if (kind === 'fine') {
+    // main twig from bottom center, several bipinnate leaves
+    const base = [S / 2, S - 4] as const;
+    twig(base[0], base[1], -Math.PI / 2, S * 0.55, 3);
+    const leaves = 13;
+    for (let i = 0; i < leaves; i++) {
+      const t = 0.1 + (i / leaves) * 0.9;
+      const px = base[0] + (R() - 0.5) * 6, py = base[1] - S * 0.55 * t;
+      const a = -Math.PI / 2 + (i % 2 ? 1 : -1) * (0.5 + R() * 0.7) * (1.1 - t * 0.5);
+      const L = S * (0.32 + R() * 0.16);
+      twig(px, py, a, L, 1.6);
+      const ca = Math.cos(a), sa = Math.sin(a);
+      for (let k = 0.1; k < 1; k += 0.045) {
+        const qx = px + ca * L * k, qy = py + sa * L * k;
+        for (const s of [-1, 1]) {
+          const la = a + s * (0.8 + R() * 0.4);
+          const ll = 14 + R() * 8;
+          ctx.fillStyle = hsl(85 + R() * 18, 40, 34 + R() * 18);
+          ctx.save(); ctx.translate(qx + Math.cos(la) * ll * 0.5, qy + Math.sin(la) * ll * 0.5); ctx.rotate(la);
+          ctx.beginPath(); ctx.ellipse(0, 0, ll * 0.55, 3.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        }
+      }
+    }
+  } else {
+    const base = [S / 2, S - 4] as const;
+    twig(base[0], base[1], -Math.PI / 2, S * 0.7, 3);
+    for (let i = 0; i < 9; i++) {
+      const t = 0.15 + (i / 9) * 0.85;
+      const px = base[0], py = base[1] - S * 0.7 * t;
+      const a = -Math.PI / 2 + (i % 2 ? 1 : -1) * (0.6 + R() * 0.5);
+      twig(px, py, a, S * 0.25, 1.5);
+    }
+    for (let i = 0; i < 260; i++) {
+      const a = R() * Math.PI * 2, r = Math.sqrt(R());
+      const x = S / 2 + Math.cos(a) * r * S * 0.42, y = S * 0.48 + Math.sin(a) * r * S * 0.44;
+      const s = 16 + R() * 10;
+      const l = 28 + R() * 20;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(R() * Math.PI * 2);
+      ctx.fillStyle = hsl(90 + R() * 16, 38, l);
+      ctx.beginPath(); ctx.ellipse(0, 0, s, s * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = hsl(90, 25, l + 14, 0.45); ctx.beginPath(); ctx.ellipse(-s * 0.2, -s * 0.1, s * 0.5, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = hsl(90, 30, l - 10, 0.6); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-s, 0); ctx.lineTo(s, 0); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  foliageCache.set(kind, tex);
+  return tex;
+}
