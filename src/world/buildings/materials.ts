@@ -8,9 +8,9 @@ import { procTexture, TEX_RES } from './textures';
 export const U = {
   uNight: { value: 0 },
   /** Interior daylight brightness multiplier (tuned against the sun/hemisphere levels). */
-  uInteriorDay: { value: 0.3 },
+  uInteriorDay: { value: 0.38 },
   /** Night lamp intensity. */
-  uLamp: { value: 1.25 },
+  uLamp: { value: 0.75 },
 };
 
 /** GLSL: cheap hash noise used for grime streaks. */
@@ -286,6 +286,8 @@ varying vec4 vWinA;
 varying vec4 vWinB;
 varying vec3 vGWPos;
 varying vec3 vGWN;
+vec3 gDayIrr = vec3(0.3);
+float gFixture = 0.0;
 float wh1(float n){ return fract(sin(n*12.9898)*43758.5453); }
 float wh2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
 float bar(float x, float c, float w){ float fw = max(fwidth(x), 1e-4); return 1.0 - smoothstep(w - fw, w + fw, abs(x - c)); }
@@ -339,6 +341,7 @@ vec4 shadeWindow(vec3 V, vec3 N){
   float kind = floor(vWinB.y + 0.001);
   float roomW = max(vWinB.w, 0.5);
   vec2 lp = vWin0;
+  gFixture = 0.0;
   float solid = muntinMask(lp, W, H, vWinB.z);
   if (kind > 3.5 && kind < 4.5) return vec4(vec3(0.0), solid);
   vec3 T = normalize(vec3(N.z, 0.0, -N.x));
@@ -370,11 +373,18 @@ vec4 shadeWindow(vec3 V, vec3 N){
       if (kind > 0.5 && kind < 2.5) { // ceiling grid + troffers
         vec2 g = fract(hp.xz / vec2(1.2, 1.2));
         col *= 0.93 + 0.07 * step(0.04, min(g.x, g.y));
+        vec2 fx = fract(hp.xz / vec2(2.4, 2.4));
+        gFixture = step(abs(fx.x - 0.5), 0.12) * step(abs(fx.y - 0.5), 0.25);
       }
     }
   } else if (t == tx) {
     col = wallC * 0.9;
     if (kind > 0.5 && kind < 1.5 && hp.y < 1.1) col *= 0.7;
+    if (kind > 1.5 && kind < 2.5) { // wall shelving along the side walls
+      float sh = step(fract(hp.y / 0.42), 0.78) * step(hp.y, 2.1) * step(0.4, hp.z);
+      vec3 goods = vec3(wh2(vec2(floor(hp.z*2.5), floor(hp.y/0.42))), wh2(vec2(floor(hp.z*2.5)+5.0, floor(hp.y/0.42)+1.0)), wh2(vec2(floor(hp.z*2.5)+9.0, 3.0)));
+      col = mix(col, goods * 0.55 + 0.12, sh);
+    }
   } else {
     col = wallC;
     // picture / doorway on back wall
@@ -434,15 +444,15 @@ vec4 shadeWindow(vec3 V, vec3 N){
   else if (kind > 4.5) occupancy = 1.0;
   else if (kind > 2.5 && kind < 3.5) occupancy = 0.18;
   else occupancy = 0.48 * smoothstep(0.2, 0.6, night) * (1.0 - 0.25 * smoothstep(0.85, 1.0, night)) + 0.05;
-  isLit = step(occ, occupancy);
+  isLit = step(occ, occupancy) * smoothstep(0.02, 0.35, night);
   vec3 lampC = kind > 0.5 && kind < 1.5 ? vec3(0.86, 0.93, 1.0) : kind > 4.5 ? vec3(0.95, 0.9, 0.7) : mix(vec3(1.0, 0.66, 0.36), vec3(1.0, 0.84, 0.62), fract(rs * 17.0));
-  if (kind > 1.5 && kind < 2.5) lampC = vec3(1.0, 0.92, 0.8);
+  if (kind > 1.5 && kind < 2.5) lampC = vec3(1.0, 0.8, 0.58);
   vec3 lampPos = vec3(roomW * 0.5, flH - 0.05, D * 0.45);
   float dl = length(hp - lampPos);
   float lampFall = 1.0 / (0.6 + 0.12 * dl * dl);
-  float dayL = (1.0 - night) * uInteriorDay * (0.35 + 0.65 * (1.0 - depthF) * (1.0 - depthF)) * (kind > 1.5 && kind < 2.5 ? 0.75 : 1.0);
-  float nightL = isLit * uLamp * lampFall * (kind > 1.5 && kind < 2.5 ? 1.6 : 1.0);
-  vec3 radiance = col * (vec3(dayL) + lampC * nightL);
+  vec3 dayL = gDayIrr * (0.35 + 0.65 * (1.0 - depthF) * (1.0 - depthF)) * (kind > 1.5 && kind < 2.5 ? 0.6 : 1.0);
+  float nightL = isLit * uLamp * lampFall * (kind > 1.5 && kind < 2.5 ? 1.5 : 1.0);
+  vec3 radiance = col * (dayL + lampC * nightL) + lampC * gFixture * isLit * uLamp * 2.0;
   // blinds / curtains on the glass
   float bt = wh1(seed * 3.3 + ri);
   if (kind < 1.5) {
@@ -452,14 +462,14 @@ vec4 shadeWindow(vec3 V, vec3 N){
       if (lp.y > yb) {
         vec3 shadeC = kind < 0.5 ? mix(vec3(0.85,0.80,0.70), vec3(0.75,0.72,0.68), fract(bt*7.0)) : vec3(0.78,0.78,0.76);
         float slat = kind > 0.5 ? 0.85 + 0.15 * step(0.5, fract(lp.y * 18.0)) : 1.0;
-        radiance = shadeC * slat * ((1.0 - night) * uInteriorDay * 0.85 + lampC * isLit * uLamp * 0.28);
+        radiance = shadeC * slat * (gDayIrr * 1.6 + lampC * isLit * uLamp * 0.3);
       }
     } else if (bt < 0.6 && kind < 0.5) {
       float cw = W * (0.14 + 0.16 * wh1(seed * 7.7 + ri));
       if (lp.x < cw || lp.x > W - cw) {
         vec3 cc = mix(vec3(0.62,0.52,0.40), vec3(0.45,0.50,0.58), wh1(seed * 9.1));
         float fold = 0.8 + 0.2 * sin(lp.x * 45.0);
-        radiance = cc * fold * ((1.0 - night) * uInteriorDay * 0.7 + lampC * isLit * uLamp * 0.3);
+        radiance = cc * fold * (gDayIrr * 1.3 + lampC * isLit * uLamp * 0.3);
       }
     }
   }
@@ -471,7 +481,7 @@ let glassMat: THREE.MeshStandardMaterial | null = null;
 
 export function glassMaterial(): THREE.MeshStandardMaterial {
   if (glassMat) return glassMat;
-  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.04, metalness: 0.0, vertexColors: true, name: 'bldg:glass', envMapIntensity: 2.2 });
+  const m = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.04, metalness: 0.0, vertexColors: true, name: 'bldg:glass', envMapIntensity: 2.5 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uNight = U.uNight;
     sh.uniforms.uInteriorDay = U.uInteriorDay;
@@ -485,32 +495,43 @@ vWin0 = aWin0; vWinA = aWinA; vWinB = aWinB;
 vGWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL + '\nvec4 gWin; float gReflect; float gKind;')
+      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL + '\nfloat gSolid; float gReflect; float gKind;')
       .replace('#include <color_fragment>', `#include <color_fragment>
   {
-    vec3 V = normalize(vGWPos - cameraPosition);
-    gWin = shadeWindow(V, normalize(vGWN));
     gKind = floor(vWinB.y + 0.001);
     gReflect = fract(vWinB.y + 0.001);
+    gSolid = muntinMask(vWin0, vWinA.x, vWinA.y, vWinB.z);
     vec3 sash = diffuseColor.rgb;
     vec3 glassTint = gKind > 3.5 && gKind < 4.5 ? vec3(0.04, 0.05, 0.06) : vec3(0.0);
-    if (gKind > 4.5 && gKind < 5.5) glassTint = vec3(0.0);
-    diffuseColor.rgb = mix(glassTint, sash, gWin.a);
+    diffuseColor.rgb = mix(glassTint, sash, gSolid);
   }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-  roughnessFactor = mix(gKind > 4.5 && gKind < 5.5 ? 1.0 : 0.04, 0.55, gWin.a);`)
+  roughnessFactor = mix(gKind > 4.5 && gKind < 5.5 ? 1.0 : 0.04, 0.55, gSolid);`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
-  metalnessFactor = mix(gReflect, 0.0, gWin.a);
-  if (gReflect > 0.01) diffuseColor.rgb = mix(mix(vec3(0.30,0.40,0.45), vec3(0.55,0.62,0.66), fract(gReflect*7.0)), diffuseColor.rgb, gWin.a);`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-  totalEmissiveRadiance += gWin.rgb * (1.0 - gWin.a) * (1.0 - gReflect * 0.85);`);
+  metalnessFactor = mix(gReflect, 0.0, gSolid);
+  if (gReflect > 0.01) diffuseColor.rgb = mix(mix(vec3(0.30,0.40,0.45), vec3(0.55,0.62,0.66), fract(gReflect*7.0)), diffuseColor.rgb, gSolid);`)
+      .replace('#include <opaque_fragment>', `
+  {
+    #if defined( RE_IndirectDiffuse )
+      vec3 gIrr = irradiance;
+      #if defined( ENVMAP_TYPE_CUBE_UV )
+        gIrr += iblIrradiance / max(envMapIntensity, 1e-3);
+      #endif
+    #else
+      vec3 gIrr = vec3(1.0);
+    #endif
+    gDayIrr = gIrr * RECIPROCAL_PI * uInteriorDay;
+    vec4 gw = shadeWindow(normalize(vGWPos - cameraPosition), normalize(vGWN));
+    outgoingLight += gw.rgb * (1.0 - gSolid) * (1.0 - gReflect * 0.85);
+  }
+#include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => 'bldg-glass-v1';
+  m.customProgramCacheKey = () => 'bldg-glass-v2';
   glassMat = m;
   return m;
 }
 
 export function setNight(f: number) {
   U.uNight.value = f;
-  if (signMat) signMat.emissiveIntensity = f * 2.2;
+  if (signMat) signMat.emissiveIntensity = f * 1.3;
 }

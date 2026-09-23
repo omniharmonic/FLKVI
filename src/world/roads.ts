@@ -589,6 +589,8 @@ export class RoadNetwork {
     for (let o = -W + 0.3; o < W - 0.3; o += 1.2) this.ribbon(B, 'marking', c, s0 + 0.3, s1 - 0.3, o, o + 0.6, MARK_LIFT, 'world', WHITE);
   }
 
+  chainPoint(c: Chain, s: number) { return sampleAt(c.pts, c.L, s, c.ys); }
+
   /** Nearest chain point to p (within maxD). */
   nearestChain(p: Vec2, maxD = 20): { c: Chain; s: number; d: number; off: number } | null {
     let best: { c: Chain; s: number; d: number; off: number } | null = null;

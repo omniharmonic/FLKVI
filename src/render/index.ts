@@ -150,13 +150,10 @@ class RenderSky implements SkyAPI {
     g.scene.fog = new THREE.FogExp2(0x8899aa, this.look.haze);
     g.scene.environmentIntensity = 1;
 
-    // starting time: honor ?time=, else 17:30 if that is golden hour today, else the matching time
+    // starting time: honor ?time=, else mid/late golden hour (sun ~12° high, typically 16:30-17:00)
     const q = new URLSearchParams(location.search);
-    if (q.has('time')) this.time = parseFloat(q.get('time')!) || 17.5;
-    else {
-      const el = solarPosition(this.lat, this.lon, this.day, 17.5).el / DEG;
-      if (el < 3 || el > 14) this.time = findElevationTime(this.lat, this.lon, this.day, 8) ?? 17.5;
-    }
+    if (q.has('time')) this.time = parseFloat(q.get('time')!) || 16.75;
+    else this.time = THREE.MathUtils.clamp(findElevationTime(this.lat, this.lon, this.day, 12) ?? 16.75, 14.5, 18.5);
     if (q.has('timescale')) this.timeScale = parseFloat(q.get('timescale')!);
     if (q.has('rain')) this.rainTarget = q.get('rain') === '0' ? 0 : 1;
     else if (Math.random() < this.look.rainChance) this.rainTarget = 1;
@@ -301,13 +298,15 @@ class RenderSky implements SkyAPI {
     this.post.ssrPass.enabled = this.wet > 0.02 && this.ssrAllowed;
 
     // --- night fill (sky + city bounce)
-    this.hemi.intensity = this.nightFactor * 0.16 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor);
+    // dusk fill: lifts street-level shadows while the low sun only reaches rooftops
+    const dusk = smoothstep(16, 1, elDeg) * smoothstep(-8, -1, elDeg);
+    this.hemi.intensity = this.nightFactor * 0.16 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor) + dusk * 0.35;
     this.hemi.color.setRGB(0.34, 0.42, 0.62);
     this.hemi.groundColor.setRGB(0.42, 0.3, 0.2);
 
     // --- exposure (partial eye adaptation) + grading
     const sceneLum = lum(sl.color) * sl.intensity * Math.max(sunDir.y, 0.05) * (sunW > 0.001 ? 1 : 0.2) + lum(this.zenith) * 3 + lum(this.skyU.uTwiCool.value) * 3 + 0.004;
-    const targetExpo = THREE.MathUtils.clamp(1.15 / Math.pow(sceneLum, 0.55), 0.55, 2.6);
+    const targetExpo = THREE.MathUtils.clamp(1.3 / Math.pow(sceneLum, 0.6), 0.6, 3.0);
     this.exposure += (targetExpo - this.exposure) * (jumped ? 1 : 1 - Math.exp(-dt * 1.5));
     this.applyGrade(overcast);
 
@@ -497,7 +496,10 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
     update: (dt) => autoBenchmark(g, dt),
   });
 
+  // the composer issues many internal renders; accumulate info per frame so draw calls are measurable
+  renderer.info.autoReset = false;
   g.renderFrame = (dt) => {
+    renderer.info.reset();
     post.composer.render(dt);
   };
   (window as any).__render = { sky, post, setQuality: (q: Quality) => setQuality(g, q) };

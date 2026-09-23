@@ -33,8 +33,9 @@ function loadAssets() {
       try {
         const loader = new GLTFLoader();
         const [char, lib] = await Promise.all([
-          loader.loadAsync(assetUrl('models/characters/protagonist.glb')),
-          loader.loadAsync(assetUrl('models/characters/anim-library.glb')),
+          // Shared with the assets library (Quaternius UBC male + UAL clips, see public/assets/LICENSES.json).
+          loader.loadAsync(assetUrl('models/characters/ubc-male.glb')),
+          loader.loadAsync(assetUrl('models/characters/anims.glb')),
         ]);
         return { scene: char.scene, clips: lib.animations };
       } catch (e) {

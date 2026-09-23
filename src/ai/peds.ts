@@ -115,6 +115,7 @@ export class PedSystem {
 
     g.events.on('noise', (e) => this.onStimulus(e.p, e.radius, e.kind, false));
     g.events.on('crime', (e) => this.onCrime(e.p, e.severity, e.kind));
+    g.events.on('playerMelee', (e) => this.onMelee(e.p, e.dir, e.range));
   }
 
   // ------------------------------------------------------------------ spawning
@@ -366,6 +367,22 @@ export class PedSystem {
       for (const p of cands) { const d = dist2(p.x, p.z, pt[0], pt[1]); if (d < bd) { bd = d; hit = p; } }
       if (hit) this.knockDown(hit, hit.x - pt[0], hit.z - pt[1], 2);
     }
+  }
+
+  /** Player punch/shove: knock down peds in range in front of the player, report an assault. */
+  private onMelee(pt: Vec2, dir: Vec2, range: number) {
+    const dl = Math.hypot(dir[0], dir[1]) || 1;
+    const fx = dir[0] / dl, fz = dir[1] / dl;
+    let hit: Ped | null = null;
+    this.hash.query(pt[0], pt[1], range + 0.5, (p) => {
+      if (p.state === 'fallen') return;
+      const rx = p.x - pt[0], rz = p.z - pt[1];
+      const d = Math.hypot(rx, rz);
+      if (d > 0.3 && (rx * fx + rz * fz) / d < 0.3) return;
+      this.knockDown(p, fx, fz, 1.5);
+      hit = p;
+    });
+    if (hit) this.g.events.emit('crime', { kind: 'assault', p: [(hit as Ped).x, (hit as Ped).z], severity: 2 });
   }
 
   /** Ped is hit: falls (ragdoll-lite), lies, gets up and flees. */

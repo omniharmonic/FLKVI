@@ -238,8 +238,10 @@ export class PropSystem {
     const R0 = rng(1234);
     const faceRoad = (p: Vec2, rot: number) => { const d = this.towardRoad(p, 18); return d ? this.yawFace(d[0], d[1]) : rot; };
 
+    const sp = R.spawn.p;
     for (const pr of R.props) {
       const [x, z] = pr.p;
+      if (pr.type !== 'fence' && pr.type !== 'hedge' && Math.hypot(x - sp[0], z - sp[1]) < 3) continue;
       const y = this.groundAt(x, z);
       switch (pr.type) {
         case 'streetlight': { const d = this.towardRoad(pr.p, 25) ?? [Math.cos(pr.rot), Math.sin(pr.rot)]; lights.push({ p: pr.p, dir: d }); break; }
@@ -281,7 +283,7 @@ export class PropSystem {
         const p: Vec2 = [q.x + nx * off * side, q.z + nz * off * side];
         side = twoSided ? -side : side;
         if (p[0] < b.minX + 5 || p[0] > b.maxX - 5 || p[1] < b.minZ + 5 || p[1] > b.maxZ - 5) continue;
-        if (near(p, spacing * 0.4) || this.inBuilding(p[0], p[1])) continue;
+        if (near(p, spacing * 0.4) || this.inBuilding(p[0], p[1]) || Math.hypot(p[0] - sp[0], p[1] - sp[1]) < 3) continue;
         lights.push({ p, dir: [q.x - p[0], q.z - p[1]].map((v) => v / off) as Vec2 });
         lightGrid.add(p[0], p[1], p);
       }
@@ -545,7 +547,7 @@ export class PropSystem {
   setNightFactor(f: number) {
     this.night = f;
     const lamp = this.M.lamp as THREE.MeshStandardMaterial;
-    lamp.emissiveIntensity = f * 9;
+    lamp.emissiveIntensity = f * 18;
     if (this.poolMat) this.poolMat.opacity = f * 0.32;
     if (this.pools) this.pools.visible = f > 0.02;
   }

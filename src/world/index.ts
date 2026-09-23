@@ -15,7 +15,7 @@ import { markingWearTexture } from './textures';
 import { PropSystem } from './props';
 import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
-import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, makeLos } from './physics';
+import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
 
 export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups } from './physics';
@@ -85,7 +85,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   mats.marking.name = 'marking';
 
   const roadGroup = new THREE.Group(); roadGroup.name = 'roads';
-  B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true }, renderOrder: { marking: 1 } });
+  const roadMeshes = B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true }, renderOrder: { marking: 1 } });
   root.add(roadGroup, waterGroup);
   try { roadGroup.add(buildRoadDecals(roads, recipe.props.filter((p) => p.type === 'manhole').map((p) => p.p), (x, z) => roads.surfaceAt(x, z)?.y ?? hf.sample(x, z))); } catch (e) { console.warn('[world] decals failed', e); }
 
@@ -146,7 +146,31 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
 
   // ---- trees (+ shrubs from props)
   P('Planting trees', 0.45);
-  const treeList: RecipeTree[] = recipe.trees.slice();
+  // Street trees: keep the carriageway and the sidewalk walking path clear (snap onto the curb-side
+  // tree lawn), and keep a clear zone around the player spawn.
+  const sp = recipe.spawn.p;
+  const treeList: RecipeTree[] = [];
+  let moved = 0, dropped = 0;
+  for (const t0 of recipe.trees) {
+    const t = { ...t0, p: [t0.p[0], t0.p[1]] as Vec2 };
+    if (Math.hypot(t.p[0] - sp[0], t.p[1] - sp[1]) < 5) { dropped++; continue; }
+    const h = roads.nearestChain(t.p, 25);
+    if (h && !h.c.internal) {
+      const a = Math.abs(h.off), c = h.c;
+      if (a < c.w + 0.3) { dropped++; continue; }
+      if (c.s > 0 && a < c.w + c.s) {
+        const target = c.w + Math.min(0.6, c.s * 0.3);
+        const q = roads.chainPoint(c, h.s);
+        const sg = Math.sign(h.off) || 1;
+        t.p = [q.x - q.dz * target * sg, q.z + q.dx * target * sg];
+        t.y = groundAt(t.p[0], t.p[1]);
+        moved++;
+      }
+    }
+    if (inBuilding(t.p[0], t.p[1])) { dropped++; continue; }
+    treeList.push(t);
+  }
+  console.info(`[world] trees: ${moved} snapped to curb, ${dropped} dropped`);
   for (const p of recipe.props) {
     if (p.type !== 'shrub') continue;
     const h = 0.9 + ((p.variant * 0.37) % 1) * 0.9;
@@ -172,6 +196,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       buildTerrainCollider(g, hf);
       buildBuildingColliders(g, recipe.buildings);
       buildPropColliders(g, props.colliders, trees.trunks);
+      buildMeshColliders(g, roadMeshes.filter((m) => /^(sidewalk|curb)\|/.test(m.name)));
       los = makeLos(g);
     } catch (e) { console.error('[world] physics failed', e); }
   }

@@ -1,5 +1,6 @@
 // Static physics colliders (Rapier): terrain heightfield, building shells, pole/trunk cylinders, furniture boxes.
 import type RAPIER_NS from '@dimforge/rapier3d-compat';
+import type * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { RecipeBuilding } from '../core/types';
 import type { Heightfield } from './terrain';
@@ -123,4 +124,18 @@ export function makeLos(g: Game) {
     const hit = (g.physics as RAPIER_NS.World).castRay(ray, len - 0.05, true, flags, LOS_QUERY_GROUPS);
     return !!hit;
   };
+}
+
+/** Raised sidewalks + curb faces as static trimeshes (so walkers stand on the 15 cm slab and curbs are steppable). */
+export function buildMeshColliders(g: Game, meshes: THREE.Mesh[]) {
+  const R = g.rapier, W = g.physics;
+  const body = W.createRigidBody(R.RigidBodyDesc.fixed());
+  for (const m of meshes) {
+    const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const idx = m.geometry.getIndex();
+    if (!pos || !idx || idx.count < 3) continue;
+    const desc = R.ColliderDesc.trimesh(new Float32Array(pos.array as ArrayLike<number>), new Uint32Array(idx.array as ArrayLike<number>));
+    desc.setCollisionGroups(groups(GROUP_PROPS)).setFriction(1.0);
+    W.createCollider(desc, body);
+  }
 }

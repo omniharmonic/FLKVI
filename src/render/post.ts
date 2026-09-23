@@ -1,5 +1,5 @@
 // Post-processing chain (pmndrs/postprocessing):
-//   RenderPass -> N8AO -> [Bloom, Exposure+WhiteBalance, AgX, Grade, Vignette] -> [SMAA, Grain]
+//   RenderPass -> N8AO -> [WetSSR] -> [Bloom, Exposure+WhiteBalance, PBR-Neutral tonemap, Grade, Vignette] -> [SMAA, Grain]
 import * as THREE from 'three';
 import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, ToneMappingEffect, ToneMappingMode,
@@ -135,7 +135,7 @@ void mainImage( const in vec4 inputColor, const in vec2 uv, const in float depth
 	if ( r.z > 0.3 ) return; // reflecting back toward the camera: off screen
 	float cosT = clamp( dot( -vd, nV ), 0.0, 1.0 );
 	float fres = 0.02 + 0.98 * pow( 1.0 - cosT, 5.0 );
-	float strength = wetParams.x * mix( 0.3, 1.0, puddle ) * fres * wetParams.z;
+	float strength = wetParams.x * mix( 0.16, 1.0, puddle ) * fres * wetParams.z * ( 1.0 - smoothstep( 60.0, 250.0, -vp.z ) * 0.6 );
 	if ( strength < 0.01 ) return;
 	// jitter start to hide banding; rough (non-puddle) wet surfaces get a slightly blurred direction
 	float j = sHash( gl_FragCoord.xy );

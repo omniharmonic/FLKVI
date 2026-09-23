@@ -4,6 +4,7 @@ import type { Game, System } from '../core/game';
 import type { Player } from './player';
 import type { VehicleSystem } from './vehicles/manager';
 import { clamp, damp, headingToDir, lerpAngle, wrapAngle } from './util';
+import { settings } from '../ui/settings';
 
 const SENS = 0.0022;
 
@@ -38,7 +39,8 @@ export class CameraRig implements System {
     const g = this.g, inp = g.input, cam = g.camera;
     const p = this.player;
     const veh = p.vehicleId ? this.vehicles.vehicles.get(p.vehicleId) : undefined;
-    const dx = inp.mouseDX, dy = inp.mouseDY;
+    const sens = settings.mouseSensitivity || 1;
+    const dx = inp.mouseDX * sens, dy = inp.mouseDY * sens * (settings.invertY ? -1 : 1);
     const mouseMoved = Math.abs(dx) + Math.abs(dy) > 0.5;
     if (p.controlsEnabled) {
       if (veh) this.vehYawOffset += dx * SENS; else this.yaw += dx * SENS;
