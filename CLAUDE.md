@@ -36,10 +36,14 @@ Core files are owned by the lead. If you need a contract change, make the **mini
 
 Several agents work in this tree **at the same time**. Don't run `npm install` (ask the lead in your report if you need a package; everything common is installed). Don't reformat or "fix" other owners' files. Type errors in files you don't own are not yours — check your own with `npx tsc --noEmit 2>&1 | grep src/<yourdir>`.
 
-## Testing
-- Run your own dev server on your assigned port: `PORT=<port> npx vite --strictPort` (background) and inspect with the `agent-browser` CLI (headless Chromium; WebGL works via SwiftShader, so it's slow — judge visuals, not fps). Take screenshots to verify visuals; iterate until it looks good.
-- `window.game` is the Game instance in the browser for debugging.
-- Add `?city=boulder` style URL params sparingly; the ui owner handles the flow. A `?autostart` param skips the spawn picker and uses the default baked city (ui implements it).
+## Testing — RESOURCE RULES (the host machine crashed once from overload; these are mandatory)
+- **Do NOT start your own vite server.** One shared dev server runs at **http://127.0.0.1:5200** (the lead keeps it up; it hot-reloads everyone's edits). If it's down, tell the lead in your report rather than starting others; you may start it yourself only with `PORT=5200 npx vite --strictPort` if nothing is listening on 5200.
+- **Never run `agent-browser` directly.** Always go through the lock script, which allows ONE headless Chromium machine-wide, caps a session at 240 s, and always closes the browser:
+  `tools/browser.sh 'agent-browser open "http://127.0.0.1:5200/?autostart"; sleep 25; agent-browser screenshot /path/to/scratch/shot.png'`
+  Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. Software WebGL is slow — judge visuals, not fps.
+- **Never** `pkill`/`killall` by name; only kill PIDs you started. No long-running background processes left behind when you finish.
+- Heavy Node jobs (baking cities, texture conversion) one at a time.
+- `window.game` is the Game instance for debugging (`agent-browser eval`). `?autostart` skips the menus (default Boulder); `?city=<id>` picks a baked city; `&mode=freeroam`.
 
 ## Conventions
 - TypeScript strict, ES modules, no frameworks for UI (vanilla DOM + CSS).
