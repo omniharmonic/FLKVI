@@ -177,9 +177,12 @@ export class TreeSystem {
   private insts: TreeInst[] = [];
   private far!: THREE.InstancedMesh;
   private farAtlas!: THREE.InstancedBufferAttribute;
+  /** Shadow-only impostors for mid-distance trees (perf: their leaves don't cast). Registered as a shadow proxy by world. */
+  shadowImpostors: THREE.InstancedMesh | null = null;
+  private shadowAtlas!: THREE.InstancedBufferAttribute;
   private nearCount: number[] = [];
   private midCount: number[] = [];
-  fullDist = 55;
+  fullDist = 48;
   private frame = 0;
   nearDist = 150;
   /** Trunk cylinders for physics: x,z,y,radius,height */
@@ -240,9 +243,8 @@ export class TreeSystem {
       V.nearLeaves = new THREE.InstancedMesh(V.leaves, V.leafMat, cap);
       V.midBark = new THREE.InstancedMesh(V.bark1 ?? V.bark, V.barkMat, cap);
       V.midLeaves = new THREE.InstancedMesh(V.leaves1 ?? V.leaves, V.leafMat, cap);
-      V.midBark.castShadow = false;
       for (const m of [V.nearBark, V.nearLeaves, V.midBark, V.midLeaves]) {
-        m.castShadow = m !== V.midBark; m.receiveShadow = true; m.frustumCulled = false; m.count = 0;
+        m.castShadow = m === V.nearBark || m === V.nearLeaves; m.receiveShadow = true; m.frustumCulled = false; m.count = 0;
         m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         m.name = 'tree_' + V.key;
         this.group.add(m);
@@ -296,6 +298,38 @@ export class TreeSystem {
     this.far.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.far.name = 'tree_impostors';
     this.group.add(this.far);
+    // depth material that applies the same atlas cell + width scaling, so impostor shadows are tree-shaped
+    const dm = new THREE.MeshDepthMaterial({ map: atlas, alphaTest: 0.45, side: THREE.DoubleSide });
+    dm.onBeforeCompile = (sh) => {
+      sh.uniforms.uCols = { value: cols };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec3 aAtlas; uniform float uCols; varying vec2 vAtl;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          transformed.x *= aAtlas.z; transformed.z *= aAtlas.z;
+          vAtl = (vec2(aAtlas.x, aAtlas.y) + uv) / uCols;`);
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vAtl;')
+        .replace('#include <map_fragment>', `
+          #ifdef USE_MAP
+            diffuseColor *= texture2D(map, vAtl);
+          #endif`);
+    };
+    dm.customProgramCacheKey = () => 'gt-impostor-depth';
+    this.far.customDepthMaterial = dm;
+    // shadow-only impostors for the mid ring (leaves there stop casting; see update)
+    const sgeo = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal', 'uv']) sgeo.setAttribute(k, geo.getAttribute(k));
+    sgeo.setIndex(geo.getIndex());
+    this.shadowAtlas = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, total2) * 3), 3);
+    this.shadowAtlas.setUsage(THREE.DynamicDrawUsage);
+    sgeo.setAttribute('aAtlas', this.shadowAtlas);
+    const si = new THREE.InstancedMesh(sgeo, fm, Math.max(1, total2));
+    si.customDepthMaterial = dm;
+    si.castShadow = true; si.receiveShadow = false; si.frustumCulled = false; si.count = 0; si.visible = false;
+    si.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    si.name = 'tree_shadow_impostors';
+    this.group.add(si);
+    this.shadowImpostors = si;
     this.cols = cols;
   }
   private cols = 1;
@@ -315,9 +349,12 @@ export class TreeSystem {
     const cx = camera.position.x, cz = camera.position.z;
     const nd2 = this.nearDist * this.nearDist, fd2 = this.fullDist * this.fullDist;
     for (let i = 0; i < this.nearCount.length; i++) { this.nearCount[i] = 0; this.midCount[i] = 0; }
-    let fc = 0;
+    let fc = 0, sc = 0;
     const farArr = this.far.instanceMatrix.array as Float32Array;
     const atl = this.farAtlas.array as Float32Array;
+    const si = this.shadowImpostors;
+    const sArr = si ? (si.instanceMatrix.array as Float32Array) : null;
+    const sAtl = si ? (this.shadowAtlas.array as Float32Array) : null;
     for (const T of this.insts) {
       this.sph.center.set(T.x, T.y + T.h * 0.5, T.z); this.sph.radius = T.h * 0.7 + T.r;
       if (!this.frustum.intersectsSphere(this.sph)) continue;
@@ -337,6 +374,11 @@ export class TreeSystem {
           (V.midBark!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
           (V.midLeaves!.instanceMatrix.array as Float32Array).set(T.m, n * 16);
           this.midCount[T.v] = n + 1;
+          if (sArr && sAtl) {
+            sArr.set(T.m, sc * 16);
+            sAtl[sc * 3] = V.atlasIdx % this.cols; sAtl[sc * 3 + 1] = Math.floor(V.atlasIdx / this.cols); sAtl[sc * 3 + 2] = V.ratio;
+            sc++;
+          }
           continue;
         }
       }
@@ -351,6 +393,7 @@ export class TreeSystem {
       V.midBark!.instanceMatrix.needsUpdate = V.midLeaves!.instanceMatrix.needsUpdate = true;
     });
     this.far.count = fc;
+    if (si) { si.count = sc; si.instanceMatrix.needsUpdate = true; this.shadowAtlas.needsUpdate = true; }
     this.far.instanceMatrix.needsUpdate = true;
     this.farAtlas.needsUpdate = true;
   }

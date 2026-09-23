@@ -12,6 +12,7 @@ import { generateBuilding } from './building';
 import { newBuckets, type Buckets } from './facade';
 import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, prepareBuildingTextures, U } from './materials';
 import { centroid } from './poly';
+import { registerShadowProxy, unregisterShadowProxy, setShadowCascades } from '../../render/shadowProxy';
 
 export interface BuildingsResult {
   group: THREE.Group;
@@ -34,6 +35,8 @@ export interface BuildOptions {
 interface Chunk {
   cx: number; cz: number; groundY: number; radius: number;
   group: THREE.Group; lod0: THREE.Group; lod1: THREE.Group; near: boolean;
+  /** perf: lod0 chunk whose shadows come from its flat lod1 walls (shadow-only) */
+  lod1Shadow?: boolean;
   list: RecipeBuilding[];
   /** detail geometry present on the GPU */
   built: boolean;
@@ -119,6 +122,10 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     c.lod0.clear();
     c.built = false;
   };
+  // perf: detailed (lod0) chunks cast their full-detail shadows only into the NEAR sun cascade;
+  // the far cascade gets their flat lod1 walls instead, drawn in the shadow pass only (same
+  // silhouette and window apertures — the far cascade can't resolve sills/frames anyway).
+  let gRef: Game | null = null;
   const setLod = (cam: THREE.Camera) => {
     cam.getWorldPosition(camPos);
     const budgetEnd = performance.now() + 6;
@@ -143,7 +150,18 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       else if (!c.near && c.built && d > lodD * 2.2 + 200) disposeLod0(c);
       const show0 = c.near && c.built;
       c.lod0.visible = show0;
-      c.lod1.visible = !show0;
+      const proxy = !!gRef && show0;
+      if (proxy !== !!c.lod1Shadow) {
+        c.lod1Shadow = proxy && registerShadowProxy(gRef!, c.lod1);
+        if (!c.lod1Shadow && gRef) unregisterShadowProxy(gRef, c.lod1);
+        if (gRef) {
+          setShadowCascades(gRef, c.lod1, c.lod1Shadow ? 2 : 3);
+          setShadowCascades(gRef, c.lod0, c.lod1Shadow ? 1 : 3);
+        }
+      }
+      // lod0 meshes are (re)built lazily: keep the near-cascade mask on (cheap: ~2 meshes)
+      if (c.lod1Shadow) setShadowCascades(gRef!, c.lod0, 1);
+      if (!c.lod1Shadow) c.lod1.visible = !show0;
     }
   };
   let lastNight = -1;
@@ -157,6 +175,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     stats,
     setNightFactor,
     update(_dt: number, g: Game) {
+      gRef = g;
       setLod(g.camera);
     },
   };

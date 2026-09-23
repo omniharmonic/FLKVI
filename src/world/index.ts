@@ -6,7 +6,7 @@ import type { WorldAPI } from '../core/api';
 import type { Vec2, Vec3, RecipeTree } from '../core/types';
 import { preloadLibrary } from '../assets/library';
 import { buildBuildings, type BuildingsResult } from './buildings';
-import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, buildFarTerrain } from './terrain';
+import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, buildFarTerrain, updateTerrainLod } from './terrain';
 import { RoadNetwork } from './roads';
 import { buildAreas, waterUniforms } from './areas';
 import { ChunkBatcher, Grid, pointInPoly, yieldFrame } from './util';
@@ -17,7 +17,7 @@ import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
-import { registerShadowDistance, registerInstancedShadowLod } from '../render/shadowProxy';
+import { registerShadowDistance, registerInstancedShadowLod, registerShadowProxy, setShadowCascades } from '../render/shadowProxy';
 
 export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups } from './physics';
 
@@ -189,6 +189,12 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   }
   try { await trees.build(treeList, g.renderer, (f) => P('Planting trees', 0.45 + f * 0.2)); } catch (e) { console.error('[world] trees failed', e); }
   root.add(trees.group);
+  // perf: mid-ring trees cast through shadow-only impostors; if proxies are unsupported, mid leaves cast directly
+  if (trees.shadowImpostors && !registerShadowProxy(g, trees.shadowImpostors)) {
+    trees.group.traverse((o) => { if ((o as THREE.InstancedMesh).isInstancedMesh && o.name.startsWith('tree_') && o !== trees.shadowImpostors) o.castShadow = true; });
+  }
+  // perf: full-detail trees (< ~50 m) only need to cast into the near sun cascade
+  for (const o of trees.group.children) if (o.castShadow && o.name !== 'tree_impostors' && o !== trees.shadowImpostors) setShadowCascades(g, o, 1);
 
   // ---- buildings (owned by buildings agent)
   P('Raising buildings', 0.66);
@@ -220,6 +226,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       if (!externalNight && game.sky) setNight(game.sky.nightFactor);
       waterUniforms.uTime.value = game.elapsed;
       trees.update(dt, game.camera, game.elapsed);
+      updateTerrainLod(terrainMeshes, game.camera.position);
       props.update(game.elapsed, game.camera);
       buildings?.update?.(dt, game);
     },

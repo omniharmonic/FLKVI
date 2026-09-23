@@ -46,9 +46,9 @@ const NEAR_DIST = 45;
 const MAX_DIST = 520;
 const EXTRA = 24;
 /** Parked cars cast sun shadows (via the shared hull proxies) out to this distance. */
-const SHADOW_DIST = 150;
+const SHADOW_DIST = 100;
 /** Beyond this, parked cars switch to the very-far lod2 body. */
-const FAR2_DIST = 150;
+const FAR2_DIST = 110;
 /** Always keep instances this close regardless of the view frustum (their shadows reach into view). */
 const KEEP_DIST = 30;
 

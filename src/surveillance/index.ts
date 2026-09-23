@@ -399,14 +399,12 @@ export class Surveillance implements SurveillanceAPI {
     // unseen with zero heat: bank right away (clean work feels good)
     if (!a.seen && this.heatLevel() === 0) {
       this.banked += points;
-      this.emitScore(points);
-      this.bankedToast(points);
+      this.emitScore(points); // the HUD takedown pop shows '+N · CLEAN · BANKED'
       this.onBank(points);
     } else {
       this.hot += points;
       this.hotList.push({ points });
-      this.emitScore(points);
-      this.toast(`+${points} (hot) — lose the heat to bank it`, 'warn', 2400);
+      this.emitScore(points); // the HUD takedown pop shows '+N · HOT · LOSE THE HEAT TO BANK'
     }
     this.multiplier = streakMult(this.streak);
   }
@@ -415,8 +413,6 @@ export class Surveillance implements SurveillanceAPI {
     this.multiplier = streakMult(this.streak);
     this.g.events.emit('score', { points, streak: this.streak, hot: this.hot, banked: this.banked, multiplier: this.multiplier });
   }
-
-  private bankedToast(points: number) { this.toast(`+${points} banked`, 'good', 2000); }
 
   private onBank(amount: number) {
     this.g.events.emit('banked', { amount, total: this.banked });
@@ -432,8 +428,7 @@ export class Surveillance implements SurveillanceAPI {
     this.banked += amount;
     this.hot = 0;
     this.hotList = [];
-    this.emitScore(0);
-    this.toast(`Heat lost — +${amount} banked`, 'good', 2600);
+    this.emitScore(0); // the HUD 'banked' overlay celebrates this
     this.onBank(amount);
   }
 

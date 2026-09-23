@@ -159,7 +159,7 @@ class RenderSky implements SkyAPI {
     // (warm, long soft shadows, streets still sunlit; typically 15:30-16:30)
     const q = new URLSearchParams(location.search);
     if (q.has('time')) this.time = parseFloat(q.get('time')!) || 16.0;
-    else this.time = THREE.MathUtils.clamp(findElevationTime(this.lat, this.lon, this.day, 20) ?? 16.0, 14.0, 18.0);
+    else this.time = THREE.MathUtils.clamp(findElevationTime(this.lat, this.lon, this.day, 22) ?? 16.0, 14.0, 18.0);
     if (q.has('timescale')) this.timeScale = parseFloat(q.get('timescale')!);
     // weather: never rain on the first load of a browser session (first impression = sunny);
     // later loads roll the regional rain chance (≤ 15%).
@@ -363,9 +363,9 @@ class RenderSky implements SkyAPI {
     p.exposure.exposure = this.exposure;
     // golden hour: warm the whole frame a touch (daylight-balanced camera under low sun)
     p.exposure.whiteBalance.set(
-      L.wb[0] * (1 - 0.06 * n) * (1 + 0.04 * golden),
-      L.wb[1],
-      L.wb[2] * (1 + 0.04 * n) * (1 - 0.07 * golden),
+      L.wb[0] * (1 - 0.06 * n) * (1 + 0.06 * golden),
+      L.wb[1] * (1 + 0.01 * golden),
+      L.wb[2] * (1 + 0.04 * n) * (1 - 0.1 * golden),
     );
     // subtle by day (only the sun glint / speculars bloom), rich halos around lamps and signs at night
     p.bloom.luminanceMaterial.threshold = p.bloomBaseThreshold / this.exposure * (1 - 0.35 * n);
@@ -384,7 +384,9 @@ class RenderSky implements SkyAPI {
     const E = E_SUN;
     const acc = new THREE.Color(0, 0, 0);
     const d = new THREE.Vector3();
-    const el = 2 * DEG;
+    // aerial perspective over a few km is Rayleigh-blue, not the white of the 100 km horizon path:
+    // sample the sky ring a little above the horizon
+    const el = 7 * DEG;
     const N = 12;
     for (let i = 0; i < N; i++) {
       const az = (i / N) * Math.PI * 2;

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { textureSet, textureSetReady, type TextureId } from '../../assets/library';
 import { procTexture, TEX_RES } from './textures';
+import { SHOP_GLSL } from './shopGlsl';
 
 /** Shared uniforms: night factor drives window occupancy and signage glow. */
 export const U = {
@@ -11,6 +12,8 @@ export const U = {
   uInteriorDay: { value: 0.38 },
   /** Night lamp intensity. */
   uLamp: { value: 0.45 }, // look-dev: 0.75 clipped storefronts/windows at night exposure
+  /** Scale of the env-map reflection on clear glass. */
+  uGlassEnv: { value: 1.0 },
 };
 
 /** GLSL: cheap hash noise used for grime streaks. */
@@ -279,6 +282,7 @@ export function refreshSigns() { if (signTex) signTex.needsUpdate = true; }
 // ---------------------------------------------------------------------------------------------
 const WINDOW_GLSL = /* glsl */ `
 uniform float uNight;
+uniform float uGlassEnv;
 uniform float uInteriorDay;
 uniform float uLamp;
 varying vec2 vWin0;
@@ -347,6 +351,10 @@ vec4 shadeWindow(vec3 V, vec3 N){
   vec3 T = normalize(vec3(N.z, 0.0, -N.x));
   vec3 d = vec3(dot(V, T), V.y, -dot(V, N));
   d.z = max(d.z, 0.03);
+  if (kind > 1.5 && kind < 2.5) {
+    float cat = floor(fract(vWinB.z + 0.001) * 20.0 + 0.001);
+    return vec4(shadeShop(d, lp, W, H, sill, flH, seed, cat, vWinB.z < 0.5 ? 1.0 : 0.0), solid);
+  }
   // room tiling along the facade
   float off = wh1(seed * 1.7) * roomW;
   float rxAll = lp.x + off;
@@ -486,6 +494,7 @@ export function glassMaterial(): THREE.MeshStandardMaterial {
     sh.uniforms.uNight = U.uNight;
     sh.uniforms.uInteriorDay = U.uInteriorDay;
     sh.uniforms.uLamp = U.uLamp;
+    sh.uniforms.uGlassEnv = U.uGlassEnv;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec2 aWin0; attribute vec4 aWinA; attribute vec4 aWinB;
@@ -495,7 +504,7 @@ vWin0 = aWin0; vWinA = aWinA; vWinB = aWinB;
 vGWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
 vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL + '\nfloat gSolid; float gReflect; float gKind;')
+      .replace('#include <common>', '#include <common>\n' + WINDOW_GLSL + SHOP_GLSL + '\nfloat gSolid; float gReflect; float gKind;')
       .replace('#include <color_fragment>', `#include <color_fragment>
   {
     gKind = floor(vWinB.y + 0.001);
@@ -521,12 +530,31 @@ vGWN = normalize(mat3(modelMatrix) * objectNormal);`);
       vec3 gIrr = vec3(1.0);
     #endif
     gDayIrr = gIrr * RECIPROCAL_PI * uInteriorDay;
-    vec4 gw = shadeWindow(normalize(vGWPos - cameraPosition), normalize(vGWN));
-    outgoingLight += gw.rgb * (1.0 - gSolid) * (1.0 - gReflect * 0.85);
+    gOutIrr = gIrr * RECIPROCAL_PI;
+    vec3 gV = normalize(vGWPos - cameraPosition);
+    vec3 gN = normalize(vGWN);
+    vec4 gw = shadeWindow(gV, gN);
+    if (gReflect > 0.01) {
+      outgoingLight += gw.rgb * (1.0 - gSolid) * (1.0 - gReflect * 0.85);
+    } else {
+      // clear glass: fresnel mix of interior and a street/sky reflection
+      float cosT = clamp(dot(-gV, gN), 0.0, 1.0);
+      float F = 0.07 + 0.93 * pow(1.0 - cosT, 5.0);
+      vec3 R = reflect(gV, gN);
+      #ifdef USE_ENVMAP
+        vec3 envR = getIBLRadiance(geometryViewDir, geometryNormal, 0.02) * uGlassEnv;
+      #else
+        vec3 envR = gOutIrr * mix(vec3(0.35), vec3(0.6, 0.75, 1.0), step(0.0, R.y));
+      #endif
+      vec4 sb = streetBand(R, uNight);
+      vec3 refl = mix(envR, sb.rgb, sb.a);
+      vec3 glassOut = gw.rgb * (1.0 - F) + refl * F + reflectedLight.directSpecular;
+      outgoingLight = mix(glassOut, outgoingLight, gSolid);
+    }
   }
 #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => 'bldg-glass-v2';
+  m.customProgramCacheKey = () => 'bldg-glass-v3';
   glassMat = m;
   return m;
 }

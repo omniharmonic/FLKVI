@@ -7,7 +7,8 @@
 // reveal the proxies for the shadow pass only, and hide them again in scene.onAfterRender, so
 // they never enter the colour/depth passes.
 //
-//   registerShadowProxy(g, obj)   obj (and its subtree) casts sun shadows only
+//   registerShadowProxy(g, obj)   obj (and its subtree) is drawn in the sun shadow pass only
+//                                 (castShadow flags of its meshes are left to the caller)
 //   unregisterShadowProxy(g, obj)
 import * as THREE from 'three';
 import type { Game } from '../core/game';
@@ -41,7 +42,6 @@ export function registerShadowProxy(g: Game, obj: THREE.Object3D): boolean {
   const st = install(g);
   obj.visible = false;
   if (!st) return false;
-  obj.traverse((o) => { o.castShadow = true; o.receiveShadow = false; });
   st.set.add(obj);
   return true;
 }
@@ -154,4 +154,40 @@ function refreshInst(e: InstEntry, cx: number, cz: number) {
   e.proxy.instanceMatrix.needsUpdate = true;
   e.proxy.boundingSphere = null;
   if (n) e.proxy.computeBoundingSphere();
+}
+
+// ------------------------------------------------------------------------------------------------
+// Per-cascade casters. The sun has 2 cascades (0 = near, ~0..130 m; 1 = far, to shadowFar).
+// setShadowCascades(g, obj, mask) limits every mesh under obj to the cascades in `mask`
+// (bit 0 = near, bit 1 = far): e.g. detailed geometry only in the near cascade while a simpler
+// stand-in covers the far one. Skipped draws are rejected by an empty drawRange before any GPU work.
+
+const _savedCount = new WeakMap<THREE.BufferGeometry, number>();
+
+export function setShadowCascades(g: Game, obj: THREE.Object3D, mask: number) {
+  const sun = (g.sky as any)?.sunLight ?? (g.sky as any)?.sun;
+  const shadow = sun?.shadow;
+  if (!shadow || typeof shadow.getCamera !== 'function') return;
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.userData.shadowCascades = mask;
+    if (m.userData.shadowCascadeHook) return;
+    m.userData.shadowCascadeHook = true;
+    const before = m.onBeforeShadow, after = m.onAfterShadow;
+    m.onBeforeShadow = function (r, ob, cam, shadowCam, geo, dm, grp) {
+      const k = (this.userData.shadowCascades as number) ?? 3;
+      const i = shadowCam === shadow.getCamera(0) ? 0 : shadowCam === shadow.getCamera(1) ? 1 : -1;
+      if (i >= 0 && !(k & (1 << i))) {
+        if (!_savedCount.has(geo)) _savedCount.set(geo, geo.drawRange.count);
+        geo.drawRange.count = -1;
+      }
+      before.call(this, r, ob, cam, shadowCam, geo, dm, grp);
+    };
+    m.onAfterShadow = function (r, ob, cam, shadowCam, geo, dm, grp) {
+      const c = _savedCount.get(geo);
+      if (c !== undefined) { geo.drawRange.count = c; _savedCount.delete(geo); }
+      after.call(this, r, ob, cam, shadowCam, geo, dm, grp);
+    };
+  });
 }

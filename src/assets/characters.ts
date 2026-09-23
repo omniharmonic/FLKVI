@@ -658,14 +658,14 @@ function geometryFor(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
 const GLSL_COMMON = /* glsl */ `
 uniform vec4 uL1; uniform vec4 uL2; uniform vec4 uL3; uniform vec4 uL4;
 uniform vec4 uTopP; uniform vec4 uTopQ; uniform vec4 uBotP; uniform vec4 uBotQ; uniform vec4 uShoeP; uniform vec4 uMisc;
-float gtArmT(vec3 p) { return (abs(p.x) - uL1.x) / (uL1.z - uL1.x); }
-float gtLegT(vec3 p) { return (uL2.x - p.y) / (uL2.x - uL2.z); }
+float pzArmT(vec3 p) { return (abs(p.x) - uL1.x) / (uL1.z - uL1.x); }
+float pzLegT(vec3 p) { return (uL2.x - p.y) / (uL2.x - uL2.z); }
 // x top, y bottom, z shoe
-vec4 gtCover(vec3 p) {
-  float at = gtArmT(p);
+vec4 pzCover(vec3 p) {
+  float at = pzArmT(p);
   bool arm = at > 0.12 && p.y > uL2.x;
   float top = arm ? step(at, uTopP.x) : step(uTopP.y, p.y) * step(p.y, uTopQ.x);
-  float bot = arm ? 0.0 : step(p.y, uBotP.w) * step(gtLegT(p), uBotP.x);
+  float bot = arm ? 0.0 : step(p.y, uBotP.w) * step(pzLegT(p), uBotP.x);
   float shoe = arm ? 0.0 : step(p.y, uShoeP.x);
   return vec4(top, bot, shoe, 0.0);
 }
@@ -675,13 +675,13 @@ const GLSL_FRAG_COMMON = /* glsl */ `
 uniform vec3 uTopCol; uniform vec3 uTop2Col; uniform vec3 uBotCol; uniform vec3 uShoeCol; uniform vec3 uSoleCol;
 uniform vec3 uSockCol; uniform vec3 uSkinCol; uniform vec3 uHairCol; uniform vec3 uEyeCol; uniform vec3 uGloveCol;
 uniform vec3 uTubeCol; uniform vec3 uTexAvg; uniform sampler2D uPatch;
-float gtHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float gtNoise(vec3 x) {
+float pzHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float pzNoise(vec3 x) {
   vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(gtHash(i), gtHash(i + vec3(1,0,0)), f.x), mix(gtHash(i + vec3(0,1,0)), gtHash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(gtHash(i + vec3(0,0,1)), gtHash(i + vec3(1,0,1)), f.x), mix(gtHash(i + vec3(0,1,1)), gtHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+  return mix(mix(mix(pzHash(i), pzHash(i + vec3(1,0,0)), f.x), mix(pzHash(i + vec3(0,1,0)), pzHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(pzHash(i + vec3(0,0,1)), pzHash(i + vec3(1,0,1)), f.x), mix(pzHash(i + vec3(0,1,1)), pzHash(i + vec3(1,1,1)), f.x), f.y), f.z);
 }
-vec3 gtBumpN(vec3 sp, vec3 sn, float h) {
+vec3 pzBumpN(vec3 sp, vec3 sn, float h) {
   vec3 dpx = dFdx(sp); vec3 dpy = dFdy(sp);
   float dhx = dFdx(h); float dhy = dFdy(h);
   vec3 r1 = cross(dpy, sn); vec3 r2 = cross(sn, dpx);
@@ -693,138 +693,138 @@ vec3 gtBumpN(vec3 sp, vec3 sn, float h) {
 
 // Fabric ids: 0 cotton knit, 1 denim, 2 nylon puffer, 3 wool/suiting, 4 cotton twill, 5 polyester, 6 leather
 const GLSL_SHADE = /* glsl */ `
-vec3 gtP = vBind;
-float gtL = floor(vGt.x + 0.5);
-vec4 gtC = gtCover(gtP);
-float gtAt = gtArmT(gtP);
-bool gtArm = gtAt > 0.12 && gtP.y > uL2.x;
-float gtLt = gtLegT(gtP);
-bool gtFront = gtP.z > uL3.z;
-float gtKind = 0.0; // 0 skin, 1 top, 2 bottom, 3 shoe, 4 tube, 5 sock, 6 glove, 7 brow, 8 eye
-if (gtL < 0.5) {
-  if (gtC.z > 0.5 && gtC.y < 0.5) gtKind = 3.0;
-  else if (gtC.x > 0.5) gtKind = 1.0;
-  else if (gtC.y > 0.5) gtKind = 2.0;
-  else if (!gtArm && gtP.y < uShoeP.w) gtKind = 5.0;
-  else if (gtArm && gtAt > 1.0 && uMisc.y > 0.5) gtKind = 6.0;
-} else if (gtL < 1.5) { if (gtC.x < 0.5) discard; gtKind = 1.0; }
-else if (gtL < 2.5) { if (gtC.y < 0.5) discard; gtKind = 2.0; }
-else if (gtL < 3.5) { if (gtC.z < 0.5 || gtC.y > 0.5) discard; gtKind = 3.0; }
-else if (gtL < 4.5) { if (gtP.y < uTopQ.z || gtP.y > uTopQ.w) discard; gtKind = 4.0; }
-else if (gtL < 5.5) gtKind = 7.0;
-else gtKind = 8.0;
+vec3 pzP = vBind;
+float pzL = floor(vGt.x + 0.5);
+vec4 pzC = pzCover(pzP);
+float pzAt = pzArmT(pzP);
+bool pzArm = pzAt > 0.12 && pzP.y > uL2.x;
+float pzLt = pzLegT(pzP);
+bool pzFront = pzP.z > uL3.z;
+float pzKind = 0.0; // 0 skin, 1 top, 2 bottom, 3 shoe, 4 tube, 5 sock, 6 glove, 7 brow, 8 eye
+if (pzL < 0.5) {
+  if (pzC.z > 0.5 && pzC.y < 0.5) pzKind = 3.0;
+  else if (pzC.x > 0.5) pzKind = 1.0;
+  else if (pzC.y > 0.5) pzKind = 2.0;
+  else if (!pzArm && pzP.y < uShoeP.w) pzKind = 5.0;
+  else if (pzArm && pzAt > 1.0 && uMisc.y > 0.5) pzKind = 6.0;
+} else if (pzL < 1.5) { if (pzC.x < 0.5) discard; pzKind = 1.0; }
+else if (pzL < 2.5) { if (pzC.y < 0.5) discard; pzKind = 2.0; }
+else if (pzL < 3.5) { if (pzC.z < 0.5 || pzC.y > 0.5) discard; pzKind = 3.0; }
+else if (pzL < 4.5) { if (pzP.y < uTopQ.z || pzP.y > uTopQ.w) discard; pzKind = 4.0; }
+else if (pzL < 5.5) pzKind = 7.0;
+else pzKind = 8.0;
 
-float gtSkin = gtKind < 0.5 ? 1.0 : 0.0;
-float gtRough = 0.9;
-float gtFab = 0.0;
-float gtH = 0.0;
-float gtN = gtNoise(gtP * 36.0);
-float gtN2 = gtNoise(gtP * 7.0 + 3.1);
-vec3 gtCol = vec3(1.0);
-if (gtKind < 0.5) {
+float pzSkin = pzKind < 0.5 ? 1.0 : 0.0;
+float pzRough = 0.9;
+float pzFab = 0.0;
+float pzH = 0.0;
+float pzN = pzNoise(pzP * 36.0);
+float pzN2 = pzNoise(pzP * 7.0 + 3.1);
+vec3 pzCol = vec3(1.0);
+if (pzKind < 0.5) {
   vec3 det = diffuseColor.rgb / max(uTexAvg, vec3(0.02));
   float lum = dot(det, vec3(0.3, 0.59, 0.11));
   det = mix(vec3(lum), det, 0.55);
-  gtCol = uSkinCol * clamp(det, 0.0, 2.2);
+  pzCol = uSkinCol * clamp(det, 0.0, 2.2);
   // buzz cut / scalp under hair
   if (uMisc.x > 0.5) {
-    float scalp = max(smoothstep(uL3.w - 0.085, uL3.w - 0.06, gtP.y),
-      smoothstep(uL4.x - 0.005, uL4.x - 0.03, gtP.z) * smoothstep(uL4.z - 0.03, uL4.z - 0.005, gtP.y) * step(abs(gtP.x), 0.085));
-    gtCol = mix(gtCol, uHairCol * (0.75 + 0.5 * gtN), scalp * 0.92);
-    if (scalp > 0.5) gtSkin = 0.0;
-    gtRough = 0.85;
+    float scalp = max(smoothstep(uL3.w - 0.085, uL3.w - 0.06, pzP.y),
+      smoothstep(uL4.x - 0.005, uL4.x - 0.03, pzP.z) * smoothstep(uL4.z - 0.03, uL4.z - 0.005, pzP.y) * step(abs(pzP.x), 0.085));
+    pzCol = mix(pzCol, uHairCol * (0.75 + 0.5 * pzN), scalp * 0.92);
+    if (scalp > 0.5) pzSkin = 0.0;
+    pzRough = 0.85;
   }
-} else if (gtKind < 1.5) {
+} else if (pzKind < 1.5) {
   float st = uTopQ.y;
-  gtCol = uTopCol; gtFab = uTopP.w;
-  float yb = gtP.y - uL2.x;
+  pzCol = uTopCol; pzFab = uTopP.w;
+  float yb = pzP.y - uL2.x;
   if (st > 2.5 && st < 3.5) { // hi-vis vest over a tee
-    if (gtArm) { gtCol = uTop2Col; gtFab = 0.0; }
+    if (pzArm) { pzCol = uTop2Col; pzFab = 0.0; }
     else {
       float band = step(abs(yb - 0.15), 0.022) + step(abs(yb - 0.27), 0.022);
-      float vert = step(0.055, abs(gtP.x)) * step(abs(gtP.x), 0.1) * step(0.29, yb);
-      if (band + vert > 0.5) { gtCol = vec3(0.72, 0.73, 0.7); gtRough = 0.3; gtFab = -1.0; }
+      float vert = step(0.055, abs(pzP.x)) * step(abs(pzP.x), 0.1) * step(0.29, yb);
+      if (band + vert > 0.5) { pzCol = vec3(0.72, 0.73, 0.7); pzRough = 0.3; pzFab = -1.0; }
     }
   }
   if ((st > 1.5 && st < 2.5) || (st > 5.5 && st < 6.5)) { // open jacket / blazer: under-layer down the front
-    float w = st > 5.5 ? mix(0.012, 0.085, clamp((gtP.y - (uL2.x + 0.16)) / 0.26, 0.0, 1.0)) : 0.05;
-    if (!gtArm && gtFront && gtP.y > uL2.x - 0.02) {
-      if (abs(gtP.x) < w) { gtCol = uTop2Col; gtFab = 0.0; }
-      else if (abs(gtP.x) < w + 0.012) gtCol *= 0.62;
+    float w = st > 5.5 ? mix(0.012, 0.085, clamp((pzP.y - (uL2.x + 0.16)) / 0.26, 0.0, 1.0)) : 0.05;
+    if (!pzArm && pzFront && pzP.y > uL2.x - 0.02) {
+      if (abs(pzP.x) < w) { pzCol = uTop2Col; pzFab = 0.0; }
+      else if (abs(pzP.x) < w + 0.012) pzCol *= 0.62;
     }
   }
   if (st > 0.5 && st < 1.5) { // hoodie: ribbed hem & cuffs, kangaroo pocket, drawstrings
-    if (!gtArm && gtP.y - uTopP.y < 0.05) gtCol *= 0.84;
-    if (gtArm && gtAt > uTopP.x - 0.08) gtCol *= 0.84;
-    float py = gtP.y - uTopP.y;
-    if (!gtArm && gtFront && abs(gtP.x) < 0.125 && py > 0.06 && py < 0.2) {
-      float e = min(0.125 - abs(gtP.x), min(py - 0.06, 0.2 - py));
-      if (e < 0.007) gtCol *= 0.7;
+    if (!pzArm && pzP.y - uTopP.y < 0.05) pzCol *= 0.84;
+    if (pzArm && pzAt > uTopP.x - 0.08) pzCol *= 0.84;
+    float py = pzP.y - uTopP.y;
+    if (!pzArm && pzFront && abs(pzP.x) < 0.125 && py > 0.06 && py < 0.2) {
+      float e = min(0.125 - abs(pzP.x), min(py - 0.06, 0.2 - py));
+      if (e < 0.007) pzCol *= 0.7;
     }
-    if (!gtArm && gtFront && abs(abs(gtP.x) - 0.035) < 0.005 && gtP.y > uTopQ.x - 0.2 && gtP.y < uTopQ.x - 0.03) gtCol = mix(gtCol, vec3(0.8), 0.55);
+    if (!pzArm && pzFront && abs(abs(pzP.x) - 0.035) < 0.005 && pzP.y > uTopQ.x - 0.2 && pzP.y < uTopQ.x - 0.03) pzCol = mix(pzCol, vec3(0.8), 0.55);
   }
   if (st > 3.5 && st < 4.5) { // uniform shirt: placket, generic plain badge, pocket flaps
-    if (!gtArm && gtFront && abs(gtP.x) < 0.005 && yb > 0.0) gtCol *= 0.7;
-    if (!gtArm && gtFront && abs(gtP.x - 0.085) < 0.018 && abs(gtP.y - (uL1.w - 0.11)) < 0.022) { gtCol = vec3(0.55, 0.5, 0.36); gtRough = 0.3; gtFab = -1.0; }
-    if (!gtArm && gtFront && abs(abs(gtP.x) - 0.085) < 0.04 && abs(gtP.y - (uL1.w - 0.16)) < 0.008) gtCol *= 0.72;
+    if (!pzArm && pzFront && abs(pzP.x) < 0.005 && yb > 0.0) pzCol *= 0.7;
+    if (!pzArm && pzFront && abs(pzP.x - 0.085) < 0.018 && abs(pzP.y - (uL1.w - 0.11)) < 0.022) { pzCol = vec3(0.55, 0.5, 0.36); pzRough = 0.3; pzFab = -1.0; }
+    if (!pzArm && pzFront && abs(abs(pzP.x) - 0.085) < 0.04 && abs(pzP.y - (uL1.w - 0.16)) < 0.008) pzCol *= 0.72;
   }
-  if (uMisc.z > 0.5 && !gtArm && !gtFront && abs(gtP.x) < 0.13 && abs(gtP.y - (uL1.w - 0.1)) < 0.04) {
-    vec2 puv = vec2(-gtP.x / 0.26 + 0.5, (gtP.y - (uL1.w - 0.14)) / 0.08);
+  if (uMisc.z > 0.5 && !pzArm && !pzFront && abs(pzP.x) < 0.13 && abs(pzP.y - (uL1.w - 0.1)) < 0.04) {
+    vec2 puv = vec2(-pzP.x / 0.26 + 0.5, (pzP.y - (uL1.w - 0.14)) / 0.08);
     float t = texture2D(uPatch, puv).r;
-    gtCol = mix(gtCol, vec3(0.75, 0.75, 0.7), t); gtRough = mix(gtRough, 0.3, t);
+    pzCol = mix(pzCol, vec3(0.75, 0.75, 0.7), t); pzRough = mix(pzRough, 0.3, t);
   }
-} else if (gtKind < 2.5) {
-  gtCol = uBotCol; gtFab = uBotP.z;
-  if (gtFab > 0.5 && gtFab < 1.5) gtCol *= 1.0 + 0.22 * smoothstep(0.0, 0.07, gtP.z - uL4.w) * smoothstep(0.08, 0.5, gtLt) * (0.7 + 0.6 * gtN2);
-  if (uBotQ.x > 0.5 && abs(gtP.y - (uBotP.w - 0.028)) < (uBotQ.x > 1.5 ? 0.028 : 0.018)) {
-    gtCol = vec3(0.025); gtRough = 0.45; gtFab = -1.0;
-    if (uBotQ.x > 1.5) { float a = atan(gtP.x, gtP.z - uL3.z); if (sin(a * 7.0) > 0.35) gtCol = vec3(0.05); }
+} else if (pzKind < 2.5) {
+  pzCol = uBotCol; pzFab = uBotP.z;
+  if (pzFab > 0.5 && pzFab < 1.5) pzCol *= 1.0 + 0.22 * smoothstep(0.0, 0.07, pzP.z - uL4.w) * smoothstep(0.08, 0.5, pzLt) * (0.7 + 0.6 * pzN2);
+  if (uBotQ.x > 0.5 && abs(pzP.y - (uBotP.w - 0.028)) < (uBotQ.x > 1.5 ? 0.028 : 0.018)) {
+    pzCol = vec3(0.025); pzRough = 0.45; pzFab = -1.0;
+    if (uBotQ.x > 1.5) { float a = atan(pzP.x, pzP.z - uL3.z); if (sin(a * 7.0) > 0.35) pzCol = vec3(0.05); }
   }
-} else if (gtKind < 3.5) {
+} else if (pzKind < 3.5) {
   float st = uShoeP.z;
-  gtCol = uShoeCol; gtRough = st > 1.5 && st < 2.5 ? 0.28 : (st > 0.5 && st < 1.5 ? 0.55 : 0.75); gtFab = -1.0;
-  if (gtP.y < uShoeP.y) { gtCol = uSoleCol; gtRough = 0.85; }
-  else if ((st < 0.5 || st > 2.5) && gtP.y < uShoeP.y + 0.012) gtCol = mix(gtCol, vec3(0.85), 0.8);
-  else if (st < 0.5 || st > 2.5) { if (gtFront && abs(gtP.x) > 0.0 && gtP.y > uL2.z - 0.04 && gtN > 0.55) gtCol *= 0.9; }
-} else if (gtKind < 4.5) {
-  gtCol = uTubeCol; gtFab = uBotQ.z;
-} else if (gtKind < 5.5) {
-  gtCol = uSockCol; gtFab = 0.0;
-} else if (gtKind < 6.5) {
-  gtCol = uGloveCol; gtRough = 0.7; gtFab = -1.0;
-} else if (gtKind < 7.5) {
-  gtCol = uHairCol * 0.55; gtRough = 0.9; gtFab = -1.0;
+  pzCol = uShoeCol; pzRough = st > 1.5 && st < 2.5 ? 0.28 : (st > 0.5 && st < 1.5 ? 0.55 : 0.75); pzFab = -1.0;
+  if (pzP.y < uShoeP.y) { pzCol = uSoleCol; pzRough = 0.85; }
+  else if ((st < 0.5 || st > 2.5) && pzP.y < uShoeP.y + 0.012) pzCol = mix(pzCol, vec3(0.85), 0.8);
+  else if (st < 0.5 || st > 2.5) { if (pzFront && abs(pzP.x) > 0.0 && pzP.y > uL2.z - 0.04 && pzN > 0.55) pzCol *= 0.9; }
+} else if (pzKind < 4.5) {
+  pzCol = uTubeCol; pzFab = uBotQ.z;
+} else if (pzKind < 5.5) {
+  pzCol = uSockCol; pzFab = 0.0;
+} else if (pzKind < 6.5) {
+  pzCol = uGloveCol; pzRough = 0.7; pzFab = -1.0;
+} else if (pzKind < 7.5) {
+  pzCol = uHairCol * 0.55; pzRough = 0.9; pzFab = -1.0;
 } else {
   float fw = vGt.y;
-  gtCol = vec3(0.62, 0.6, 0.56);
-  if (fw > 0.89) gtCol = uEyeCol;
-  if (fw > 0.965) gtCol = vec3(0.012);
-  gtRough = 0.15; gtFab = -1.0;
+  pzCol = vec3(0.62, 0.6, 0.56);
+  if (fw > 0.89) pzCol = uEyeCol;
+  if (fw > 0.965) pzCol = vec3(0.012);
+  pzRough = 0.15; pzFab = -1.0;
 }
-if (gtKind > 0.5 && gtKind < 5.5 && gtFab > -0.5 && !(gtKind > 2.5 && gtKind < 3.5)) {
+if (pzKind > 0.5 && pzKind < 5.5 && pzFab > -0.5 && !(pzKind > 2.5 && pzKind < 3.5)) {
   // fabric: mottling, folds, per-fabric roughness
-  gtCol *= 0.94 + 0.1 * gtN;
+  pzCol *= 0.94 + 0.1 * pzN;
   float fold = 0.0;
-  if (gtKind < 1.5) {
-    if (gtArm) fold = exp(-pow((gtAt - 0.5) / 0.1, 2.0)) * sin(gtAt * 90.0 + gtP.y * 50.0 + gtN2 * 3.0);
-    else fold = 0.6 * sin(gtP.x * 55.0 + sin(gtP.y * 16.0) * 2.5 + gtN2 * 2.0) * smoothstep(uL1.w - 0.12, uL1.w - 0.32, gtP.y);
-  } else if (gtKind < 2.5 || gtKind > 4.5) {
-    fold = (exp(-pow((gtLt - 0.5) / 0.08, 2.0)) + smoothstep(0.8, 1.0, gtLt) + 0.5 * exp(-pow(gtLt / 0.08, 2.0))) * sin(gtLt * 110.0 + gtP.x * 30.0 + gtN2 * 3.0);
+  if (pzKind < 1.5) {
+    if (pzArm) fold = exp(-pow((pzAt - 0.5) / 0.1, 2.0)) * sin(pzAt * 90.0 + pzP.y * 50.0 + pzN2 * 3.0);
+    else fold = 0.6 * sin(pzP.x * 55.0 + sin(pzP.y * 16.0) * 2.5 + pzN2 * 2.0) * smoothstep(uL1.w - 0.12, uL1.w - 0.32, pzP.y);
+  } else if (pzKind < 2.5 || pzKind > 4.5) {
+    fold = (exp(-pow((pzLt - 0.5) / 0.08, 2.0)) + smoothstep(0.8, 1.0, pzLt) + 0.5 * exp(-pow(pzLt / 0.08, 2.0))) * sin(pzLt * 110.0 + pzP.x * 30.0 + pzN2 * 3.0);
   } else {
-    fold = sin(atan(gtP.x, gtP.z - uL3.z) * 9.0 + gtN2 * 2.0) * smoothstep(0.1, 0.9, vGt.y);
+    fold = sin(atan(pzP.x, pzP.z - uL3.z) * 9.0 + pzN2 * 2.0) * smoothstep(0.1, 0.9, vGt.y);
   }
-  gtH = fold * 0.0035;
-  if (gtFab > 1.5 && gtFab < 2.5) {
-    float coord = gtArm ? gtAt * 7.0 : gtP.y / 0.085;
+  pzH = fold * 0.0035;
+  if (pzFab > 1.5 && pzFab < 2.5) {
+    float coord = pzArm ? pzAt * 7.0 : pzP.y / 0.085;
     float ch = abs(sin(coord * 3.14159));
-    gtH = ch * 0.012; gtCol *= 0.78 + 0.22 * ch;
-    gtRough = 0.42;
+    pzH = ch * 0.012; pzCol *= 0.78 + 0.22 * ch;
+    pzRough = 0.42;
   } else {
-    gtCol *= 1.0 - 0.12 * clamp(-fold, 0.0, 1.0);
-    gtRough = gtFab < 0.5 ? 0.96 : gtFab < 1.5 ? 0.9 : gtFab < 3.5 ? 0.86 : gtFab < 4.5 ? 0.88 : gtFab < 5.5 ? 0.62 : 0.45;
+    pzCol *= 1.0 - 0.12 * clamp(-fold, 0.0, 1.0);
+    pzRough = pzFab < 0.5 ? 0.96 : pzFab < 1.5 ? 0.9 : pzFab < 3.5 ? 0.86 : pzFab < 4.5 ? 0.88 : pzFab < 5.5 ? 0.62 : 0.45;
   }
 }
-diffuseColor.rgb = gtCol;
+diffuseColor.rgb = pzCol;
 `;
 
 type U = Record<string, { value: any }>;
@@ -857,7 +857,7 @@ function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
         vGt = gt; vBind = position;
         {
           float L = floor(gt.x + 0.5);
-          if (L < 0.5) { vec4 cv = gtCover(position); if (cv.x + cv.y + cv.z > 0.5) transformed -= normal * 0.004; }
+          if (L < 0.5) { vec4 cv = pzCover(position); if (cv.x + cv.y + cv.z > 0.5) transformed -= normal * 0.004; }
           else if (L < 1.5) transformed += normal * uTopP.z;
           else if (L < 2.5) transformed += normal * uBotP.y;
           else if (L < 4.5 && L > 3.5) transformed += normal * uBotQ.w;
@@ -867,11 +867,11 @@ function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec4 vGt;\nvarying vec3 vBind;\n${GLSL_COMMON}\n${GLSL_FRAG_COMMON}`)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${GLSL_SHADE}`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (gtSkin < 0.5) roughnessFactor = gtRough; else roughnessFactor = clamp(roughnessFactor * 0.85, 0.35, 0.8);')
-      .replace('#include <normal_fragment_maps>', `vec3 gtBN = gtBumpN(-vViewPosition, normal, gtH);
-        if (gtSkin > 0.5) {
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (pzSkin < 0.5) roughnessFactor = pzRough; else roughnessFactor = clamp(roughnessFactor * 0.85, 0.35, 0.8);')
+      .replace('#include <normal_fragment_maps>', `vec3 pzBN = pzBumpN(-vViewPosition, normal, pzH);
+        if (pzSkin > 0.5) {
         #include <normal_fragment_maps>
-        } else normal = gtBN;`);
+        } else normal = pzBN;`);
   };
   m.customProgramCacheKey = () => 'gt-person-v2';
   return m;
@@ -1426,10 +1426,11 @@ function applyPerson(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, 
   const u = makeUniforms(base);
   applyLook(u, base, look);
   body.material = personMaterial(base, u);
+  body.material.userData.pzU = u;
   body.customDepthMaterial = personDepthMaterial(u);
   body.castShadow = true; body.receiveShadow = true;
   body.frustumCulled = false;
-  body.userData.gtLook = { ...look };
+  body.userData.pzLook = { ...look };
   root.traverse((o) => {
     const m = o as THREE.SkinnedMesh;
     if (m.isSkinnedMesh && m !== body) m.visible = false; // eyes + brows live in the merged body

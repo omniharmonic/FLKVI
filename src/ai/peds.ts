@@ -46,7 +46,7 @@ const PED_KEEP = 14;
 /** Beyond this distance from the camera peds don't cast sun shadows. */
 const PED_SHADOW = 40;
 /** Beyond this distance peds aren't drawn at all (they're a few pixels tall, mostly occluded). */
-const PED_DRAW = 170;
+const PED_DRAW = 120;
 const pedMeshes = new WeakMap<Character, { meshes: THREE.Mesh[]; shadow: boolean }>();
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();

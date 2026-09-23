@@ -36,12 +36,12 @@ const base: LookPreset = {
 
 export const LOOKS: Record<string, LookPreset> = {
   desert: {
-    ...base, name: 'desert', mie: 2.2, mieG: 0.76, haze: 1 / 11000, heightFog: 1 / 16000, heightFalloff: 1 / 160,
+    ...base, name: 'desert', mie: 2.2, mieG: 0.76, haze: 1 / 8000, heightFog: 1 / 16000, heightFalloff: 1 / 160,
     wb: [1.05, 1.0, 0.92], saturation: 0.97, contrast: 1.07,
     shadowTint: [1.0, 0.98, 0.99], highlightTint: [1.05, 1.0, 0.92], clouds: 0.12, cityGlow: 1.1, rainChance: 0.03,
   },
   mountain: {
-    ...base, name: 'mountain', mie: 0.85, mieG: 0.82, haze: 1 / 17000, heightFog: 1 / 14000, heightFalloff: 1 / 70,
+    ...base, name: 'mountain', mie: 0.85, mieG: 0.82, haze: 1 / 9000, heightFog: 1 / 14000, heightFalloff: 1 / 70,
     wb: [1.02, 1.0, 0.97], saturation: 1.1, contrast: 1.08,
     shadowTint: [0.975, 0.995, 1.03], highlightTint: [1.04, 1.0, 0.95], clouds: 0.3, cityGlow: 0.9, rainChance: 0.1,
   },

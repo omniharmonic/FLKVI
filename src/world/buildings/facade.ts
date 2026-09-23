@@ -6,6 +6,7 @@ import { MB, Frame, type WinAttr, type V3 } from './builder';
 import { layer, relTint, signSlot } from './materials';
 import type { Style } from './kits';
 import { signWord } from './kits';
+import { shopCategory } from './shopGlsl';
 
 export interface Buckets {
   /** surface buckets: [lod0 detail, lod1 far, common] */
@@ -276,7 +277,7 @@ function emitOpening(c: BCtx, f: Frame, o: Op, wallId: string) {
       tm.box(f, dm - dw / 2 - 0.05, dm - dw / 2 + 0.03, o.y0, o.y0 + hDoor, dz - 0.03, dz + 0.06, 1 | 4 | 8, [0.8, 0.9]);
       tm.box(f, dm + dw / 2 - 0.03, dm + dw / 2 + 0.05, o.y0, o.y0 + hDoor, dz - 0.03, dz + 0.06, 1 | 4 | 8, [0.8, 0.9]);
       tm.box(f, o.s0 + 0.08, o.s1 - 0.08, o.y0 + hDoor, o.y0 + hDoor + 0.1, dz - 0.03, dz + 0.06, 1 | 16 | 32, [0.8, 0.9]);
-      glassQuad(B.g[0], f, o.s0 + 0.08, o.s1 - 0.08, o.y0 + 0.08, o.y1 - 0.08, dz, { ...o, kind: 2, muntin: 0 }, st.trim);
+      glassQuad(B.g[0], f, o.s0 + 0.08, o.s1 - 0.08, o.y0 + 0.08, o.y1 - 0.08, dz, { ...o, kind: 2, muntin: o.muntin % 1 }, st.trim);
       // floor tile + ceiling of the recess
       const fl = surf(B, 0, 'trim-stone', col('#8c877f'));
       fl.quad(f.pt(o.s0, o.y0 + 0.01, 0), f.pt(o.s1, o.y0 + 0.01, 0), f.pt(o.s1, o.y0 + 0.01, dz), f.pt(o.s0, o.y0 + 0.01, dz), [0, 0, bw, 0, bw, r, 0, r], [0.8, 0.8, 0.5, 0.5]);
@@ -573,16 +574,18 @@ function groundFloor(c: BCtx, e: EdgeInfo, fl: Floor, ops: Op[], nb: number, bay
     for (let i = 0; i < nS; i++) {
       const a = 0.4 + i * sb + 0.22, z = 0.4 + (i + 1) * sb - 0.22;
       const sd = nextSeed();
+      // interior category (encoded in the muntin fraction): shared by a building's bays, occasionally varied
+      const cat = shopCategory(i > 0 && (sd & 7) === 0 ? undefined : b.signage, (b.seed + (i > 0 && (sd & 7) === 0 ? i : 0)) >>> 0) * 0.05;
       const entryHere = sb > 3.2 && (i % 2 === 0 || nS === 1);
       if (entryHere) {
         const ew = Math.min(1.8, sb * 0.38);
         const left = (sd & 1) === 1;
         const ea = left ? a : z - ew, ez = left ? a + ew : z;
-        ops.push({ s0: ea, s1: ez, y0: fl.y0, y1: top, t: 'entry', r: 1.1, muntin: 0, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd + 7 });
+        ops.push({ s0: ea, s1: ez, y0: fl.y0, y1: top, t: 'entry', r: 1.1, muntin: cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd + 7 });
         const da = left ? ez : a, dz = left ? z : ea;
-        if (dz - da > 0.8) ops.push({ s0: da, s1: dz, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
+        if (dz - da > 0.8) ops.push({ s0: da, s1: dz, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7 + cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
       } else {
-        ops.push({ s0: a, s1: z, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
+        ops.push({ s0: a, s1: z, y0: fl.y0, y1: top, t: 'store', r: 0.18, muntin: 7 + cat, kind: 2, reflect: 0, roomW: 8, floorY: fl.y0, floorH: fh, seed: sd });
       }
       storefrontDress(c, f, a - 0.22, z + 0.22, fl.y0, top, fl.y1, i, sd, L < 16 && nS > 1);
     }

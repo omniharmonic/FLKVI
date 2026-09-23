@@ -102,7 +102,7 @@ if ( gtWet.x > 0.001 ) {
 	float gtPorous = gtWetAmt * ( 1.0 - metalnessFactor );
 	diffuseColor.rgb *= mix( 1.0, 0.5, gtPorous * ( 1.0 - roughnessFactor * 0.3 ) );
 	diffuseColor.rgb *= mix( 1.0, 0.75, gtPuddle );
-	roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.3 + 0.05, gtWetAmt );
+	roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.4 + 0.08, gtWetAmt );
 	roughnessFactor = mix( roughnessFactor, 0.02, gtPuddle );
 	normal = normalize( mix( normal, gtUpV, gtPuddle * 0.95 ) );
 }

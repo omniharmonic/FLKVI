@@ -21,10 +21,12 @@ export interface CompileOptions {
   farHalf?: number;
   /** Heightfield spacing (m). Default 2. */
   cell?: number;
+  /** Lean Overpass query (only tag values the compiler reads) + tighter server limits. Live compiles use this. */
+  lean?: boolean;
 }
 export interface CompileIO {
   /** Run an Overpass QL query, returning parsed JSON. */
-  overpass(query: string): Promise<any>;
+  overpass(query: string, onBytes?: (bytes: number) => void): Promise<any>;
   tiles: TileLoader;
   log?(msg: string): void;
 }
@@ -37,7 +39,10 @@ export const ATTRIBUTION = [
   'Buildings, vegetation and props inferred procedurally by the Groundtruth World Compiler',
 ];
 
-export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress: ProgressFn = () => {}): Promise<Recipe> {
+export async function compileRecipe(opt: CompileOptions, io: CompileIO, progressRaw: ProgressFn = () => {}): Promise<Recipe> {
+  // progress never runs backwards (OSM and terrain report concurrently)
+  let hiF = 0;
+  const progress: ProgressFn = (s, f) => { hiF = Math.max(hiF, f); progressRaw(s, hiF); };
   const t0 = Date.now();
   const half = opt.half ?? 600, farHalf = opt.farHalf ?? 6000, cell = opt.cell ?? 2;
   const proj = makeProjection(opt.lat, opt.lon);
@@ -49,16 +54,34 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
 
   // ---- Ingest (parallel): OSM + terrain
   progress('Querying OpenStreetMap', 0.02);
-  const qm = 120; // query margin (m)
+  const qm = opt.lean ? 90 : 120; // query margin (m)
   const sw = proj.toLatLon(-half - qm, half + qm), ne = proj.toLatLon(half + qm, -half - qm);
-  const query = buildQuery(sw.lat, sw.lon, ne.lat, ne.lon);
-  const osmP = io.overpass(query).then((j) => { progress('Reading map data', 0.3); return j; });
+  const query = buildQuery(sw.lat, sw.lon, ne.lat, ne.lon, opt.lean ? { lean: true, timeoutS: 90 } : {});
+  // heartbeat while the map server thinks (no bytes yet), then a byte counter while it streams
+  const tQ = Date.now();
+  let gotBytes = 0, osmDone = false;
+  const beat = setInterval(() => {
+    if (osmDone || gotBytes > 0) return;
+    const sec = Math.round((Date.now() - tQ) / 1000);
+    progress(sec < 4 ? 'Querying OpenStreetMap' : `Waiting for OpenStreetMap (${sec} s)`, 0.02 + 0.06 * (1 - Math.exp(-sec / 20)));
+  }, 1000);
+  const osmP = io.overpass(query, (b) => {
+    gotBytes = b;
+    if (!osmDone) progress(`Downloading map data (${(b / 1e6).toFixed(1)} MB)`, 0.08 + 0.2 * (1 - Math.exp(-b / 5e6)));
+  }).then((j) => { osmDone = true; progress('Reading map data', 0.3); return j; }).finally(() => { osmDone = true; clearInterval(beat); });
   const tm = 60;
   const terrainP = (async () => {
     const z = 15;
-    const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2);
-    progress('Fetching terrain', 0.2);
-    return t;
+    try {
+      const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2);
+      progress('Fetching terrain', 0.2);
+      return t;
+    } catch (e) {
+      // terrain is nice-to-have: fall back to a flat world rather than failing the whole compile
+      log(`terrain failed, using flat ground: ${e}`);
+      const n = Math.ceil((2 * (half + tm)) / cell) + 1;
+      return { cols: n, rows: n, originX: -half - tm, originZ: -half - tm, cellSize: cell, heights: new Array(n * n).fill(0) } as Terrain;
+    }
   })();
   const farP = (async () => {
     const fcell = 50;
@@ -89,6 +112,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
 
   progress('Laying out streets', 0.42);
   const infos = buildRoads(data, ctx);
+  if (!infos.some((i) => i.drivable)) throw new Error('No streets are mapped here. Drop the pin on a town or city street, or pick a featured city.');
   fillSidewalksToFacades(infos, raw, ctx);
   const gr = buildGraph(infos, data, ctx);
   const roadIdx = new RoadIndex(infos);

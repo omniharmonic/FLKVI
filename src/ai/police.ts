@@ -30,7 +30,7 @@ export const POLICE_TUNING = {
   pursuitSpeed: [16, 24, 30, 34, 38, 40],
   lostSightToSearch: 3,
   arrestFootDist: 1.8,
-  arrestFootTime: 1.5,
+  arrestFootTime: 2.0,
   arrestCarDist: 6,
   arrestCarTime: 3,
   arrestCarSpeed: 2,
@@ -39,7 +39,8 @@ export const POLICE_TUNING = {
   heliLevel: 5,
   investigateTime: 40,
   investigateWindow: 20,
-  officerRunSpeed: 6.1,
+  /** A sprinting player (6.2 m/s) slowly out-runs officers; jogging (3.6) does not. */
+  officerRunSpeed: 5.6,
 };
 
 type UnitMode = 'patrol' | 'respond' | 'pursue' | 'search' | 'investigate' | 'roadblock' | 'leave' | 'busted';
@@ -1019,7 +1020,7 @@ export class PoliceSystem {
       if (!rate) for (const o of this.officers) if (dist2(o.x, o.z, P.x, P.z) < 9) { rate = 1 / T.arrestCarTime; break; }
     }
     if (rate > 0) this.arrestMeter += rate * dt;
-    else this.arrestMeter = Math.max(0, this.arrestMeter - dt * 0.6);
+    else this.arrestMeter = Math.max(0, this.arrestMeter - dt * 0.9);
     this.heat.arrestMeter = Math.min(1, this.arrestMeter);
     if (this.arrestMeter >= 1) this.arrest(P);
   }

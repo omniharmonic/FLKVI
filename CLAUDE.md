@@ -42,7 +42,8 @@ Several agents work in this tree **at the same time**. Don't run `npm install` (
   `tools/browser.sh 'agent-browser open "http://127.0.0.1:5200/?autostart"; sleep 25; agent-browser screenshot /path/to/scratch/shot.png'`
   The lead monitors Chromium counts; a second browser is a violation. Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. Software WebGL is slow — judge visuals, not fps.
 - **Never** `pkill`/`killall` by name; only kill PIDs you started. No long-running background processes left behind when you finish.
-- Heavy Node jobs (baking cities, texture conversion) one at a time.
+- Keep your scratch scripts and screenshots in your OWN subfolder of the scratchpad (e.g. `<scratchpad>/<your-role>/`); other agents share the scratchpad and generic names like `shoot.sh` get overwritten.
+- Heavy Node jobs (baking cities, texture conversion) one at a time. Prefer Boulder for browser tests (lightest city); memory on this host is tight.
 - `window.game` is the Game instance for debugging (`agent-browser eval`). `?autostart` skips the menus (default Boulder); `?city=<id>` picks a baked city; `&mode=freeroam`.
 
 ## Conventions

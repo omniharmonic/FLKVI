@@ -14,7 +14,7 @@ done
 export AGENT_BROWSER_SESSION=gt-shared
 cleanup() { agent-browser close >/dev/null 2>&1; rmdir "$LOCK" 2>/dev/null; }
 trap cleanup EXIT INT TERM
-agent-browser set viewport 1280 720 >/dev/null 2>&1
+agent-browser set viewport 1024 576 >/dev/null 2>&1
 bash -c "$1" &
 pid=$!
 ( sleep $MAX; kill -TERM $pid 2>/dev/null; echo "[browser.sh] hit ${MAX}s cap, killed" >&2 ) &

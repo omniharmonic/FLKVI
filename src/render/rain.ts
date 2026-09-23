@@ -95,7 +95,7 @@ export class Rain {
     u.uOpacity.value = intensity * 0.16;
     // rain is lit by the ambient sky: thin cool bluish-white streaks, never yellow
     const l = Math.max(0.05, 0.2126 * ambient.r + 0.7152 * ambient.g + 0.0722 * ambient.b);
-    u.uColor.value.setRGB(0.78, 0.87, 1.0).multiplyScalar(Math.min(l * 1.3, 1.6));
+    u.uColor.value.setRGB(0.78, 0.87, 1.0).multiplyScalar(Math.min(l * 1.2, 1.2));
     // wind sway
     (u.uVel.value as THREE.Vector3).set(1.2 + 0.8 * Math.sin(t * 0.13), -9.5, 0.6 + 0.5 * Math.sin(t * 0.09 + 2));
     this.object.visible = intensity > 0.01;

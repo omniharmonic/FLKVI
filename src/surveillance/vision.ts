@@ -114,6 +114,10 @@ export class VisionViz {
     parent.add(this.root);
   }
 
+  /** Cone brightness in the HDR pipeline: daylight scenes need far more additive light than night ones. */
+  gainDay = 0.2;
+  gainNight = 0.03;
+
   /** Force-show cones for specific cameras (dev / debugging). */
   forceAll = false;
 
@@ -137,7 +141,7 @@ export class VisionViz {
       v.root.matrix.copy(cam.headM);
       v.root.matrixWorldNeedsUpdate = true;
       const col = cam.seesPlayer ? this.red : cam.rc.plateReader ? this.amber : night > 0.5 ? this.nightC : this.day;
-      const base = (this.scanning ? 0.045 : 0.026) + night * 0.008;
+      const base = (this.scanning ? 1 : 0.6) * (this.gainDay + (this.gainNight - this.gainDay) * night);
       for (const m of v.mats) {
         m.uniforms.uColor.value.lerp(col, Math.min(1, dt * 8));
         m.uniforms.uIntensity.value = v.fade * (m.userData.fan ? base : base * 0.6) * (cam.seesPlayer ? 1.5 : 1);

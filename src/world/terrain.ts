@@ -186,6 +186,23 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
   return mat;
 }
 
+const SKIRT = 1.5;
+/** Chunk LOD distances (m, camera to chunk bounds): full grid inside LOD1_DIST, 2x cells, then 4x. */
+const LOD1_DIST = 260, LOD2_DIST = 560;
+const _box = new THREE.Box3();
+
+/** Pick each terrain chunk's index buffer (full / half / quarter resolution) by camera distance. */
+export function updateTerrainLod(meshes: THREE.Mesh[], cam: THREE.Vector3) {
+  for (const m of meshes) {
+    const lods = m.userData.lods as THREE.BufferAttribute[] | undefined;
+    if (!lods) continue;
+    _box.copy(m.geometry.boundingBox!);
+    const d = _box.distanceToPoint(cam);
+    const lod = d < LOD1_DIST ? 0 : d < LOD2_DIST ? 1 : 2;
+    if (lod !== m.userData.lod) { m.userData.lod = lod; m.geometry.setIndex(lods[lod]); }
+  }
+}
+
 /** Build chunked terrain meshes (+ a skirt around the edge). */
 export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCells = 64): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = [];
@@ -201,22 +218,66 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
       hf.normal(c, r, n); nrm[k * 3] = n.x; nrm[k * 3 + 1] = n.y; nrm[k * 3 + 2] = n.z;
       uv[k * 2] = x; uv[k * 2 + 1] = z; k++;
     }
-    const idx: number[] = [];
-    for (let r = 0; r < d - 1; r++) for (let c = 0; c < w - 1; c++) {
-      const a = r * w + c, b = a + 1, e = a + w, f = e + 1;
-      // diagonal a-f (matches Heightfield.sample)
-      idx.push(a, f, b, a, e, f);
-    }
+    // Skirt vertices (perf LOD): a copy of every border vertex dropped SKIRT m, so coarser
+    // neighbours never open cracks. Border ring order: top row, right col, bottom row, left col.
+    const ring: number[] = [];
+    for (let c = 0; c < w; c++) ring.push(c);
+    for (let r = 1; r < d; r++) ring.push(r * w + w - 1);
+    for (let c = w - 2; c >= 0; c--) ring.push((d - 1) * w + c);
+    for (let r = d - 2; r >= 1; r--) ring.push(r * w);
+    ring.push(0);
+    const nv = w * d, nSk = ring.length;
+    const P = new Float32Array((nv + nSk) * 3), N = new Float32Array((nv + nSk) * 3), UV = new Float32Array((nv + nSk) * 2);
+    P.set(pos); N.set(nrm); UV.set(uv);
+    ring.forEach((v, i) => {
+      const j = nv + i;
+      P[j * 3] = pos[v * 3]; P[j * 3 + 1] = pos[v * 3 + 1] - SKIRT; P[j * 3 + 2] = pos[v * 3 + 2];
+      N[j * 3] = nrm[v * 3]; N[j * 3 + 1] = nrm[v * 3 + 1]; N[j * 3 + 2] = nrm[v * 3 + 2];
+      UV[j * 2] = uv[v * 2]; UV[j * 2 + 1] = uv[v * 2 + 1];
+    });
+    const lodIndex = (step: number) => {
+      const idx: number[] = [];
+      const cs: number[] = [], rs: number[] = [];
+      for (let c = 0; c < w - 1; c += step) cs.push(c); cs.push(w - 1);
+      for (let r = 0; r < d - 1; r += step) rs.push(r); rs.push(d - 1);
+      for (let i = 0; i < rs.length - 1; i++) for (let k = 0; k < cs.length - 1; k++) {
+        const a = rs[i] * w + cs[k], b = rs[i] * w + cs[k + 1], e = rs[i + 1] * w + cs[k], f = rs[i + 1] * w + cs[k + 1];
+        // diagonal a-f (matches Heightfield.sample)
+        idx.push(a, f, b, a, e, f);
+      }
+      {
+        // skirts along the border, at this LOD's vertex spacing (both windings: visible from any side)
+        const onGrid = (v: number) => { const r = Math.floor(v / w), c = v % w; return (r % step === 0 || r === d - 1) && (c % step === 0 || c === w - 1); };
+        let prev = -1;
+        for (let i = 0; i < ring.length; i++) {
+          if (!onGrid(ring[i]) && i !== ring.length - 1) continue;
+          if (prev >= 0) {
+            const a = ring[prev], b = ring[i], as = nv + prev, bs = nv + i;
+            idx.push(a, as, b, b, as, bs, a, b, as, b, bs, as);
+          }
+          prev = i;
+        }
+      }
+      return new THREE.Uint32BufferAttribute(idx, 1);
+    };
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setIndex(idx);
+    g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(UV, 2));
+    const lods = [lodIndex(1), lodIndex(2), lodIndex(4)];
+    g.setIndex(lods[0]);
     g.computeBoundingSphere(); g.computeBoundingBox();
+    // bounds from the grid only (skirts hang below)
+    g.boundingBox!.min.y = Math.min(g.boundingBox!.min.y + SKIRT, g.boundingBox!.max.y);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
     m.name = `terrain_${c0}_${r0}`;
     m.matrixAutoUpdate = false;
+    m.userData.lods = lods;
+    m.userData.lod = 0;
+    // raycasts (camera collision, LOS) always use the full-resolution triangles
+    const rc = m.raycast.bind(m);
+    m.raycast = (raycaster, hits) => { const cur = g.index; g.index = lods[0]; try { rc(raycaster, hits); } finally { g.index = cur; } };
     meshes.push(m);
   }
   // Edge skirt (one mesh): drops 40 m below boundary to hide gaps against far terrain.
