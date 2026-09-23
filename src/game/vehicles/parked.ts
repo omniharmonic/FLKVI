@@ -72,16 +72,48 @@ export class ParkingSystem {
     this.group.name = 'parked-cars';
     this.body = g.physics.createRigidBody(g.rapier.RigidBodyDesc.fixed());
     const props = g.recipe.props.filter((p) => p.type === 'parked-car');
+    // Spacing: a stolen car must be able to pull out, so every parked car keeps ≥ GAP m to its in-lane
+    // neighbors; if the preferred model doesn't fit, fall back to shorter ones, else leave the space empty.
+    const GAP = 0.85;
+    const near = new Map<string, ParkedSlot[]>();
+    const cellOf = (x: number, z: number) => `${Math.floor(x / 10)},${Math.floor(z / 10)}`;
+    const fits = (x: number, z: number, h: number, m: CarModel) => {
+      const cx = Math.floor(x / 10), cz = Math.floor(z / 10);
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        for (const o of near.get(`${cx + a},${cz + b}`) ?? []) {
+          const om = getCarModel(o.model);
+          const dx = o.x - x, dz = o.z - z;
+          const fx = Math.sin(h), fz = -Math.cos(h);
+          const along = Math.abs(dx * fx + dz * fz), lat = Math.abs(dx * fz - dz * fx);
+          const par = Math.abs(Math.cos(o.heading - h)) > 0.7;
+          const needAlong = par ? (m.L + om.L) / 2 + GAP : (m.L + om.W * 2) / 2 + GAP;
+          const needLat = par ? m.W + om.W + 0.25 : m.W + om.L / 2 + 0.25;
+          if (along < needAlong && lat < needLat) return false;
+        }
+      }
+      return true;
+    };
+    const SHORTER: CarModelId[] = ['sedan', 'sports', 'hatchback'];
+    let skipped = 0;
     props.forEach((p, i) => {
       const r = rng(hashString(`pk${i}:${p.p[0].toFixed(1)},${p.p[1].toFixed(1)}`) ^ p.variant);
-      const model = CIVILIAN_MODELS[Math.abs(p.variant) % CIVILIAN_MODELS.length];
+      let model: CarModelId | null = CIVILIAN_MODELS[Math.abs(p.variant) % CIVILIAN_MODELS.length];
+      const heading = rotToHeading(p.rot);
+      if (!fits(p.p[0], p.p[1], heading, getCarModel(model))) {
+        model = SHORTER.find((m) => getCarModel(m).L < getCarModel(model!).L && fits(p.p[0], p.p[1], heading, getCarModel(m))) ?? null;
+      }
+      if (!model) { skipped++; return; }
       const y = g.world ? groundY(g, p.p[0], p.p[1]) : p.y;
-      this.slots.push({
-        index: i, model, color: PARKED_COLORS[Math.floor(r() * PARKED_COLORS.length)],
-        x: p.p[0], y: Number.isFinite(y) ? y : p.y, z: p.p[1], heading: rotToHeading(p.rot), seed: Math.floor(r() * 1e6),
+      const slot: ParkedSlot = {
+        index: this.slots.length, model, color: PARKED_COLORS[Math.floor(r() * PARKED_COLORS.length)],
+        x: p.p[0], y: Number.isFinite(y) ? y : p.y, z: p.p[1], heading, seed: Math.floor(r() * 1e6),
         active: false, colliders: [], near: false,
-      });
+      };
+      this.slots.push(slot);
+      const k = cellOf(slot.x, slot.z);
+      (near.get(k) ?? near.set(k, []).get(k)!).push(slot);
     });
+    if (skipped) console.info(`[vehicles] parked: ${skipped} of ${props.length} spots left empty for spacing`);
     const byModel = new Map<CarModelId, ParkedSlot[]>();
     for (const s of this.slots) {
       if (!byModel.has(s.model)) byModel.set(s.model, []);

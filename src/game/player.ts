@@ -47,6 +47,8 @@ export class Player implements PlayerAPI, System {
   private lastStep = 0;
   private engine: SoundHandle = null;
   private squeal: SoundHandle = null;
+  private engineLoad = 0;
+  private beepT = 0;
   private meleeT = 0;
   private meleePending = -1;
   private lastDamage = 0;
@@ -341,13 +343,27 @@ export class Player implements PlayerAPI, System {
     if (!v || !id) { this.collider.setEnabled(true); return; }
     v.driver = 'none';
     v.control.throttle = 0; v.control.brake = 0; v.control.steer = 0; v.control.handbrake = true;
-    // Find a free spot: driver side, passenger side, then roof.
-    const spots = [v.model.driverDoor.clone(), v.model.driverDoor.clone().setX(-v.model.driverDoor.x), new THREE.Vector3(0, v.model.roofY + 0.2, 0)];
-    let out = spots[0].applyMatrix4(v.object.matrixWorld);
+    // Find a free spot: driver door, passenger door (near, then a step further), behind, in front, then roof.
+    // A spot must be clear of colliders (walls, other cars, props) and reachable from the cabin without
+    // passing through a wall.
+    const m = v.model, dd = m.driverDoor;
+    const spots = [
+      dd.clone(), dd.clone().setX(-dd.x),
+      dd.clone().setX(dd.x - 0.6), dd.clone().setX(-dd.x + 0.6),
+      new THREE.Vector3(dd.x, 0, m.L / 2 - 0.6), new THREE.Vector3(-dd.x, 0, m.L / 2 - 0.6),
+      new THREE.Vector3(0, 0, m.L / 2 + 0.9), new THREE.Vector3(0, 0, -m.L / 2 - 0.9),
+      new THREE.Vector3(0, m.roofY + 0.2, 0),
+    ];
+    const cabin = new THREE.Vector3(0, m.roofY * 0.6, 0).applyMatrix4(v.object.matrixWorld);
+    let out = spots[0].clone().applyMatrix4(v.object.matrixWorld);
+    out.y = Math.max(out.y, this.groundAt(out.x, out.z, v.position.y));
     for (const s of spots) {
       const w = s.clone().applyMatrix4(v.object.matrixWorld);
-      if (s.y === 0) w.y = Math.max(w.y, this.groundAt(w.x, w.z, v.position.y));
-      if (force || this.spotFree(w)) { out = w; break; }
+      const roof = s.y > 0;
+      if (!roof) w.y = this.groundAt(w.x, w.z, v.position.y);
+      if (Math.abs(w.y - v.position.y) > 1.6 && !roof) continue;
+      const wallBetween = !roof && !!g.world?.losBlocked([cabin.x, cabin.y, cabin.z], [w.x, w.y + 0.9, w.z]);
+      if (force || (!wallBetween && this.spotFree(w))) { out = w; break; }
     }
     this.collider.setEnabled(true);
     this.body.setTranslation({ x: out.x, y: out.y + CENTER + 0.05, z: out.z }, true);
@@ -367,7 +383,7 @@ export class Player implements PlayerAPI, System {
     const R = this.g.rapier;
     const shape = new R.Capsule(HALF, RADIUS);
     let blocked = false;
-    this.g.physics.intersectionsWithShape({ x: p.x, y: p.y + CENTER + 0.05, z: p.z }, { x: 0, y: 0, z: 0, w: 1 }, shape, (c) => {
+    this.g.physics.intersectionsWithShape({ x: p.x, y: p.y + CENTER + 0.12, z: p.z }, { x: 0, y: 0, z: 0, w: 1 }, shape, (c) => {
       if (c.handle === this.collider.handle || c.isSensor()) return true;
       blocked = true;
       return false;
@@ -394,15 +410,32 @@ export class Player implements PlayerAPI, System {
     const p = v3(v.position);
     if (v.destroyed) { this.engine?.stop(); this.engine = null; }
     if (this.engine) {
-      this.engine.setRate(0.6 + v.rpm * 1.5);
-      this.engine.setVolume(0.35 + v.control.throttle * 0.3);
+      // Pitch follows the simulated gearbox RPM (drops on upshifts); load (throttle) adds volume.
+      const load = v.shiftT > 0 ? 0.1 : v.control.throttle;
+      this.engineLoad = damp(this.engineLoad, load, 10, dt);
+      const base = v.model.id === 'sports' ? 0.62 : v.model.id === 'van' || v.model.id === 'pickup' ? 0.48 : 0.55;
+      this.engine.setRate(base + v.rpm * 1.45);
+      this.engine.setVolume(0.28 + this.engineLoad * 0.32 + v.rpm * 0.12);
       this.engine.setPosition(p);
     }
-    const sq = v.physicsMode === 'dynamic' && (v.slip > 0.28 && Math.abs(v.speed) > 7 || (v.control.handbrake && Math.abs(v.speed) > 8));
-    if (sq && !this.squeal) this.squeal = playSound(this.g, 'tire-squeal', { at: p, loop: true, volume: 0.5 });
+    // Tire squeal: volume from slip (drift, handbrake, lock-up, burnout).
+    const spd = Math.abs(v.speed);
+    let slip = 0;
+    if (v.physicsMode === 'dynamic') {
+      if (v.slip > 0.22 && spd > 6) slip = (v.slip - 0.18) * 1.6;
+      if (v.control.handbrake && spd > 6) slip = Math.max(slip, 0.55);
+      if (v.control.brake > 0.5 && v.speed > 9 && !v.reversing) slip = Math.max(slip, 0.35);
+      if (v.burnout) slip = 0.9;
+    }
+    const sq = slip > 0.12;
+    if (sq && !this.squeal) this.squeal = playSound(this.g, 'tire-squeal', { at: p, loop: true, volume: 0.3 });
     if (!sq && this.squeal) { this.squeal.stop(); this.squeal = null; }
-    if (this.squeal) { this.squeal.setPosition(p); this.squeal.setVolume(clamp(v.slip * 1.2, 0.2, 0.8)); }
-    void dt;
+    if (this.squeal) { this.squeal.setPosition(p); this.squeal.setVolume(clamp(slip, 0.15, 0.85)); this.squeal.setRate(0.9 + clamp(spd / 60, 0, 0.25)); }
+    // Backup beeper on vans / pickups.
+    if (v.reversing && (v.model.id === 'van' || v.model.id === 'pickup')) {
+      this.beepT -= dt;
+      if (this.beepT <= 0) { this.beepT = 0.9; playSound(this.g, 'camera-beep', { at: p, volume: 0.35, rate: 0.42 }); }
+    } else this.beepT = 0;
   }
 
   private resolveMelee() {

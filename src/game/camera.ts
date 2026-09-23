@@ -26,6 +26,9 @@ export class CameraRig implements System {
   private lookBack = 0;
   private lastVeh: string | null = null;
   private shakeT = 0;
+  /** Lateral-G sway (m, along camera right) and roll (rad) while driving. */
+  private sway = 0;
+  private roll = 0;
 
   constructor(private g: Game, private player: Player, private vehicles: VehicleSystem) {
     const onClick = () => { if (this.player.controlsEnabled && g.input.enabled) g.input.requestPointerLock(); };
@@ -76,9 +79,15 @@ export class CameraRig implements System {
       targetFov = 62 + clamp((spd - 8) * 0.5, 0, 22);
       if (spd > 28) this.trauma = Math.max(this.trauma, clamp((spd - 28) / 60, 0, 0.18));
       if (veh.lastImpact > 0) { this.addTrauma(clamp(veh.lastImpact / 12, 0.15, 0.8)); veh.lastImpact = 0; }
+      // Lateral G: the camera swings out of the turn (you see more of the car's flank) and leans a touch.
+      this.sway = damp(this.sway, clamp(-veh.latG * 0.045, -0.7, 0.7), 2.5, dt);
+      this.roll = damp(this.roll, clamp(-veh.latG * 0.0035, -0.045, 0.045), 3, dt);
+      desiredPivot.y += clamp(-veh.lonG * 0.012, -0.12, 0.12);
     } else {
       this.lastVeh = null;
       this.lookBack = 0;
+      this.sway = damp(this.sway, 0, 6, dt);
+      this.roll = damp(this.roll, 0, 6, dt);
       const crouch = p.crouching ? 1 : 0;
       desiredPivot.copy(p.position).add(new THREE.Vector3(0, 1.5 - crouch * 0.45, 0));
       // Head bob / sway.
@@ -103,7 +112,7 @@ export class CameraRig implements System {
     const fwd = headingToDir(yaw);
     const dir = new THREE.Vector3(fwd.x * Math.cos(pitch), -Math.sin(pitch), fwd.z * Math.cos(pitch));
     const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
-    const origin = this.pivot.clone().addScaledVector(right, shoulder);
+    const origin = this.pivot.clone().addScaledVector(right, shoulder + this.sway);
     // Collision: cast from pivot toward the desired camera spot.
     const want = this.dist;
     const hitD = this.castCamera(origin, dir.clone().negate(), want + 0.3, veh ? veh.id : null);
@@ -117,6 +126,7 @@ export class CameraRig implements System {
     cam.position.copy(pos);
     const look = origin.clone().addScaledVector(dir, 10);
     cam.lookAt(look);
+    if (Math.abs(this.roll) > 1e-4) cam.rotateZ(this.roll);
     // Shake (trauma²).
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
     this.shakeT += dt;

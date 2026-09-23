@@ -433,4 +433,5 @@ kbd { font: 600 11px/1 var(--mono); padding: 5px 8px; border-radius: 6px; backgr
 @keyframes gt-ptspop { 0% { transform: scale(0.3); opacity: 0; } 60% { transform: scale(1.25); opacity: 1; } 100% { transform: scale(1); } }
 
 /* narrow windows: keep the mode tag clear of the compass */
-@media (max-width: 1000px) { .hud-mode { top: 62px; } .hud-mode .hint { display: none; } }
+@media (max-width: 1000px) { .hud-mode { top: 62px; } }
+@media (max-width: 1500px) { .hud-mode .hint { display: none; } }

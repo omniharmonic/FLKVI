@@ -36,6 +36,9 @@ export function tuningFor(model: CarModel): Tuning {
   return t;
 }
 
+/** Top speed of each forward gear as a fraction of the model's max speed (6-speed auto). */
+const GEAR_TOPS = [0.26, 0.44, 0.62, 0.78, 0.92, 1.08];
+
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _fwd = new THREE.Vector3(), _up = new THREE.Vector3(), _right = new THREE.Vector3(), _w = new THREE.Vector3();
 
@@ -85,8 +88,17 @@ export class Vehicle implements VehicleHandle {
   reversing = false;
   headlights = false;
   flipTimer = 0;
+  /** Normalized engine speed 0..1 (idle ≈ 0.18, redline 1) from the simulated gearbox. */
   rpm = 0;
+  /** Current gear (−1 reverse, 1..N). */
+  gear = 1;
+  /** > 0 while a gear change is in progress (drive force cut). */
+  shiftT = 0;
   slip = 0;
+  /** Throttle + brake held at a standstill: rear wheels spin in place. */
+  burnout = false;
+  /** Seconds the driver has been pushing against something without moving. */
+  stuckT = 0;
   /** Seconds since spawn/last touched (for parked demotion). */
   idleTime = 0;
   /** Turn signal: −1 left, 1 right, 2 hazards, 0 off. */
@@ -215,6 +227,7 @@ export class Vehicle implements VehicleHandle {
     const driven = this.driver !== 'none' && !dead;
     let throttle = driven ? clamp(ctl.throttle, 0, 1) : 0;
     let brakeIn = driven ? clamp(ctl.brake, 0, 1) : 0;
+    this.burnout = driven && this.driver === 'player' && throttle > 0.5 && brakeIn > 0.5 && Math.abs(fwdSpeed) < 3;
     // Brake key acts as reverse once (nearly) stopped.
     let reverse = 0;
     if (brakeIn > 0.1 && fwdSpeed < 1.0 && throttle < 0.1) { reverse = brakeIn; brakeIn = 0; }
@@ -223,7 +236,14 @@ export class Vehicle implements VehicleHandle {
     // Engine force with a smooth fall-off to top speed.
     const topFrac = clamp(spd / t.maxSpeed, 0, 1);
     let engine = throttle * t.engine * (1 - topFrac * topFrac * topFrac) * (spd < 8 ? 1.15 : 1);
-    if (reverse > 0) engine = -reverse * t.engine * 0.45 * (fwdSpeed < -12 ? 0 : 1);
+    if (reverse > 0) engine = -reverse * t.engine * 0.55 * (fwdSpeed < -12 ? 0 : 1);
+    // Pushing against something (parked car, curb, wall) without moving: progressively more torque so the
+    // player can shove free or reverse out instead of being pinned.
+    if (driven && (throttle > 0.5 || reverse > 0.5) && spd < 0.8) this.stuckT += dt; else this.stuckT = Math.max(0, this.stuckT - dt * 2);
+    engine *= 1 + Math.min(1.6, this.stuckT * 1.2);
+    // Gear change: brief drive cut.
+    if (this.shiftT > 0) engine *= 0.3;
+    if (this.burnout) { engine = 0; brakeIn = 1; }
     // Engine force sign: forward axis is local +Z, our car faces −Z.
     const ef = -engine / 2;
     const hb = driven && ctl.handbrake;
@@ -233,7 +253,8 @@ export class Vehicle implements VehicleHandle {
       // Note: Rapier ignores the brake impulse on a wheel whose engine force is non-zero.
       let b = brakeIn * t.brake * (rear ? 0.8 : 1.2);
       if (rear && hb) b = t.brake * 1.6;
-      if (parked || dead) b = t.brake * 0.8;
+      if (dead) b = t.brake * 0.8;
+      else if (parked) b = 14; // parking brake: holds on slopes but a car can still be shoved
       if (!driven && !parked) b = Math.max(b, 6);
       if (throttle < 0.05 && reverse === 0 && brakeIn === 0 && driven) b = Math.max(b, 1.2); // engine braking
       // ef is half the total drive force; split 60/40 rear/front (sports: pure RWD).
@@ -309,19 +330,53 @@ export class Vehicle implements VehicleHandle {
       this.flipTimer += dt;
       if (this.flipTimer > 2.5 && this.driver === 'player') this.flipUpright();
     } else this.flipTimer = 0;
-    // RPM (fake gearbox) for audio.
-    const gears = [0, 9, 16, 24, 33, 60];
-    let gi = 1;
-    while (gi < gears.length - 1 && spd > gears[gi]) gi++;
-    const lo = gears[gi - 1], hi = gears[gi];
-    const target2 = 0.25 + 0.75 * clamp((spd - lo) / (hi - lo), 0, 1) * (gi === 1 ? 1 : 0.8) + (gi > 1 ? 0.2 : 0);
-    this.rpm = damp(this.rpm, Math.max(target2, throttle > 0.1 && spd < 1 ? 0.55 : 0.2), 8, dt);
+    this.updateGearbox(dt, spd, fwdSpeed, throttle, reverse, grounded);
+  }
+
+  /** Simulated automatic gearbox: RPM from wheel speed × ratio, upshift near redline with an RPM drop. */
+  private updateGearbox(dt: number, spd: number, fwdSpeed: number, throttle: number, reverse: number, grounded: number) {
+    const top = this.tuning.maxSpeed;
+    const tops = GEAR_TOPS.map((f) => f * top);
+    this.shiftT = Math.max(0, this.shiftT - dt);
+    if (reverse > 0 || fwdSpeed < -0.5) this.gear = -1;
+    else if (this.gear < 1) this.gear = 1;
+    let target: number;
+    if (this.burnout) target = 0.9 + Math.sin(this.g.elapsed * 40) * 0.05;
+    else if (grounded < 2) target = throttle > 0.1 ? 0.95 : 0.3; // airborne: free rev
+    else {
+      const gt = this.gear < 0 ? tops[0] : tops[this.gear - 1];
+      target = 0.18 + 0.82 * clamp(spd / gt, 0, 1.05);
+      if (this.gear > 0 && this.shiftT <= 0) {
+        if (target > 0.93 && this.gear < tops.length && throttle > 0.1) { this.gear++; this.shiftT = 0.22; }
+        else if (this.gear > 1 && spd < tops[this.gear - 2] * (throttle > 0.5 ? 0.78 : 0.5)) { this.gear--; this.shiftT = 0.12; }
+      }
+      // Clutch slip at launch.
+      if (throttle > 0.1 && spd < 4 && this.gear <= 1) target = Math.max(target, 0.45 + throttle * 0.2);
+      if (reverse > 0 && spd < 3) target = Math.max(target, 0.4);
+    }
+    this.rpm = damp(this.rpm, clamp(target, 0.15, 1.02), this.shiftT > 0 ? 18 : 9, dt);
   }
 
   flipUpright() {
     const t = this.body.translation();
     const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this.heading);
-    this.body.setTranslation({ x: t.x, y: groundY(this.g, t.x, t.z) + 0.6, z: t.z }, true);
+    // Reset in place, or nudge to the nearest clear spot if we're wedged into something.
+    const R = this.rapier, m = this.model;
+    const shape = new R.Cuboid(m.colHalf.x, m.colHalf.y, m.colHalf.z);
+    const f = new THREE.Vector3(Math.sin(this.heading), 0, -Math.cos(this.heading)), r = new THREE.Vector3(-f.z, 0, f.x);
+    let px = t.x, pz = t.z;
+    for (const [a, b] of [[0, 0], [0, -3], [0, 3], [-2.2, 0], [2.2, 0], [-2.2, -3], [2.2, -3], [0, -6], [0, 6]]) {
+      const x = t.x + r.x * a + f.x * b, z = t.z + r.z * a + f.z * b;
+      const y = groundY(this.g, x, z) + 0.6 + m.colCenter.y;
+      let hit = false;
+      this.g.physics.intersectionsWithShape({ x, y, z }, { x: rot.x, y: rot.y, z: rot.z, w: rot.w }, shape, (c) => {
+        if (this.colliders.includes(c) || c.isSensor()) return true;
+        hit = true;
+        return false;
+      });
+      if (!hit) { px = x; pz = z; break; }
+    }
+    this.body.setTranslation({ x: px, y: groundY(this.g, px, pz) + 0.6, z: pz }, true);
     this.body.setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -391,7 +446,8 @@ export class Vehicle implements VehicleHandle {
         w.rotation.y = i < 2 ? this.steerAngle * -1 * -1 : 0;
         w.rotation.y = i < 2 ? -this.steerAngle : 0;
         const spin = w.children[0];
-        this.spin[i] -= (this.speed / this.model.wheelR) * dt * (this.braking && this.control.handbrake && i >= 2 ? 0 : 1);
+        const ws = this.burnout && i >= 2 ? 30 : (this.speed / this.model.wheelR) * (this.braking && this.control.handbrake && i >= 2 ? 0 : 1);
+        this.spin[i] -= ws * dt;
         spin.rotation.x = this.spin[i];
       }
       // Visual body roll / dive / squat on top of the physical suspension (reads as weight transfer).

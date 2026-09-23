@@ -14,6 +14,17 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { rng } from '../core/geo';
+// @ts-ignore — three ships this wasm module without type declarations
+import { MeshoptSimplifier as MeshoptSimplifierUntyped } from 'three/examples/jsm/libs/meshopt_simplifier.module.js';
+
+interface Simplifier {
+  ready: Promise<void>;
+  simplify(indices: Uint32Array, pos: Float32Array, stride: number, targetIndexCount: number, targetError: number, flags?: string[]): [Uint32Array, number];
+  simplifySloppy(indices: Uint32Array, pos: Float32Array, stride: number, lock: Uint8Array | null, targetIndexCount: number, targetError: number): [Uint32Array, number];
+}
+const Simp = MeshoptSimplifierUntyped as Simplifier;
+let simpReady = false;
+Simp.ready.then(() => { simpReady = true; }).catch(() => undefined);
 
 // ---------------------------------------------------------------------------------------------------------------
 // Public types
@@ -113,7 +124,7 @@ export function preparePeople(): Promise<void> {
   if (!kitPromise) {
     const loader = new GLTFLoader();
     const hair = (rel: string) => loader.loadAsync(url(rel)).then((g: GLTF) => g.scene).catch(() => null);
-    kitPromise = Promise.all([hair('models/characters/hair-short.gltf'), hair('models/characters/hair-long.gltf')]).then(([s, l]) => {
+    kitPromise = Promise.all([hair('models/characters/hair-short.gltf'), hair('models/characters/hair-long.gltf'), Simp.ready.catch(() => undefined)]).then(([s, l]) => {
       if (s && !HAIR_SRC.short) HAIR_SRC.short = s;
       if (l && !HAIR_SRC.long) HAIR_SRC.long = l;
       for (const sx of ['m', 'f'] as const) {
@@ -631,7 +642,7 @@ function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
   // shoes: heavily smoothed (no toes), flat sole, slightly longer toe box
   let toeZ = -1e9;
   for (let i = 0; i < s.n; i++) if (y(i) < 0.06) toeZ = Math.max(toeZ, s.P[i * 3 + 2]);
-  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 12, 0.0065, 0.85, (p) => {
+  addShell(o, s, (i) => !isArm(i) && y(i) < L.ankleY + 0.16, 3, 12, 0.007, 1, (p) => {
     if (p.y < 0.018) p.y = Math.min(p.y, -0.004);
     p.y = Math.max(p.y, -0.01);
     if (p.z > toeZ - 0.07 && p.y < 0.07) p.z += 0.006 * smooth01(toeZ - 0.07, toeZ - 0.01, p.z);
@@ -654,8 +665,97 @@ function buildGeometry(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
   return g;
 }
 
-function geometryFor(base: Base, build: 0 | 1 | 2): THREE.BufferGeometry {
-  return (base.geos[build] ??= buildGeometry(base, build));
+
+// ---------------------------------------------------------------------------------------------------------------
+// LOD: per-layer meshoptimizer simplification → index buffers over the SAME vertex attributes (no extra VRAM for
+// vertices; only referenced vertices get skinned). Switched per person in onBeforeRender by camera distance.
+//   LOD0 ≤ 15 m  ~9k tris incl. shells + hair · LOD1 15–50 m ~3k · LOD2 50 m+ ~0.8k (no face parts, hair proxy)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Triangle budgets per layer: body, top, bottom, shoes, tube, brows, eyes. */
+const LOD_TRIS: number[][] = [
+  [4400, 1700, 1100, 500, 450, 250, 300],
+  [1300, 480, 340, 140, 150, 0, 60],
+  [330, 150, 110, 48, 60, 0, 0],
+];
+const LOD_DIST = [15, 50];
+const LODS = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry[]>();
+
+function simplifyTo(idx: Uint32Array, pos: Float32Array, tris: number, sloppyOk: boolean): Uint32Array {
+  if (tris <= 0) return new Uint32Array(0);
+  if (!simpReady || idx.length / 3 <= tris) return idx;
+  try {
+    let [out] = Simp.simplify(idx, pos, 3, tris * 3, 0.08);
+    if (sloppyOk && out.length / 3 > tris * 1.6) [out] = Simp.simplifySloppy(idx, pos, 3, null, tris * 3, 0.2);
+    return out;
+  } catch {
+    return idx;
+  }
+}
+
+function lodGeometry(full: THREE.BufferGeometry, index: Uint32Array, name: string): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  for (const [k, a] of Object.entries(full.attributes)) g.setAttribute(k, a);
+  g.setIndex(new THREE.Uint32BufferAttribute(index, 1));
+  g.boundingBox = full.boundingBox; g.boundingSphere = full.boundingSphere;
+  g.name = name;
+  return g;
+}
+
+function lodsFor(full: THREE.BufferGeometry, base: Base): THREE.BufferGeometry[] {
+  let l = LODS.get(full);
+  if (l && (l.length === 3 || !simpReady)) return l;
+  if (!simpReady) { l = [full]; LODS.set(full, l); return l; }
+  const pos = (full.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
+  const gt = full.getAttribute('gt') as THREE.BufferAttribute;
+  const all = full.index!.array;
+  const byLayer: number[][] = [[], [], [], [], [], [], []];
+  for (let t = 0; t < all.length; t += 3) byLayer[Math.min(6, Math.round(gt.getX(all[t])))].push(all[t], all[t + 1], all[t + 2]);
+  const layers = byLayer.map((a) => Uint32Array.from(a));
+  l = LOD_TRIS.map((budget, lv) => {
+    const parts = layers.map((idx, li) => simplifyTo(idx, pos, budget[li], lv === 2));
+    const n = parts.reduce((a, p) => a + p.length, 0);
+    const out = new Uint32Array(n);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    const g = lodGeometry(full, out, `${full.name}-lod${lv}`);
+    GEO_BASE.set(g, base);
+    return g;
+  });
+  LODS.set(full, l);
+  return l;
+}
+
+const HAIR_LOD_TRIS = [900, 280, 90];
+const HAIR_LODS = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry[]>();
+function hairLods(geo: THREE.BufferGeometry): THREE.BufferGeometry[] {
+  let l = HAIR_LODS.get(geo);
+  if (l) return l;
+  if (!simpReady || !geo.index) return [geo, geo, geo];
+  const pos = Float32Array.from((geo.getAttribute('position') as THREE.BufferAttribute).array as ArrayLike<number>);
+  const idx = Uint32Array.from(geo.index.array as ArrayLike<number>);
+  l = HAIR_LOD_TRIS.map((t, lv) => lodGeometry(geo, simplifyTo(idx, pos, t, lv === 2), `hair-lod${lv}`));
+  HAIR_LODS.set(geo, l);
+  return l;
+}
+
+const _camP = new THREE.Vector3();
+/** Distance-based LOD switch for one person (body + hair); called from the body's onBeforeRender. */
+function installLod(body: THREE.SkinnedMesh, base: Base, full: THREE.BufferGeometry, hair: THREE.Mesh | null, hairFull: THREE.BufferGeometry | null) {
+  let level = 0;
+  body.onBeforeRender = (_r, _s, camera) => {
+    const e = body.matrixWorld.elements;
+    _camP.setFromMatrixPosition(camera.matrixWorld);
+    const d = Math.hypot(e[12] - _camP.x, e[13] - _camP.y, e[14] - _camP.z);
+    let lv = level;
+    if (lv < 2 && d > LOD_DIST[lv] + 2) lv++;
+    else if (lv > 0 && d < LOD_DIST[lv - 1] - 2) lv--;
+    if (lv === level && body.geometry !== full) return;
+    const l = lodsFor(full, base);
+    level = lv;
+    body.geometry = l[Math.min(lv, l.length - 1)];
+    if (hair && hairFull) hair.geometry = hairLods(hairFull)[lv];
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -865,7 +965,7 @@ function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
         vGt = gt; vBind = position;
         {
           float L = floor(gt.x + 0.5);
-          if (L < 0.5) { vec4 cv = pzCover(position); if (cv.x + cv.y + cv.z > 0.5) transformed -= normal * 0.004; }
+          if (L < 0.5) { vec4 cv = pzCover(position); if (cv.z > 0.5 && position.y < uL2.z + 0.03) transformed -= normal * 0.012; else if (cv.x + cv.y + cv.z > 0.5) transformed -= normal * 0.004; }
           else if (L < 1.5) { vec4 cv = pzCover(position); transformed += normal * (uTopP.z + cv.y * (0.006 + uBotP.y)); }
           else if (L < 2.5) { vec4 cv = pzCover(position); transformed += normal * (cv.x > 0.5 ? -0.003 : uBotP.y); }
           else if (L < 4.5 && L > 3.5) transformed += normal * uBotQ.w;
@@ -1169,7 +1269,8 @@ function attachToHead(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base,
   void root;
 }
 
-function setAccessories(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, look: Look) {
+function setAccessories(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, look: Look): THREE.Mesh | null {
+  let hairMesh: THREE.Mesh | null = null;
   const head = body.skeleton.bones[base.headBone];
   if (head) for (const c of [...head.children]) if (c.name === 'gt-acc' || c.name === 'cap') head.remove(c);
   // Hair: short hair is hidden under caps/police caps/hard hats (sides read as the buzz-painted scalp).
@@ -1180,6 +1281,7 @@ function setAccessories(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Bas
       const mesh = new THREE.Mesh(h.geo, hairMaterial(h.mat, look.hairColor, look.hair));
       mesh.castShadow = true;
       attachToHead(root, body, base, mesh);
+      hairMesh = mesh;
     }
   }
   const g = hatGeometry(base, look.hat, look.glasses, look.hair === 'long');
@@ -1188,6 +1290,7 @@ function setAccessories(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Bas
     mesh.castShadow = look.hat !== 'none';
     attachToHead(root, body, base, mesh);
   }
+  return hairMesh;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1355,6 +1458,10 @@ export function randomLook(seed: number, kind: PersonKind, sex: 'm' | 'f', warmt
   }
   if (!look.glasses) look.glasses = r() < [0.3, 0.2, 0.12, 0.05, 0.03][W];
   if (W >= 4 && r() < 0.25) look.gloves = pick(r, ['#1a1a1c', '#3a2a20', '#2a2c30']);
+  // avoid accidental one-color "bodysuits"
+  if (new THREE.Color(look.topColor).sub(new THREE.Color(look.bottomColor)).toArray().reduce((a, v) => a + Math.abs(v), 0) < 0.06 && look.top !== 'blazer') {
+    look.topColor = pick(r, ['#8e9196', '#f0eee8', '#6e8fb3', '#b8a07a', '#56613f', '#a8323a']);
+  }
   look.topColor = jitter(r, look.topColor, 0.05);
   look.bottomColor = jitter(r, look.bottomColor, 0.05);
   if (look.hair === 'long' && look.hat === 'cap' && r() < 0.5) look.hat = 'none';
@@ -1449,7 +1556,8 @@ export function personalize(model: THREE.Object3D, opts: PersonalizeOptions): Lo
 }
 
 function applyPerson(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, look: Look, applyHeight: boolean) {
-  body.geometry = geometryFor(base, look.build);
+  const full = (base.geos[look.build] ??= buildGeometry(base, look.build));
+  body.geometry = lodsFor(full, base)[0];
   const u = makeUniforms(base);
   applyLook(u, base, look);
   body.material = personMaterial(base, u);
@@ -1461,6 +1569,9 @@ function applyPerson(root: THREE.Object3D, body: THREE.SkinnedMesh, base: Base, 
     const m = o as THREE.SkinnedMesh;
     if (m.isSkinnedMesh && m !== body) m.visible = false; // eyes + brows live in the merged body
   });
-  setAccessories(root, body, base, look);
+  const hair = setAccessories(root, body, base, look);
+  const hairFull = hair?.geometry ?? null;
+  if (hair && hairFull) hair.geometry = hairLods(hairFull)[0];
+  installLod(body, base, full, hair, hairFull);
   if (applyHeight) root.scale.setScalar(look.height / base.L.height);
 }
