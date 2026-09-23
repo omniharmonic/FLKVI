@@ -121,8 +121,8 @@ export class Takedowns {
     this.acting = a;
     p.busy = true;
     p.suspicious = true;
-    this.face(target);
     const at = this.workPoint(a);
+    this.face(at, target);
     a.sound = g.audio?.play(mode === 'cut' ? 'grinder' : 'spray', { at: [at.x, at.y, at.z], loop: true, volume: mode === 'cut' ? 1 : 0.6 }) ?? null;
     g.events.emit('takedownStart', { cameraId: a.id, mode });
     const pos: [number, number] = [p.position.x, p.position.z];
@@ -137,15 +137,20 @@ export class Takedowns {
     }
   }
 
-  /** Make the character face the target if gameplay allows it. */
-  private face(target: Target) {
-    const p = this.player() as any;
-    const tp = target.kind === 'cam' ? target.cam.work : target.drone.pos;
-    const h = Math.atan2(tp.x - p.position.x, -(tp.z - p.position.z));
+  /** Turn the character toward the point being worked on (lens / cut ring). */
+  private face(at: THREE.Vector3, target: Target) {
+    const p = this.player();
+    let dx = at.x - p.position.x, dz = at.z - p.position.z;
+    if (dx * dx + dz * dz < 0.09) {
+      // right under it: face the post from the side the player stands on, else the camera's own facing
+      const post = target.kind === 'cam' ? target.cam.work : target.drone.pos;
+      dx = post.x - p.position.x; dz = post.z - p.position.z;
+      if (dx * dx + dz * dz < 0.04 && target.kind === 'cam') { dx = Math.sin(target.cam.rc.heading); dz = -Math.cos(target.cam.rc.heading); }
+    }
+    const h = Math.atan2(dx, -dz);
     try {
       if (typeof p.face === 'function') p.face(h);
-      else if (typeof p.setHeading === 'function') p.setHeading(h);
-      else if (Object.getOwnPropertyDescriptor(p, 'heading')?.writable) p.heading = h;
+      else if (Object.getOwnPropertyDescriptor(p, 'heading')?.writable) (p as { heading: number }).heading = h;
     } catch { /* read-only heading */ }
   }
 
@@ -223,7 +228,8 @@ export class Takedowns {
   private vfx(a: Acting, dt: number, t: number) {
     const p = this.player();
     const wp = this.workPoint(a);
-    const hand = p.position.clone().add(new THREE.Vector3(0, 1.25, 0));
+    const hp = (p as { handPosition?: (o: THREE.Vector3) => THREE.Vector3 | null }).handPosition?.(new THREE.Vector3());
+    const hand = a.mode === 'disable' && hp ? hp : p.position.clone().add(new THREE.Vector3(0, 1.25, 0));
     const toW = new THREE.Vector3().subVectors(wp, hand);
     if (a.mode === 'cut' && a.target.kind === 'cam') {
       const cam = a.target.cam;

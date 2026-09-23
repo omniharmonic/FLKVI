@@ -40,7 +40,7 @@ Several agents work in this tree **at the same time**. Don't run `npm install` (
 - **Do NOT start your own vite server.** One shared dev server runs at **http://127.0.0.1:5200** (the lead keeps it up; it hot-reloads everyone's edits). If it's down, tell the lead in your report rather than starting others; you may start it yourself only with `PORT=5200 npx vite --strictPort` if nothing is listening on 5200.
 - **Never run `agent-browser` directly.** Always go through the lock script, which allows ONE headless Chromium machine-wide, caps a session at 240 s, and always closes the browser:
   `tools/browser.sh 'agent-browser open "http://127.0.0.1:5200/?autostart"; sleep 25; agent-browser screenshot /path/to/scratch/shot.png'`
-  Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. Software WebGL is slow — judge visuals, not fps.
+  The lead monitors Chromium counts; a second browser is a violation. Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. Software WebGL is slow — judge visuals, not fps.
 - **Never** `pkill`/`killall` by name; only kill PIDs you started. No long-running background processes left behind when you finish.
 - Heavy Node jobs (baking cities, texture conversion) one at a time.
 - `window.game` is the Game instance for debugging (`agent-browser eval`). `?autostart` skips the menus (default Boulder); `?city=<id>` picks a baked city; `&mode=freeroam`.

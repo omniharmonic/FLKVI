@@ -82,6 +82,27 @@ function parkingSide(t: Tags, side: 'left' | 'right'): boolean | undefined {
   return undefined;
 }
 
+/** Which sides carry a sidewalk per OSM (relative to the way's drawing direction). null = untagged. */
+export function sidewalkSides(t: Tags): { l?: boolean; r?: boolean } | null {
+  const yes = (v: string) => !/^(no|none)$/.test(v);
+  let l: boolean | undefined, r: boolean | undefined;
+  const v = t.sidewalk ?? t['sidewalk:both'];
+  if (v) {
+    if (v === 'left') { l = true; r = false; }
+    else if (v === 'right') { l = false; r = true; }
+    else l = r = yes(v); // both / yes / separate / no / none
+  }
+  if (t['sidewalk:left']) l = yes(t['sidewalk:left']);
+  if (t['sidewalk:right']) r = yes(t['sidewalk:right']);
+  if (l === undefined && r === undefined) return null;
+  return { l, r };
+}
+
+/** Sidewalk width on one side of a road: side > 0 = right of travel direction (−dz, dx), side < 0 = left. */
+export function swOf(r: RecipeRoad, side: number): number {
+  return side > 0 ? (r.sidewalkR ?? r.sidewalk) : (r.sidewalkL ?? r.sidewalk);
+}
+
 export function buildRoads(data: OsmData, ctx: Ctx) {
   const { proj, bounds, heightAt, density } = ctx;
   const infos: RoadInfo[] = [];
@@ -120,7 +141,9 @@ export function buildRoads(data: OsmData, ctx: Ctx) {
       const mid = pts[Math.floor(pts.length / 2)];
       const dens = density(mid[0], mid[1]);
       // parking lanes
-      let parkL = parkingSide(t, 'left'), parkR = parkingSide(t, 'right');
+      // OSM left/right refer to the way's drawing direction; oneway=-1 ways were reversed above → swap sides.
+      const sideL = reverse ? 'right' : 'left', sideR = reverse ? 'left' : 'right';
+      let parkL = parkingSide(t, sideL), parkR = parkingSide(t, sideR);
       const parkDefault = (cls === 'residential' || cls === 'unclassified' || cls === 'tertiary' || cls === 'living_street')
         ? dens > 0.04 : (cls === 'secondary' || cls === 'primary') ? dens > 0.3 && lanes <= 4 : false;
       if (parkL === undefined) parkL = parkDefault && !(oneway && lanes >= 3);
@@ -137,23 +160,26 @@ export function buildRoads(data: OsmData, ctx: Ctx) {
         if (tagW && tagW > 2.5 && tagW < 50) width = tagW;
         if (cls === 'service' && service === 'alley') width = Math.min(width, 5);
       }
-      // sidewalks
-      let sidewalk = 0;
-      const sw = t.sidewalk ?? t['sidewalk:both'] ?? (t['sidewalk:left'] || t['sidewalk:right'] ? 'one' : undefined);
+      // sidewalks (per side: OSM sidewalk=left/right/both/no, sidewalk:left/right/both=yes/no/separate)
+      const urb = ctx.urban(mid[0], mid[1]);
       const swDefault = () => {
         if (!drivableCls) return 0;
         if (cls === 'motorway') return 0;
         if (cls === 'service') return 0;
         if (cls === 'trunk') return dens > 0.2 ? 2.5 : 0;
-        if (cls === 'primary' || cls === 'secondary' || cls === 'tertiary') return dens > 0.33 ? 4.2 : dens > 0.18 ? 3.0 : dens > 0.03 ? 1.8 : 0;
+        if (cls === 'primary' || cls === 'secondary' || cls === 'tertiary') return dens > 0.33 ? 4.2 : dens > 0.18 ? 3.0 : dens > 0.03 || urb > 0.07 ? 1.8 : 0;
         if (cls === 'living_street') return 0;
-        return dens > 0.35 ? 3.2 : dens > 0.02 ? 1.6 : 0;
+        return dens > 0.35 ? 3.2 : dens > 0.02 || urb > 0.07 ? 1.6 : 0;
       };
-      if (sw === 'no' || sw === 'none') sidewalk = 0;
-      else if (sw) sidewalk = Math.max(swDefault(), drivableCls ? 1.6 : 0);
-      else sidewalk = swDefault();
+      const sides = sidewalkSides(t);
+      const def = swDefault();
+      const tagged = drivableCls ? Math.max(def, 1.6) : 0;
       const swW = parseLength(t['sidewalk:width'] ?? t['sidewalk:both:width']);
-      if (swW && swW > 0.8 && swW < 10) sidewalk = swW;
+      const sideW = (present: boolean | undefined) => present === false ? 0 : swW && swW > 0.8 && swW < 10 && present !== undefined ? swW : present === true ? tagged : def;
+      let swL = sideW(sides ? (reverse ? sides.r : sides.l) : undefined);
+      let swR = sideW(sides ? (reverse ? sides.l : sides.r) : undefined);
+      if (!sides && swW && swW > 0.8 && swW < 10 && def > 0) swL = swR = swW;
+      const sidewalk = Math.max(swL, swR);
 
       const bridge = !!t.bridge && t.bridge !== 'no';
       const tunnel = !!t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage';
@@ -178,6 +204,7 @@ export function buildRoads(data: OsmData, ctx: Ctx) {
         cls, pts, ys, width: +width.toFixed(2), lanes, oneway, sidewalk: +sidewalk.toFixed(2),
         maxSpeed: parseSpeed(t.maxspeed, cls), surface: surfaceOf(t, cls), nodes,
       };
+      if (Math.abs(swL - swR) > 0.05) { road.sidewalkL = +swL.toFixed(2); road.sidewalkR = +swR.toFixed(2); }
       if (bridge) road.bridge = true;
       if (tunnel) road.tunnel = true;
       if (t.name) road.name = t.name;
@@ -321,5 +348,77 @@ export class RoadIndex {
       if (d < r && (!best || d < best.d)) best = { info: s.info, d, seg: k };
     }
     return best;
+  }
+}
+
+/**
+ * Dense cores: real sidewalks run from the curb to the building face. Widen each side's sidewalk to the typical
+ * facade line (measured by casting perpendicular rays from the curb against building outlines) so there's no
+ * grass strip between walk and storefront. Only widens; never narrows below the tagged/default width.
+ */
+export function fillSidewalksToFacades(infos: RoadInfo[], outlines: { outer: Vec2[]; part: boolean }[], ctx: Ctx, maxW = 7.5) {
+  const edges: [Vec2, Vec2][] = [];
+  const grid = new GridIndex<number>(16);
+  for (const b of outlines) {
+    if (b.part) continue;
+    const o = b.outer;
+    for (let i = 0; i < o.length; i++) {
+      const a = o[i], c = o[(i + 1) % o.length];
+      grid.insert(edges.length, Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.max(a[0], c[0]), Math.max(a[1], c[1]));
+      edges.push([a, c]);
+    }
+  }
+  const reach = maxW + 0.6;
+  /** distance along ray o + n*t to the first building edge, or Infinity */
+  const cast = (ox: number, oz: number, nx: number, nz: number): number => {
+    const ex = ox + nx * reach, ez = oz + nz * reach;
+    let best = Infinity;
+    for (const k of grid.query(Math.min(ox, ex), Math.min(oz, ez), Math.max(ox, ex), Math.max(oz, ez))) {
+      const [a, b] = edges[k];
+      const sx = b[0] - a[0], sz = b[1] - a[1];
+      const den = nx * sz - nz * sx;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((a[0] - ox) * sz - (a[1] - oz) * sx) / den;
+      const u = ((a[0] - ox) * nz - (a[1] - oz) * nx) / den;
+      if (t >= -0.3 && t <= reach && u >= 0 && u <= 1 && t < best) best = t;
+    }
+    return best;
+  };
+  for (const inf of infos) {
+    const r = inf.road;
+    if (!PUBLIC_STREET.has(r.cls) || r.bridge || r.tunnel || r.cls === 'motorway' || r.cls === 'trunk') continue;
+    const mid = r.pts[Math.floor(r.pts.length / 2)];
+    if (ctx.density(mid[0], mid[1]) < 0.28) continue;
+    const L = polylineLength(r.pts);
+    if (L < 14) continue;
+    let swL = swOf(r, -1), swR = swOf(r, 1);
+    for (const side of [1, -1]) {
+      const cur = side > 0 ? swR : swL;
+      if (cur <= 0) continue;
+      const hits: number[] = []; let n = 0;
+      // sample every 5 m, skipping 7 m at each end (junction corners)
+      let acc = 0;
+      for (let i = 1; i < r.pts.length; i++) {
+        const a = r.pts[i - 1], b = r.pts[i];
+        const sl = Math.hypot(b[0] - a[0], b[1] - a[1]); if (sl < 1e-6) continue;
+        const dx = (b[0] - a[0]) / sl, dz = (b[1] - a[1]) / sl;
+        const nx = -dz * side, nz = dx * side;
+        for (let s = (5 - (acc % 5)) % 5; s < sl; s += 5) {
+          const g = acc + s; if (g < 7 || g > L - 7) continue;
+          const px = a[0] + dx * s + nx * (r.width / 2), pz = a[1] + dz * s + nz * (r.width / 2);
+          n++;
+          const t = cast(px, pz, nx, nz);
+          if (t < reach) hits.push(Math.max(0, t));
+        }
+        acc += sl;
+      }
+      if (n < 2 || hits.length < n * 0.5) continue;
+      hits.sort((x, y) => x - y);
+      const q = hits[Math.floor(hits.length * 0.4)];
+      if (q > cur + 0.3 && q <= maxW) { const w = +q.toFixed(2); if (side > 0) swR = w; else swL = w; }
+    }
+    r.sidewalk = +Math.max(swL, swR).toFixed(2);
+    if (Math.abs(swL - swR) > 0.05) { r.sidewalkL = +swL.toFixed(2); r.sidewalkR = +swR.toFixed(2); }
+    else { delete r.sidewalkL; delete r.sidewalkR; }
   }
 }

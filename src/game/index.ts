@@ -5,6 +5,7 @@ import { VehicleSystem } from './vehicles/manager';
 import { Player } from './player';
 import { CameraRig } from './camera';
 import { Character } from './character';
+import { Juice } from './juice';
 
 export { VehicleSystem } from './vehicles/manager';
 export type { Vehicle } from './vehicles/vehicle';
@@ -24,6 +25,7 @@ export async function setupGameplay(g: Game): Promise<void> {
   g.addSystem(player);
   g.addSystem(vehicles);
   g.addSystem(cam);
+  g.addSystem(new Juice(g, cam, player));
   // Debug hooks (dev harness / console).
   (g as any).__gameplay = { player, vehicles, cam };
   (g as any).__enter = (id: string) => {

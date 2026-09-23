@@ -1,10 +1,10 @@
 // OWNER: compiler agent. Street furniture: OSM-mapped props + rule-based placement (lights, hydrants, parked cars, poles...).
-import type { RecipeProp, PropType, RecipeArea, Vec2 } from '../core/types.ts';
+import type { RecipeProp, PropType, RecipeArea, RecipeTree, Vec2 } from '../core/types.ts';
 import type { OsmData } from './osm.ts';
 import { rng, hashString } from '../core/geo.ts';
 import { headingOf, r2, GridIndex, orientedBox, pointInPoly, polyArea, clipPolylineRect, polylineLength } from './geom.ts';
 import type { Ctx } from './context.ts';
-import { PUBLIC_STREET, CLASS_RANK, type RoadIndex, type RoadInfo, type GraphResult } from './roads.ts';
+import { PUBLIC_STREET, CLASS_RANK, swOf, type RoadIndex, type RoadInfo, type GraphResult } from './roads.ts';
 import { insideBuilding, type BuildResult } from './buildings.ts';
 import { walk } from './vegetation.ts';
 
@@ -35,8 +35,12 @@ export function junctionLegs(infos: RoadInfo[]): Map<number, Leg[]> {
 
 export interface PropsResult { props: RecipeProp[]; signalPoles: SignalPole[]; crossings: Vec2[] }
 
-export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, roads: RoadIndex, bld: BuildResult, areas: RecipeArea[], ctx: Ctx): PropsResult {
+export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, roads: RoadIndex, bld: BuildResult, areas: RecipeArea[], ctx: Ctx, trees: RecipeTree[] = []): PropsResult {
   const { proj, bounds, heightAt } = ctx;
+  // street trees (tree grates / lawns) are placed first; curb furniture keeps clear of their trunks
+  const treeGrid = new GridIndex<Vec2>(10);
+  for (const t of trees) treeGrid.insert(t.p, t.p[0], t.p[1], t.p[0], t.p[1]);
+  const nearTree = (p: Vec2, r: number) => { for (const q of treeGrid.near(p[0], p[1], r)) if ((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 < r * r) return true; return false; };
   const props: RecipeProp[] = [];
   const grid = new GridIndex<number>(20);
   const inB = (p: Vec2) => p[0] > bounds.minX && p[0] < bounds.maxX && p[1] > bounds.minZ && p[1] < bounds.maxZ;
@@ -193,6 +197,9 @@ export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, ro
       if (roads.onCarriageway(p[0], p[1], 0.25)) return false;
       if (insideBuilding(p[0], p[1], bld, 0.3)) return false;
       if (near(null, p, clearR)) return false;
+      if (nearTree(p, 1.1)) return false;
+      // sidewalk furniture needs a sidewalk on that side
+      if (swOf(r, side) <= 0 && type !== 'streetlight' && type !== 'hydrant' && type !== 'utility-pole') return false;
       return add(type, p, rotOverride ?? faceRoad(side, dir), variant);
     };
     // Streetlights
@@ -207,7 +214,7 @@ export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, ro
       walk(r.pts, step, (p, i, dir) => {
         const sides = both ? [1, -1] : [i % 2 === 0 ? 1 : -1];
         for (const side of sides) {
-          const o = r.sidewalk > 0 ? off(0.55) : off(1.0);
+          const o = swOf(r, side) > 0 ? off(0.55) : off(1.0);
           const q: Vec2 = [p[0] - dir[1] * o * side, p[1] + dir[0] * o * side];
           if (nearList(lampsMapped, q, 12)) continue;
           if (near('streetlight', q, 10)) continue;
@@ -234,7 +241,8 @@ export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, ro
       }, 10 + R() * 10);
       walk(r.pts, 75, (p, i, dir) => {
         const side = i % 2 ? -1 : 1;
-        const q: Vec2 = [p[0] - dir[1] * off(r.sidewalk - 0.7) * side, p[1] + dir[0] * off(r.sidewalk - 0.7) * side];
+        const bo = off(Math.max(0.8, Math.min(swOf(r, side), 4.5) - 0.7));
+        const q: Vec2 = [p[0] - dir[1] * bo * side, p[1] + dir[0] * bo * side];
         place('bench', side, q, dir, 0, faceRoad(side, dir));
       }, 25 + R() * 20);
       if ((inf.parkL || inf.parkR) && CLASS_RANK[r.cls] >= 3 && dens > 0.4) walk(r.pts, 16, (p, i, dir) => {
@@ -255,7 +263,7 @@ export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, ro
     if ((r.cls === 'residential' || r.cls === 'unclassified') && dens < 0.45 && dens > 0.01 && ctx.region !== 'northeast') {
       const side = hashString(r.id) % 2 ? 1 : -1;
       walk(r.pts, 38, (p, i, dir) => {
-        const o = r.sidewalk > 0 ? off(r.sidewalk + 0.7) : off(1.5);
+        const o = swOf(r, side) > 0 ? off(swOf(r, side) + 0.7) : off(1.5);
         const q: Vec2 = [p[0] - dir[1] * o * side, p[1] + dir[0] * o * side];
         if (nearList(polesMapped, q, 30)) return;
         place('utility-pole', side, q, dir, 0, headingOf(dir[0], dir[1]));

@@ -231,10 +231,11 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   composer.addPass(renderPass);
 
   const ao = new N8AOPostPass(scene, camera, w, h);
-  ao.configuration.aoRadius = 3.0;
-  ao.configuration.distanceFalloff = 1.2;
-  ao.configuration.intensity = 2.2;
-  ao.configuration.color = new THREE.Color(0.02, 0.025, 0.035);
+  // contact-level AO: tight radius so corners/curbs/under-awnings darken without dirty halos
+  ao.configuration.aoRadius = 1.4;
+  ao.configuration.distanceFalloff = 0.8;
+  ao.configuration.intensity = 1.6;
+  ao.configuration.color = new THREE.Color(0.03, 0.035, 0.05);
   ao.configuration.gammaCorrection = false;
   ao.configuration.halfRes = false;
   // rain/glass/particles should not occlude; skipping the transparency pre-pass saves ~2 ms

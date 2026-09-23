@@ -28,6 +28,10 @@ export type Quality = 'high' | 'medium' | 'low';
 const E_SUN = 6.0;
 const MOON_E = 0.35;
 const SUN_DISK = 45;
+/** Average albedo the IBL probe sees below the horizon (street + sunlit facades): warm bounce into shade. */
+const GROUND_ALBEDO = 0.2;
+/** Exposure key for the adaptation curve. */
+const EXPO_KEY = 2.4;
 const DEG = Math.PI / 180;
 const SSR_DEBUG = Number(new URLSearchParams(location.search).get('ssrdebug') ?? 1);
 
@@ -109,6 +113,7 @@ class RenderSky implements SkyAPI {
     const alt = y > 300 ? y : r.region === 'mountain-west' ? 1600 : r.region === 'southwest' ? 700 : 150;
     this.lut.altitude = THREE.MathUtils.clamp(alt, 0, 4000) + 2;
     this.lut.mieScale = this.look.mie;
+    this.lut.msMatch = true;
 
     this.skyU = makeSkyUniforms(this.lut.texR, this.lut.texM);
     this.skyU.uMieG.value = this.look.mieG;
@@ -150,13 +155,21 @@ class RenderSky implements SkyAPI {
     g.scene.fog = new THREE.FogExp2(0x8899aa, this.look.haze);
     g.scene.environmentIntensity = 1;
 
-    // starting time: honor ?time=, else mid/late golden hour (sun ~12° high, typically 16:30-17:00)
+    // starting time: honor ?time=, else a clear late afternoon with the sun still ~20° up
+    // (warm, long soft shadows, streets still sunlit; typically 15:30-16:30)
     const q = new URLSearchParams(location.search);
-    if (q.has('time')) this.time = parseFloat(q.get('time')!) || 16.75;
-    else this.time = THREE.MathUtils.clamp(findElevationTime(this.lat, this.lon, this.day, 12) ?? 16.75, 14.5, 18.5);
+    if (q.has('time')) this.time = parseFloat(q.get('time')!) || 16.0;
+    else this.time = THREE.MathUtils.clamp(findElevationTime(this.lat, this.lon, this.day, 20) ?? 16.0, 14.0, 18.0);
     if (q.has('timescale')) this.timeScale = parseFloat(q.get('timescale')!);
+    // weather: never rain on the first load of a browser session (first impression = sunny);
+    // later loads roll the regional rain chance (≤ 15%).
+    let firstLoad = true;
+    try {
+      firstLoad = !sessionStorage.getItem('gt.visited');
+      sessionStorage.setItem('gt.visited', '1');
+    } catch { /* storage blocked: treat as first load */ }
     if (q.has('rain')) this.rainTarget = q.get('rain') === '0' ? 0 : 1;
-    else if (Math.random() < this.look.rainChance) this.rainTarget = 1;
+    else if (!firstLoad && Math.random() < Math.min(0.15, this.look.rainChance)) this.rainTarget = 1;
     this.rain = this.wet = this.rainTarget;
 
     this.updateCelestial();
@@ -275,14 +288,14 @@ class RenderSky implements SkyAPI {
     const Tc = transmittance(this.lut.altitude + 1800, sunDir.y + 0.02, this.look.mie, _c2);
     const cw = smoothstep(-4, 1, elDeg);
     u.uCloudSun.value.setRGB(Tc.r, Tc.g, Tc.b).multiplyScalar(E_SUN * 0.3 * cw * dim);
-    u.uCloudAmb.value.copy(this.zenith).multiplyScalar(2.2 * dim).add(_c2.copy(u.uCityGlow.value).multiplyScalar(1.1));
+    u.uCloudAmb.value.copy(this.zenith).multiplyScalar(0.75 * dim).add(_c2.copy(u.uCityGlow.value).multiplyScalar(1.1));
     if (this.nightFactor > 0 && moonW > 0) u.uCloudAmb.value.add(_c2.setRGB(0.004, 0.005, 0.007).multiplyScalar(moonW));
     u.uOvercast.value = overcast * 0.85;
     _m4.makeRotationAxis(_v.set(0, Math.sin(this.lat * DEG), -Math.cos(this.lat * DEG)).normalize(), (this.time / 24) * Math.PI * 2);
     u.uStarRot.value.setFromMatrix4(_m4);
     // ground seen by the environment probe (albedo ~0.12)
     const sunIrr = sl.intensity * Math.max(sunDir.y, 0) * (sunW > 0.001 ? 1 : 0);
-    u.uGround.value.copy(sl.color).multiplyScalar(sunIrr / Math.PI).add(_c2.copy(this.fogColor).multiplyScalar(0.8)).multiplyScalar(0.12);
+    u.uGround.value.copy(sl.color).multiplyScalar(sunIrr / Math.PI).add(_c2.copy(this.fogColor).multiplyScalar(0.8)).multiplyScalar(GROUND_ALBEDO);
 
     // --- fog / aerial perspective
     const fog = g.scene.fog as THREE.FogExp2;
@@ -300,13 +313,17 @@ class RenderSky implements SkyAPI {
     // --- night fill (sky + city bounce)
     // dusk fill: lifts street-level shadows while the low sun only reaches rooftops
     const dusk = smoothstep(16, 1, elDeg) * smoothstep(-8, -1, elDeg);
-    this.hemi.intensity = this.nightFactor * 0.16 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor) + dusk * 0.35;
-    this.hemi.color.setRGB(0.34, 0.42, 0.62);
+    this.hemi.intensity = this.nightFactor * 0.26 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor) + dusk * 0.6;
+    this.hemi.color.setRGB(0.38, 0.45, 0.62);
     this.hemi.groundColor.setRGB(0.42, 0.3, 0.2);
 
     // --- exposure (partial eye adaptation) + grading
-    const sceneLum = lum(sl.color) * sl.intensity * Math.max(sunDir.y, 0.05) * (sunW > 0.001 ? 1 : 0.2) + lum(this.zenith) * 3 + lum(this.skyU.uTwiCool.value) * 3 + 0.004;
-    const targetExpo = THREE.MathUtils.clamp(1.3 / Math.pow(sceneLum, 0.6), 0.6, 3.0);
+    // horizontal illuminance (sun + sky dome) drives a partial, photographic eye adaptation:
+    // mid-grey in full sun lands near middle grey, shade stays readable, night stays night.
+    const sunHor = lum(sl.color) * sl.intensity * Math.max(sunDir.y, 0.04) * (sunW > 0.001 ? 1 : 0.2);
+    const skyHor = Math.PI * 1.3 * (lum(this.zenith) + lum(this.skyU.uTwiCool.value) * 3);
+    const sceneLum = sunHor + skyHor + 0.006;
+    const targetExpo = THREE.MathUtils.clamp(EXPO_KEY / Math.pow(sceneLum, 0.6), 0.7, 3.6);
     this.exposure += (targetExpo - this.exposure) * (jumped ? 1 : 1 - Math.exp(-dt * 1.5));
     this.applyGrade(overcast);
 
@@ -342,15 +359,17 @@ class RenderSky implements SkyAPI {
     const p = this.post;
     const L = this.look;
     const n = this.nightFactor;
-    const golden = smoothstep(18, 4, this.sunElevation / DEG) * (1 - n);
+    const golden = smoothstep(30, 8, this.sunElevation / DEG) * (1 - n);
     p.exposure.exposure = this.exposure;
+    // golden hour: warm the whole frame a touch (daylight-balanced camera under low sun)
     p.exposure.whiteBalance.set(
-      L.wb[0] * (1 - 0.06 * n),
+      L.wb[0] * (1 - 0.06 * n) * (1 + 0.04 * golden),
       L.wb[1],
-      L.wb[2] * (1 + 0.04 * n) * (1 - 0.02 * golden),
+      L.wb[2] * (1 + 0.04 * n) * (1 - 0.07 * golden),
     );
-    p.bloom.luminanceMaterial.threshold = p.bloomBaseThreshold / this.exposure;
-    p.bloom.intensity = 0.55 + 0.45 * n + 0.2 * golden;
+    // subtle by day (only the sun glint / speculars bloom), rich halos around lamps and signs at night
+    p.bloom.luminanceMaterial.threshold = p.bloomBaseThreshold / this.exposure * (1 - 0.35 * n);
+    p.bloom.intensity = 0.35 + 0.75 * n + 0.15 * golden + 0.2 * overcast;
     const gu = (k: string) => p.grade.u(k).value;
     p.grade.u('saturation').value = L.saturation * (1 - 0.18 * overcast) * (1 - 0.12 * n) + 0.05 * golden;
     p.grade.u('contrast').value = L.contrast * (1 - 0.08 * overcast) + 0.03 * n;

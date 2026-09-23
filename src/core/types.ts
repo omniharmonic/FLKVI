@@ -82,8 +82,12 @@ export interface RecipeRoad {
   width: number;
   lanes: number;
   oneway: boolean;
-  /** Sidewalk width each side (0 = none). */
+  /** Sidewalk width each side (0 = none). When sidewalkL/R are present this is the wider of the two. */
   sidewalk: number;
+  /** Optional per-side sidewalk widths (m), left / right of the travel direction along `pts`
+   *  (right = (−dz, dx) seen from above). Present only when the two sides differ; override `sidewalk` per side. */
+  sidewalkL?: number;
+  sidewalkR?: number;
   maxSpeed: number; // m/s
   surface: 'asphalt' | 'concrete' | 'brick' | 'gravel' | 'paving';
   bridge?: boolean;

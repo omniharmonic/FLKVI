@@ -19,7 +19,7 @@ export function makeSkyUniforms(texR: THREE.Texture, texM: THREE.Texture) {
     /** Star field rotation (celestial). */
     uStarRot: { value: new THREE.Matrix3() },
     uCityGlow: { value: new THREE.Color(0.02, 0.009, 0.003) },
-    uAirglow: { value: new THREE.Color(0.0012, 0.0021, 0.0052) },
+    uAirglow: { value: new THREE.Color(0.0015, 0.0029, 0.0082) },
     /** x: coverage 0..1, y: density/darkness, z: time (s), w: altitude m */
     uClouds: { value: new THREE.Vector4(0.35, 0.6, 0, 1800) },
     uCloudSun: { value: new THREE.Color(1, 1, 1) },
@@ -213,6 +213,11 @@ void main() {
 	}
 
 	if ( uEnvMode > 0.5 ) {
+		// IBL: shade in a real street is lit by the whole surround (bright horizon haze, sunlit facades,
+		// multiple scattering), not just the saturated Rayleigh blue. Desaturate the captured sky part-way
+		// so shadows read cool but natural instead of navy.
+		float el = dot( col, vec3( 0.2126, 0.7152, 0.0722 ) );
+		col = mix( col, vec3( el ) * vec3( 1.02, 1.0, 0.97 ), 0.35 );
 		// lower hemisphere: lit ground + a band of horizon haze
 		float g = smoothstep( 0.0, -0.08, d.y );
 		col = mix( col, uGround, g );

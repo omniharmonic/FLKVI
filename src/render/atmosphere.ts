@@ -268,8 +268,19 @@ export class SkyLUT {
     out.r = f(this.rayleigh, 0) * pR + f(this.mie, 0) * pM;
     out.g = f(this.rayleigh, 1) * pR + f(this.mie, 1) * pM;
     out.b = f(this.rayleigh, 2) * pR + f(this.mie, 2) * pM;
+    if (this.msMatch) {
+      // match the sky shader's multiple-scattering compensation so fog/horizon colors agree with the dome
+      const r = f(this.rayleigh, 0), gg = f(this.rayleigh, 1), b = f(this.rayleigh, 2);
+      const avg = (r + gg + b) * 0.33 * 0.15 * Math.PI;
+      const k = 0.9 * Math.PI;
+      out.r += pR * (r * k + avg);
+      out.g += pR * (gg * k + avg);
+      out.b += pR * (b * k + avg);
+    }
     return out;
   }
+  /** When true, sample() includes the shader's multiple-scattering term (sky-matched colors). */
+  msMatch = false;
 }
 
 export function miePhase(cosT: number, g: number) {

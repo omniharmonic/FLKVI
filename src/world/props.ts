@@ -185,6 +185,8 @@ export class PropSystem {
   M = makeMaterials();
   colliders: (PropCollider | PropBox)[] = [];
   lamps: THREE.Vector3[] = [];
+  /** Traffic-signal poles with their mast arm (arm dir unit x/z, length m, arm height y+6.6). Read by surveillance to mount clusters. */
+  masts: { x: number; y: number; z: number; dx: number; dz: number; len: number }[] = [];
   private lampGrid = new Grid<number>(60);
   private heads: { node: number; axis: number; bearing: number; idx: number }[] = [];
   private lensMeshes: THREE.InstancedMesh[] = [];
@@ -328,6 +330,7 @@ export class PropSystem {
         const armLen = off - firstLaneOff + 0.6;
         const armYaw = Math.atan2(rz, -rx); // local +X → (-rx,-rz)
         kits.mastArm.add(this.mat(px, py, pz, armYaw, Math.max(2, armLen), 1, 1));
+        this.masts.push({ x: px, y: py, z: pz, dx: -rx, dz: -rz, len: Math.max(2, armLen) });
         const headYaw = this.yawFace(A.u[0], A.u[1]);
         const bearing = Math.atan2(tz, tx);
         for (let k = 0; k < lanesIn; k++) {
@@ -548,7 +551,7 @@ export class PropSystem {
     this.night = f;
     const lamp = this.M.lamp as THREE.MeshStandardMaterial;
     lamp.emissiveIntensity = f * 18;
-    if (this.poolMat) this.poolMat.opacity = f * 0.32;
+    if (this.poolMat) this.poolMat.opacity = f * 0.045; // look-dev: additive radiance, matched to the real spot pools
     if (this.pools) this.pools.visible = f > 0.02;
   }
 
@@ -590,7 +593,7 @@ export class PropSystem {
       l.position.copy(p);
       l.target.position.set(p.x, p.y - 10, p.z);
       l.target.updateMatrixWorld();
-      l.intensity = this.night * 380;
+      l.intensity = this.night * 26; // look-dev: ~0.8 lux-equivalent under the lamp at night exposure (was 380: blown out)
     });
   }
 }

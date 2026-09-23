@@ -13,13 +13,15 @@ export interface Ctx {
   heightAt(x: number, z: number): number;
   /** 0..1 building coverage around p (≈60 m disc). */
   density(x: number, z: number): number;
+  /** 0..1 building coverage over a ≈300 m window: 'is this a town at all' (parking-heavy downtowns score low on density). */
+  urban(x: number, z: number): number;
   seed: number;
 }
 
 /** Coverage raster: building footprint area accumulated into 20 m cells, read as 3x3 (60 m) window fraction. */
-export function makeDensity(items: { c: Vec2; area: number }[], b: Bounds) {
+export function makeDensity(items: { c: Vec2; area: number }[], b: Bounds, win = 1) {
   const cell = 20;
-  const cols = Math.ceil((b.maxX - b.minX) / cell) + 4, rows = Math.ceil((b.maxZ - b.minZ) / cell) + 4;
+  const cols = Math.ceil((b.maxX - b.minX) / cell) + 4, rows = Math.ceil((b.maxZ - b.minZ) / cell) + 4; // 2-cell pad each side
   const g = new Float32Array(cols * rows);
   const ix = (x: number) => Math.floor((x - b.minX) / cell) + 2, iz = (z: number) => Math.floor((z - b.minZ) / cell) + 2;
   for (const it of items) {
@@ -30,10 +32,10 @@ export function makeDensity(items: { c: Vec2; area: number }[], b: Bounds) {
   return (x: number, z: number) => {
     const c = ix(x), r = iz(z);
     let s = 0;
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    for (let dr = -win; dr <= win; dr++) for (let dc = -win; dc <= win; dc++) {
       const cc = c + dc, rr = r + dr;
       if (cc >= 0 && rr >= 0 && cc < cols && rr < rows) s += g[rr * cols + cc];
     }
-    return Math.min(1, s / (9 * cell * cell));
+    return Math.min(1, s / ((2 * win + 1) ** 2 * cell * cell));
   };
 }

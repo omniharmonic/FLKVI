@@ -45,6 +45,8 @@ export interface PlayerAPI {
   crouching?: boolean;
   /** Optional (gameplay): sprinting on foot — louder / more conspicuous. */
   sprinting?: boolean;
+  /** Optional (gameplay): turn to face a world heading now (0 = north/−Z, clockwise), e.g. at a takedown. */
+  face?(heading: number): void;
 }
 
 /** A dynamic vehicle in the world (player, traffic, police, parked). Owned by src/game (vehicles). */

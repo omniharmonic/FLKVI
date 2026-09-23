@@ -29,8 +29,8 @@ export interface LookPreset {
 const base: LookPreset = {
   name: 'temperate',
   mie: 1.2, mieG: 0.8, haze: 1 / 16000, heightFog: 1 / 9000, heightFalloff: 1 / 90,
-  wb: [1, 1, 1], saturation: 1.05, contrast: 1.06,
-  shadowTint: [0.98, 1.0, 1.03], highlightTint: [1.02, 1.0, 0.97],
+  wb: [1.02, 1, 0.96], saturation: 1.06, contrast: 1.06,
+  shadowTint: [0.985, 1.0, 1.02], highlightTint: [1.03, 1.0, 0.96],
   clouds: 0.35, cityGlow: 1, rainChance: 0.15,
 };
 
@@ -42,18 +42,18 @@ export const LOOKS: Record<string, LookPreset> = {
   },
   mountain: {
     ...base, name: 'mountain', mie: 0.85, mieG: 0.82, haze: 1 / 17000, heightFog: 1 / 14000, heightFalloff: 1 / 70,
-    wb: [1.0, 1.0, 1.02], saturation: 1.08, contrast: 1.1,
-    shadowTint: [0.96, 0.99, 1.05], highlightTint: [1.03, 1.0, 0.96], clouds: 0.3, cityGlow: 0.9, rainChance: 0.1,
+    wb: [1.02, 1.0, 0.97], saturation: 1.1, contrast: 1.08,
+    shadowTint: [0.975, 0.995, 1.03], highlightTint: [1.04, 1.0, 0.95], clouds: 0.3, cityGlow: 0.9, rainChance: 0.1,
   },
   humid: {
     ...base, name: 'humid', mie: 2.0, mieG: 0.74, haze: 1 / 8500, heightFog: 1 / 5000, heightFalloff: 1 / 110,
     wb: [1.01, 1.0, 0.98], saturation: 1.0, contrast: 0.98,
-    shadowTint: [0.98, 1.01, 1.0], highlightTint: [1.03, 1.01, 0.95], clouds: 0.5, cityGlow: 1.2, rainChance: 0.25,
+    shadowTint: [0.98, 1.01, 1.0], highlightTint: [1.03, 1.01, 0.95], clouds: 0.5, cityGlow: 1.2, rainChance: 0.15,
   },
   coastal: {
     ...base, name: 'coastal', mie: 1.7, mieG: 0.78, haze: 1 / 10000, heightFog: 1 / 3500, heightFalloff: 1 / 60,
-    wb: [0.97, 1.0, 1.04], saturation: 0.98, contrast: 1.03,
-    shadowTint: [0.95, 0.99, 1.05], highlightTint: [1.01, 1.0, 0.98], clouds: 0.4, cityGlow: 1.0, rainChance: 0.2,
+    wb: [0.99, 1.0, 1.01], saturation: 1.02, contrast: 1.04,
+    shadowTint: [0.95, 0.99, 1.05], highlightTint: [1.01, 1.0, 0.98], clouds: 0.4, cityGlow: 1.0, rainChance: 0.12,
   },
   temperate: base,
 };

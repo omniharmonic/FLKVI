@@ -9,6 +9,7 @@ import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './
 import { CAR_COLORS, updateSharedLightMaterials } from './materials';
 import { Vehicle } from './vehicle';
 import { ParkingSystem, type ParkedSlot } from './parked';
+import { CarShadows } from './shadows';
 import { Smoke } from '../effects';
 import { clamp, nightFactor, playSound, v3 } from '../util';
 
@@ -36,6 +37,8 @@ export class VehicleSystem implements VehiclesAPI, System {
   /** Collider handles the wheel rays ignore (player capsule, pedestrians…). */
   readonly rayIgnore = new Set<number>();
   parking: ParkingSystem;
+  /** Shared instanced hull shadow casters for every car (perf). */
+  readonly shadows: CarShadows;
   smoke = new Smoke();
   private nextId = 1;
   private promoteTimer = 0;
@@ -46,7 +49,8 @@ export class VehicleSystem implements VehiclesAPI, System {
   constructor(private g: Game) {
     this.group.name = 'vehicles';
     g.scene.add(this.group);
-    this.parking = new ParkingSystem(g);
+    this.shadows = new CarShadows(g);
+    this.parking = new ParkingSystem(g, this.shadows);
     g.scene.add(this.parking.group);
     g.scene.add(this.smoke.points);
     // Fixed light pool (constant light count → no shader recompiles).
@@ -89,6 +93,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     v.ignoreRay = (c: RAPIER_NS.Collider) => this.rayIgnore.has(c.handle) || this.colliderMap.get(c.handle) === v;
     this.vehicles.set(v.id, v);
     this.group.add(v.object);
+    // Sun shadows come from the shared hull proxies (CarShadows); the detailed parts don't cast.
+    if (this.shadows.active) v.object.traverse((o) => { o.castShadow = false; });
   }
 
   despawn(id: string) {
@@ -249,7 +255,7 @@ export class VehicleSystem implements VehiclesAPI, System {
         if (d > DEMOTE_RADIUS && Math.abs(v.speed) < 0.3 && upright && !v.destroyed) this.demote(v);
       }
     }
-    this.parking.refresh(g.camera.position);
+    this.parking.refresh(g.camera.position, false, g.camera);
   }
 
   lateUpdate(dt: number) {
@@ -259,14 +265,21 @@ export class VehicleSystem implements VehiclesAPI, System {
     const cam = g.camera.position;
     const playerVid = g.player?.vehicleId;
     let sirenCar: Vehicle | null = null, sirenD = 1e9;
+    this.shadows.begin();
     for (const v of this.vehicles.values()) {
       v.sync(dt);
       const d = v.position.distanceTo(cam);
       v.visual.setFar(d > LOD_FAR && v.id !== playerVid);
+      if (v.object.visible && v.object.parent) {
+        const ch = v.visual.chassis;
+        ch.updateWorldMatrix(true, false);
+        this.shadows.add(v.model, ch.matrixWorld);
+      }
       v.headlights = v.driver !== 'none' && !v.destroyed && (night > 0.15 || v.kind === 'police' && !!v.siren);
       if (v.siren && d < sirenD) { sirenD = d; sirenCar = v; }
       this.effects(v, dt, d);
     }
+    this.shadows.end();
     this.smoke.update(dt, 0.35 + 0.65 * (1 - night), g.renderer?.domElement?.height ?? 800);
     // Player headlights
     const pv = playerVid ? this.vehicles.get(playerVid) : undefined;

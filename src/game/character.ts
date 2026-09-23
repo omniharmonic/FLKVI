@@ -5,7 +5,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { assetUrl } from '../assets/library';
 import { damp } from './util';
 
-export type Pose = 'none' | 'kneel' | 'interact' | 'drive';
+/** 'reach': standing, both arms raised to work a telescopic paint pole on a lens at head height and above. */
+export type Pose = 'none' | 'kneel' | 'interact' | 'drive' | 'reach';
 
 export interface CharacterState {
   speed: number;
@@ -89,6 +90,7 @@ export class Character {
     this.addGear(model);
     this.root.add(model);
     this.mixer = new THREE.AnimationMixer(model);
+    model.traverse((o) => { if (/^(upperarm|lowerarm|hand)_(l|r)$/.test(o.name)) this.arm[o.name] = o; });
     for (const [k, name] of Object.entries(CLIPS) as [ClipKey, string][]) {
       const clip = a.clips.find((c) => c.name === name);
       if (!clip) continue;
@@ -297,6 +299,7 @@ export class Character {
     if (st.pose === 'drive') tw.drive = 1;
     else if (st.pose === 'kneel') tw.kneel = 1;
     else if (st.pose === 'interact') tw.interact = 1;
+    else if (st.pose === 'reach') tw.idle = 1;
     else if (!st.grounded && this.air > 0.12) tw.jump = 1;
     else if (st.crouch) {
       const k = Math.min(1, s / 1.0);
@@ -352,7 +355,50 @@ export class Character {
       if (a) { a.time = this.phase * a.getClip().duration; a.timeScale = 0; }
     }
     this.mixer.update(dt);
+    this.reachW = damp(this.reachW, st.pose === 'reach' ? 1 : 0, 7, dt);
+    if (this.reachW > 0.01) this.applyReach(this.reachW, dt);
     this.placeGear();
+  }
+
+  private arm: Record<string, THREE.Object3D> = {};
+  private reachW = 0;
+  private reachT = 0;
+  /**
+   * Procedural two-handed "reach up" (paint pole on a lens overhead): rotate each arm segment in world space
+   * toward a target direction, rig-agnostic (works on whatever local bone axes the rig uses).
+   */
+  private applyReach(w: number, dt: number) {
+    const A = this.arm;
+    if (!A.upperarm_r || !A.lowerarm_r || !A.hand_r) return;
+    this.reachT += dt;
+    this.root.updateMatrixWorld(true);
+    const rq = this.root.getWorldQuaternion(_rq);
+    const fwd = _f.set(0, 0, -1).applyQuaternion(rq), right = _r.set(1, 0, 0).applyQuaternion(rq);
+    const wob = Math.sin(this.reachT * 7) * 0.04; // small scrubbing motion while spraying
+    const dirR = new THREE.Vector3(0, 1, 0).multiplyScalar(0.93).addScaledVector(fwd, 0.36 + wob).addScaledVector(right, 0.06).normalize();
+    const dirL = new THREE.Vector3(0, 1, 0).multiplyScalar(0.62).addScaledVector(fwd, 0.72 + wob).addScaledVector(right, 0.12).normalize();
+    const chain = (a: THREE.Object3D | undefined, b: THREE.Object3D | undefined, dir: THREE.Vector3) => {
+      if (!a || !b || !a.parent) return;
+      const pa = a.getWorldPosition(_pa), pb = b.getWorldPosition(_pb);
+      const cur = pb.sub(pa);
+      if (cur.lengthSq() < 1e-8) return;
+      cur.normalize();
+      const target = _qd.setFromUnitVectors(cur, dir).multiply(a.getWorldQuaternion(_qa));
+      const local = a.parent.getWorldQuaternion(_qp).invert().multiply(target);
+      a.quaternion.slerp(local, w);
+      a.updateMatrixWorld(true);
+    };
+    chain(A.upperarm_r, A.lowerarm_r, dirR);
+    chain(A.lowerarm_r, A.hand_r, dirR);
+    chain(A.upperarm_l, A.lowerarm_l, dirL);
+    chain(A.lowerarm_l, A.hand_l, dirL);
+  }
+
+  /** World position of the right hand (tools attach here), or null with the fallback figure. */
+  handWorld(out: THREE.Vector3): THREE.Vector3 | null {
+    const hand = this.arm.hand_r;
+    if (!hand || !this.root.visible) return null;
+    return hand.getWorldPosition(out);
   }
 
   /** Foot-contact phase for footstep sounds (0..1, contacts near 0 and 0.5). */
@@ -368,6 +414,9 @@ export class Character {
     this.phase = (this.fbPhase / (Math.PI * 2)) % 1;
   }
 }
+
+const _rq = new THREE.Quaternion(), _qd = new THREE.Quaternion(), _qa = new THREE.Quaternion(), _qp = new THREE.Quaternion();
+const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
 
 function roundBox(w: number, h: number, d: number, r: number) {
   // Lightweight rounded box via a scaled sphere-capped box (cheap, soft silhouette).

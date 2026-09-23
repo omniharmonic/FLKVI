@@ -43,14 +43,15 @@ export interface ModelDef {
 const DEG = Math.PI / 180;
 const cache = new Map<string, ModelDef>();
 
-export function getModel(type: CameraType, variant: number, height: number, opts: { fallbackMast?: boolean } = {}): ModelDef {
+export function getModel(type: CameraType, variant: number, height: number, opts: { fallbackMast?: boolean; armOffset?: number } = {}): ModelDef {
   const h = Math.round(height * 2) / 2;
-  const id = `${type}-${variant}-${h}${opts.fallbackMast ? '-mast' : ''}`;
+  const arm = opts.armOffset !== undefined ? Math.round(opts.armOffset * 4) / 4 : undefined;
+  const id = `${type}-${variant}-${h}${opts.fallbackMast ? '-mast' : ''}${arm !== undefined ? `-arm${arm}` : ''}`;
   let m = cache.get(id);
   if (!m) {
     m = type === 'pole' ? buildPole(variant % 3, h, id)
       : type === 'ptz' ? buildPTZ(variant % 2, h, id)
-      : type === 'cluster' ? buildCluster(h, !!opts.fallbackMast, id)
+      : type === 'cluster' ? (arm !== undefined ? buildMastCluster(arm, id) : buildCluster(h, !!opts.fallbackMast, id))
       : buildTower(h, id);
     cache.set(id, m);
   }
@@ -463,6 +464,58 @@ function buildCluster(H: number, fallbackPole: boolean, id: string): ModelDef {
     cutRadius: poleR,
     roundPost: true,
     workPoint: new THREE.Vector3(0, 0, 0),
+  };
+}
+
+/** World mast-arm height (src/world/props.ts kitMastArm: arm axis at y = 6.6). */
+export const MAST_ARM_Y = 6.6;
+
+/**
+ * Cluster hung from a real traffic-signal mast arm (world props). Frame: origin on the ground under the
+ * mount point, the arm runs along local +X (away from the pole, which stands at local (-arm, 0, 0)),
+ * cameras look -Z (back across the junction at approaching traffic). The player works from the pole base.
+ */
+function buildMastCluster(arm: number, id: string): ModelDef {
+  const M = mats();
+  const base = new Parts(), head = new Parts();
+  const ay = MAST_ARM_Y, ar = 0.1;
+  // saddle clamps around the arm
+  for (const dx of [-0.12, 0.12]) base.add(cyl(ar + 0.02, ar + 0.02, 0.05, 18), M.galvanizedDark, T(dx, ay, 0, 0, 0, Math.PI / 2));
+  base.add(box(0.3, 0.06, 0.08), M.galvanizedDark, T(0, ay - ar - 0.03, 0));
+  // drop rod + rail
+  const railY = ay - 0.62;
+  base.add(box(0.05, ay - ar - railY, 0.05), M.galvanized, T(0, (ay - ar + railY) / 2, 0));
+  base.add(box(0.95, 0.05, 0.05), M.galvanized, T(0, railY, 0));
+  base.add(new RoundedBoxGeometry(0.22, 0.26, 0.12, 2, 0.01), M.plasticGrey, T(0, railY + 0.22, 0.07), 'box', 0.5);
+  // cable run along the underside of the arm back to the pole
+  base.add(cableGeo([
+    new THREE.Vector3(0.04, railY + 0.1, 0.05), new THREE.Vector3(0.05, ay - ar - 0.02, 0.06),
+    new THREE.Vector3(-arm * 0.5, ay - ar - 0.03, 0.05), new THREE.Vector3(-arm + 0.2, ay - ar - 0.02, 0.04),
+    new THREE.Vector3(-arm + 0.17, ay - 0.9, 0.03),
+  ], 0.008), M.cable);
+  const tilt = 20;
+  const dirs: THREE.Vector3[] = [];
+  const lenses: { p: THREE.Vector3; d: THREE.Vector3 }[] = [];
+  let eye = new THREE.Vector3();
+  for (const [x, yaw] of [[0, 0], [-0.36, 32], [0.36, -32]] as const) {
+    head.push(T(x, -0.03, 0, -tilt * DEG, yaw * DEG));
+    const e = boxCamera(head, { w: 0.1, h: 0.09, len: 0.26, housing: x === 0 ? M.plasticWhite : M.plasticGrey });
+    head.pop();
+    lenses.push(lensAt(e, x, -0.03, 0, tilt, yaw));
+    if (x === 0) eye = e.applyEuler(new THREE.Euler(-tilt * DEG, 0, 0)).add(new THREE.Vector3(0, -0.03, 0));
+    else dirs.push(dirFromTilt(tilt, yaw));
+  }
+  return {
+    id, type: 'cluster',
+    groups: { base: base.merged(), post: [], head: head.merged(), panel: [] },
+    postOrigin: new THREE.Vector3(0, 0, 0),
+    headPivot: new THREE.Vector3(0, railY - 0.025, 0),
+    panelPivot: null,
+    eye, eyeDir: dirFromTilt(tilt), extraDirs: dirs, lenses,
+    postColliders: [], baseColliders: [],
+    cutRadius: 0.16, roundPost: true,
+    // stand at the signal pole (on the sidewalk), not in the traffic lane under the arm
+    workPoint: new THREE.Vector3(-arm + 0.55, 0, 0),
   };
 }
 

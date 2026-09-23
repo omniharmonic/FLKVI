@@ -7,6 +7,7 @@ import { bbox, pointInPoly, r2, GridIndex, polylineLength } from './geom.ts';
 import { pickWeighted, type Species } from './region.ts';
 import type { Ctx } from './context.ts';
 import type { RoadIndex, RoadInfo } from './roads.ts';
+import { swOf } from './roads.ts';
 import { insideBuilding, type BuildResult } from './buildings.ts';
 
 const LEAF_SPECIES: Record<string, string> = { needleleaved: 'ponderosa-pine', broadleaved: '' };
@@ -68,12 +69,16 @@ export function buildTrees(data: OsmData, areas: RecipeArea[], infos: RoadInfo[]
     const R = rng(hashString(r.id) ^ ctx.seed);
     const streetSp = pickWeighted(palette.street, R());
     const dens = ctx.density(r.pts[0][0], r.pts[0][1]);
-    const downtown = r.sidewalk >= 3;
-    const spacing = downtown ? 11 : 12 + R() * 4;
-    const occupancy = downtown ? 0.6 : r.cls === 'residential' ? 0.75 : 0.5;
+    const spacingBase = 12 + R() * 4;
     for (const side of [-1, 1]) {
-      const off = downtown ? r.width / 2 + 0.9 : r.width / 2 + Math.min(r.sidewalk, 1.8) + 1.4 + (dens < 0.1 ? 1 : 0);
-      walkOffset(r.pts, spacing, side * off, 8, (p, i) => {
+      const sw = swOf(r, side);
+      if (sw <= 0 && r.cls !== 'living_street') continue;
+      // wide urban sidewalk → tree grates at the curb, leaving ≥ 2 m of clear walkway behind the trunk
+      const downtown = sw >= 3;
+      const spacing = downtown ? 11 : spacingBase;
+      const occupancy = downtown ? 0.6 : r.cls === 'residential' ? 0.75 : 0.5;
+      const off = downtown ? r.width / 2 + 0.85 : r.width / 2 + Math.min(sw, 1.8) + 1.4 + (dens < 0.1 ? 1 : 0);
+      walkOffset(r.pts, spacing, side * off, downtown ? 10 : 8, (p, i) => {
         const seed = hashString(`${r.id}:${side}:${i}`);
         const q = rng(seed);
         if (q() > occupancy) return;
@@ -81,7 +86,8 @@ export function buildTrees(data: OsmData, areas: RecipeArea[], infos: RoadInfo[]
         // tree lawns: don't sit on any road surface other than own sidewalk strip
         if (roads.onCarriageway(p[0], p[1], 0.8)) return;
         if (!downtown && roads.onAnyRoad(p[0], p[1], 0.2)) return;
-        if (insideBuilding(p[0], p[1], bld, 2)) return;
+        // grates: keep the walkway clear — trunk + ~1.2 m grate must leave 2 m before any facade
+        if (insideBuilding(p[0], p[1], bld, downtown ? Math.max(2, Math.min(3.2, sw - 0.85)) : 2)) return;
         if (inHard(p)) return;
         add(p, sp, seed, undefined, 5);
       });

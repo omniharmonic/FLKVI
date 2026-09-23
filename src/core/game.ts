@@ -32,6 +32,8 @@ export class Game {
   /** Elapsed game seconds. */
   elapsed = 0;
   paused = false;
+  /** Simulation speed multiplier (1 = normal). Gameplay uses it for brief slow-motion beats. */
+  timeScale = 1;
   mode: GameMode = 'takedown';
   quality: 'high' | 'medium' | 'low' = 'high';
 
@@ -80,7 +82,7 @@ export class Game {
   }
 
   private frame() {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    const dt = Math.min(this.clock.getDelta(), 0.1) * this.timeScale;
     if (!this.paused) {
       this.elapsed += dt;
       this.acc += dt;

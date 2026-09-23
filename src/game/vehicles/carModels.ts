@@ -163,7 +163,8 @@ function makeBodyFns(s: BodySpec) {
 }
 
 function ringAt(s: BodySpec, fns: ReturnType<typeof makeBodyFns>, d: number, lod = 0) {
-  const nArc = lod ? 1 : 3, nSide = lod ? 2 : 5, nG = lod ? 1 : 3, nTop = lod ? 2 : 4;
+  // lod 0 = full, 1 = far, 2 = very far / shadow hull (perf)
+  const nArc = lod ? 1 : 3, nSide = lod === 2 ? 1 : lod ? 2 : 5, nG = lod ? 1 : 3, nTop = lod === 2 ? 1 : lod ? 2 : 4;
   const a = fns.inset(d);
   const w = fns.halfW(d) - a;
   const yb = fns.bottom(d) + a * 0.6;
@@ -245,11 +246,11 @@ function buildBodyGeometry(s: BodySpec, lod = 0) {
   const fns = makeBodyFns(s);
   // Stations
   const st: number[] = [];
-  for (let d = 0; d <= s.L + 1e-6; d += lod ? 0.32 : 0.13) st.push(d);
-  for (const e of lod ? [0.02, 0.08] : [0.005, 0.02, 0.045, 0.08, 0.12, 0.17, 0.24]) { st.push(e); st.push(s.L - e); }
+  for (let d = 0; d <= s.L + 1e-6; d += lod === 2 ? 0.75 : lod ? 0.32 : 0.13) st.push(d);
+  for (const e of lod === 2 ? [0.05] : lod ? [0.02, 0.08] : [0.005, 0.02, 0.045, 0.08, 0.12, 0.17, 0.24]) { st.push(e); st.push(s.L - e); }
   for (const dc of [s.axleF, s.axleR]) {
     const R = fns.archR;
-    const na = lod ? 5 : 12;
+    const na = lod === 2 ? 2 : lod ? 5 : 12;
     for (let k = 0; k <= na; k++) st.push(dc - R * Math.cos((k / na) * Math.PI));
     st.push(dc - R - 0.012, dc + R + 0.012);
   }
@@ -612,6 +613,8 @@ export interface CarModel {
   tris: number;
   /** Far LOD: coarse body (same 4 groups), 4 merged wheels (groups tire/rim), head/tail lamps. */
   lod: { body: THREE.BufferGeometry; wheels: THREE.BufferGeometry; head: THREE.BufferGeometry; tail: THREE.BufferGeometry; tris: number };
+  /** Very-far LOD body (same 4 groups, ~1/3 of lod.body's triangles): distant parked cars + shadow hulls. */
+  lod2: { body: THREE.BufferGeometry };
 }
 
 function rbox(w: number, h: number, d: number, r: number, seg = 1) {
@@ -871,6 +874,7 @@ function buildCarModel(id: CarModelId): CarModel {
     hoodPos: new THREE.Vector3(0, fns.top(0.6) + 0.02, Z(0.6)),
     roofY, tris: 0,
     lod: buildLod(s, wheelPos, lodHead, lodTail),
+    lod2: { body: buildBodyGeometry(s, 2).geo },
   };
   const count = (g: THREE.BufferGeometry | null | undefined) => (g ? (g.index ? g.index.count : g.attributes.position.count) / 3 : 0);
   model.tris = count(body) + count(model.paintParts) + count(model.trim) + count(model.chrome) + count(model.grille) + count(model.head) + count(model.tail)

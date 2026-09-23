@@ -5,6 +5,8 @@ import { h, safe, fmt } from './dom';
 import { Minimap } from './minimap';
 import { layersFor } from './mapdraw';
 import { playerPos, viewYaw, selectedCam, updateRoute } from './nav';
+import { Hints } from './hints';
+import { sfx } from '../audio/sfx';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.2l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.1l-5.9 3.2 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>';
 
@@ -45,6 +47,11 @@ export class HUD {
   private slowT = 0;
   private mult = 1;
   private pendingTakedown: { mode: 'cut' | 'disable'; timer: number } | null = null;
+  readonly hints: Hints;
+  private arrestWarn: HTMLElement;
+  private beatT = 0;
+  private wasSpotted = false;
+  private lastPopAt = -1e9;
 
   constructor(private g: Game) {
     this.mini = new Minimap(g);
@@ -93,12 +100,14 @@ export class HUD {
     this.vignette = h('div', { class: 'hud-vignette' });
     this.toasts = h('div', { class: 'hud-toasts' });
     this.modeEl = h('div', { class: 'hud-mode' });
+    this.hints = new Hints(g);
+    this.arrestWarn = h('div', { class: 'hud-arrestwarn' }, h('b', {}, 'GETTING CAUGHT'), h('span', {}, 'MOVE! BREAK AWAY FROM THE OFFICERS'));
 
     this.el = h('div', { class: 'gt-hud' },
       this.vignette, compass, this.modeEl,
       h('div', { class: 'hud-tl' }, h('div', { class: 'hud-street' }, this.street, this.clock), miniWrap),
       h('div', { class: 'hud-tr' }, this.heatWrap, h('div', { class: 'hud-heatbar' }, this.heatBar), this.heatMeta, this.arrest, this.score, this.charges),
-      this.toasts, this.prompt, this.speed,
+      this.toasts, this.prompt, this.speed, this.hints.el, this.arrestWarn,
     );
     this.bindEvents();
     this.renderMode();
@@ -126,6 +135,7 @@ export class HUD {
       if (this.pendingTakedown) { clearTimeout(this.pendingTakedown.timer); this.popTakedown(this.pendingTakedown.mode, s.points); this.pendingTakedown = null; }
     });
     ev.on('banked', ({ amount, total }) => {
+      if (performance.now() - this.lastPopAt < 900) return; // the takedown pop already says CLEAN · BANKED
       const n = h('div', { class: 'hud-banked' }, h('div', { class: 't' }, 'CLEAN ESCAPE · BANKED'), h('div', { class: 'n' }, `+${fmt(amount)}`), h('div', { class: 's' }, `TOTAL BANKED ${fmt(total)}`));
       this.el.append(n); setTimeout(() => n.remove(), 2900);
     });
@@ -136,11 +146,14 @@ export class HUD {
   }
 
   private popTakedown(mode: 'cut' | 'disable', points: number | null) {
-    const n = h('div', { class: 'hud-takedown' },
+    const banked = points != null && safe(() => this.g.surveillance.hot, 0) === 0;
+    this.lastPopAt = performance.now();
+    const n = h('div', { class: `hud-takedown ${mode}` },
       h('div', { class: 't' }, mode === 'cut' ? 'CAMERA DOWN' : 'CAMERA DISABLED'),
-      points != null ? h('div', { class: 'p' }, `+${fmt(points)} HOT`) : null,
-      h('div', { class: 's' }, 'ESCAPE TO BANK'));
-    this.el.append(n); setTimeout(() => n.remove(), 2300);
+      points != null ? h('div', { class: `p ${banked ? 'banked' : ''}` }, `+${fmt(points)}`) : null,
+      points != null && this.mult > 1.01 ? h('div', { class: 'x' }, `STREAK ×${this.mult.toFixed(1)}`) : null,
+      h('div', { class: 's' }, banked ? 'CLEAN · BANKED' : 'HOT · LOSE THE HEAT TO BANK'));
+    this.el.append(n); setTimeout(() => n.remove(), 2600);
   }
 
   private setRing(t: number, mode: 'cut' | 'disable') {
@@ -175,9 +188,22 @@ export class HUD {
     const metaTxt = level === 0 ? '' : spotted ? '<span class="st">● PURSUIT</span>' : '<span class="st search">◌ SEARCHING</span><span>LOSE THEM</span>';
     if (this.heatMeta.innerHTML !== metaTxt) this.heatMeta.innerHTML = metaTxt;
     this.vignette.classList.toggle('on', spotted && level > 0);
+    this.vignette.style.setProperty('--k', String(Math.min(1, 0.35 + level * 0.13)));
+    if (spotted && level > 0 && !this.wasSpotted) { this.vignette.classList.remove('flash'); void this.vignette.offsetWidth; this.vignette.classList.add('flash'); }
+    this.wasSpotted = spotted && level > 0;
     const am = safe(() => g.heat.arrestMeter, 0);
     this.arrest.classList.toggle('on', am > 0.01);
     this.arrestBar.style.width = `${Math.min(1, am) * 100}%`;
+    const warn = am > 0.12 && !g.paused;
+    this.arrestWarn.classList.toggle('on', warn);
+    this.arrestWarn.style.setProperty('--a', String(Math.min(1, am)));
+    this.arrest.classList.toggle('hi', am > 0.5);
+    if (warn) {
+      // heartbeat speeds up as the meter fills
+      this.beatT -= dt;
+      if (this.beatT <= 0) { this.beatT = 0.75 - 0.45 * Math.min(1, am); sfx('kick', { volume: 0.35 + 0.5 * am }); }
+    } else this.beatT = 0;
+    try { this.hints.update(dt); } catch { /* */ }
     // score (poll surveillance)
     const s = g.surveillance;
     if (s) {

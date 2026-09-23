@@ -88,6 +88,12 @@ export const PALETTES: Record<string, TreePalette> = {
     park: [S('aleppo-pine', [10, 16], 0.6, 1.5), S('mesquite', [5, 9], 1.2, 2), S('washingtonia-palm', [14, 24], 0.25, 1.5), S('eucalyptus', [14, 22], 0.5, 0.8), S('palo-verde', [5, 8], 1.1, 1.5), S('ironwood', [5, 8], 1.0, 1)],
     forest: [S('mesquite', [4, 8], 1.2, 2), S('palo-verde', [4, 7], 1.1, 2), S('saguaro', [5, 11], 0.15, 0.5)],
   },
+  tropical: {
+    id: 'tropical',
+    street: [S('royal-palm', [12, 20], 0.3, 3), S('coconut-palm', [9, 16], 0.35, 2.5), S('sabal-palm', [8, 13], 0.4, 1.5), S('gumbo-limbo', [8, 12], 0.9, 1), S('black-olive', [8, 12], 0.8, 1)],
+    park: [S('coconut-palm', [10, 18], 0.35, 2), S('royal-palm', [14, 22], 0.3, 1.5), S('banyan-fig', [10, 16], 1.4, 1), S('live-oak', [10, 15], 1.2, 1), S('sea-grape', [4, 7], 1.1, 1)],
+    forest: [S('sabal-palm', [8, 14], 0.4, 2), S('live-oak', [10, 15], 1.2, 1), S('slash-pine', [16, 24], 0.4, 1)],
+  },
   northwest: {
     id: 'northwest',
     street: [S('red-maple', [9, 15], 0.6, 2), S('london-plane', [12, 18], 0.7, 2), S('cherry', [5, 9], 0.9, 1.5), S('linden', [9, 15], 0.6, 1)],
@@ -96,7 +102,22 @@ export const PALETTES: Record<string, TreePalette> = {
   },
 };
 
+/** Finer-grained architectural/landscape locales on top of the coarse region (null = use region rules). */
+export type Locale = 'creole' | 'miami' | 'lowcountry' | 'bay' | 'pnw' | 'socal' | null;
+export function localeFor(lat: number, lon: number, region: Region): Locale {
+  if (lat > 29.4 && lat < 30.8 && lon > -92.6 && lon < -89.4) return 'creole'; // New Orleans / Acadiana
+  if (region === 'southeast' && lat < 27.3 && lon > -81.9) return 'miami'; // SE Florida
+  if (region === 'southeast' && lat > 31 && lat < 33.6 && lon > -82.2) return 'lowcountry'; // Savannah / Charleston
+  if (region === 'pacific' && lat > 36.9 && lat < 38.3 && lon > -122.8 && lon < -121.7) return 'bay';
+  if (region === 'pacific' && lat > 42) return 'pnw';
+  if (region === 'pacific' && lat < 35) return 'socal';
+  return null;
+}
+
 export function paletteFor(lat: number, lon: number, region: Region): TreePalette {
+  const loc = localeFor(lat, lon, region);
+  if (loc === 'miami') return PALETTES.tropical;
+  if (loc === 'lowcountry') return PALETTES.gulf;
   if (region === 'pacific' && lat > 42) return PALETTES.northwest;
   if (region === 'pacific') return lat < 34.5 && lon > -117.3 ? PALETTES.southwest : PALETTES.pacific;
   if (region === 'southwest') return PALETTES.southwest;

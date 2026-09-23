@@ -10,7 +10,7 @@ export const U = {
   /** Interior daylight brightness multiplier (tuned against the sun/hemisphere levels). */
   uInteriorDay: { value: 0.38 },
   /** Night lamp intensity. */
-  uLamp: { value: 0.75 },
+  uLamp: { value: 0.45 }, // look-dev: 0.75 clipped storefronts/windows at night exposure
 };
 
 /** GLSL: cheap hash noise used for grime streaks. */

@@ -5,6 +5,7 @@ import { multipolygonRings, parseLength, parseNum } from './osm.ts';
 import { cleanRing, makeCCW, makeCW, polyArea, centroid, pointInRing, pointInPoly, orientedBox, GridIndex, bbox, distToRing, r2 } from './geom.ts';
 import { rng, hashString } from '../core/geo.ts';
 import { resolveStyle } from './style.ts';
+import { localeFor } from './region.ts';
 import type { Ctx } from './context.ts';
 import type { RoadIndex } from './roads.ts';
 import { PUBLIC_STREET } from './roads.ts';
@@ -147,7 +148,7 @@ function zoneAt(zones: Zone[], p: Vec2): string[] {
 }
 
 // ---- Inference ----
-function useFrom(t: Tags, pois: Poi[], zones: string[], area: number, density: number): BuildingUse {
+function useFrom(t: Tags, pois: Poi[], zones: string[], area: number, density: number, rowhouseCity = false): BuildingUse {
   const b = t.building ?? 'yes';
   const a = t.amenity;
   if (a === 'place_of_worship' || /^(church|chapel|cathedral|mosque|synagogue|temple|shrine|religious|monastery)$/.test(b)) return 'religious';
@@ -171,7 +172,8 @@ function useFrom(t: Tags, pois: Poi[], zones: string[], area: number, density: n
   if (zones.includes('place_of_worship') || zones.includes('religious')) return 'religious';
   if (zones.includes('industrial')) return 'industrial';
   if (zones.includes('commercial') || zones.includes('retail')) return density > 0.3 || area > 250 ? 'commercial' : 'residential-single';
-  if (zones.includes('residential')) return area > 450 ? 'residential-multi' : 'residential-single';
+  // dense rowhouse cities: a 110+ m² attached footprint is a walk-up / rowhouse, not a detached house
+  if (zones.includes('residential')) return area > 450 || (rowhouseCity && density > 0.35 && area > 110) ? 'residential-multi' : 'residential-single';
   if (density > 0.35) return area > 1500 ? 'commercial' : area > 110 ? 'residential-multi' : 'residential-single';
   return area > 600 ? 'commercial' : area > 350 ? 'residential-multi' : 'residential-single';
 }
@@ -217,6 +219,7 @@ export interface BuildResult { buildings: RecipeBuilding[]; grid: GridIndex<numb
 
 export function buildBuildings(raw: RawBuilding[], pois: Poi[], zones: Zone[], roads: RoadIndex, ctx: Ctx): BuildResult {
   const { bounds, heightAt, density, region, climate } = ctx;
+  const locale = localeFor(ctx.lat, ctx.lon, region);
   // --- building:part handling: drop outlines that contain parts; parts inherit tags.
   const parts = raw.filter((r) => r.part);
   const outlines = raw.filter((r) => !r.part);
@@ -260,7 +263,8 @@ export function buildBuildings(raw: RawBuilding[], pois: Poi[], zones: Zone[], r
     }
     const zs = zoneAt(zones, rb.c);
     const dens = density(rb.c[0], rb.c[1]);
-    let use = useFrom(t, myPois, zs, parent ? parent.area : rb.area, dens);
+    const rowhouseCity = region === 'northeast' || region === 'midwest' || region === 'pacific';
+    let use = useFrom(t, myPois, zs, parent ? parent.area : rb.area, dens, rowhouseCity);
     const bType = t.building ?? 'yes';
     const small = /^(garage|garages|shed|hut|carport|kiosk|toilets|gazebo)$/.test(bType);
 
@@ -278,7 +282,7 @@ export function buildBuildings(raw: RawBuilding[], pois: Poi[], zones: Zone[], r
         const r = R();
         switch (use) {
           case 'residential-single': levels = rb.area < 70 ? 1 : r < (region === 'northeast' ? 0.25 : region === 'southwest' ? 0.85 : region === 'mountain-west' ? 0.5 : 0.45) ? 1 : 2; break;
-          case 'residential-multi': levels = dens > 0.45 ? 3 + Math.floor(r * 3) : 2 + Math.floor(r * 2); if (region === 'northeast' && dens > 0.45) levels += 1; if (region === 'south-central' || region === 'southeast') levels = 2 + Math.floor(r * 2.3); break;
+          case 'residential-multi': levels = dens > 0.45 ? 3 + Math.floor(r * 3) : 2 + Math.floor(r * 2); if (region === 'northeast' && dens > 0.45) levels += 1; if (region === 'south-central' || region === 'southeast') levels = 2 + Math.floor(r * 2.3); if (region === 'pacific' && rb.area < 400) levels = 2 + Math.floor(r * 2.4); break;
           case 'commercial': levels = rb.area > 4000 ? 1 : dens > 0.4 ? (r < 0.45 ? 2 : r < 0.8 ? 3 : 1) : r < 0.75 ? 1 : 2; break;
           case 'mixed-use': levels = 2 + Math.floor(r * 3); break;
           case 'office': levels = dens > 0.4 ? 3 + Math.floor(r * 4) : 1 + Math.floor(r * 3); break;
@@ -367,9 +371,16 @@ export function buildBuildings(raw: RawBuilding[], pois: Poi[], zones: Zone[], r
     const famKey = `${Math.floor(rb.c[0] / 90)},${Math.floor(rb.c[1] / 90)}|${useGroup}|${era}`;
     const style = resolveStyle({
       region, climate, era, use, levels, area: rb.area, roof, density: dens,
-      familySeed: hashString(famKey) ^ ctx.seed, seed, tags: t, amenity: t.amenity,
+      familySeed: hashString(famKey) ^ ctx.seed, seed, tags: t, amenity: t.amenity, urban: ctx.urban(rb.c[0], rb.c[1]), locale,
     });
     if (style.kit === 'victorian' && roof === 'flat' && use === 'residential-single' && !shapeTag) roof = 'gable';
+    // Creole cottages / shotguns: steep side or front gables
+    if (locale === 'creole' && (style.kit === 'colonial' || style.kit === 'victorian') && roof === 'flat' && !shapeTag) roof = 'gable';
+    if (roof !== 'flat' && roofHeight === 0) {
+      const pitchDeg = era === 'pre-1900' ? 42 : 34;
+      roofHeight = Math.max(0.8, Math.min(9, (box.wid / 2) * Math.tan((pitchDeg * Math.PI) / 180)));
+      if (!hTag) height = Math.max(2.4, height);
+    }
 
     // --- storefront / signage
     const shopPois = myPois.filter((p) => p.kind === 'shop' || p.kind === 'food' || (p.kind === 'service' && p.cat));

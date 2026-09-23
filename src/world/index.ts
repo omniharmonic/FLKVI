@@ -17,6 +17,7 @@ import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
 import { Nav } from './nav';
+import { registerShadowDistance, registerInstancedShadowLod } from '../render/shadowProxy';
 
 export { GROUP_STATIC, GROUP_PROPS, LOS_QUERY_GROUPS, groups as collisionGroups } from './physics';
 
@@ -60,7 +61,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
 
   P('Paving streets', 0.22);
   await yieldFrame();
-  const B = new ChunkBatcher(180);
+  const B = new ChunkBatcher(320); // perf: bigger chunks = fewer draw calls (ground tris are cheap)
   const waterGroup = new THREE.Group(); waterGroup.name = 'water';
   buildAreas(recipe, B, hf, roads, waterGroup, inBuilding); // also carves water beds into hf
   const crosswalks = recipe.props.filter((p) => p.type === 'crosswalk').map((p) => p.p);
@@ -86,6 +87,8 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
 
   const roadGroup = new THREE.Group(); roadGroup.name = 'roads';
   const roadMeshes = B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true }, renderOrder: { marking: 1 } });
+  // perf: curb shadows only near the camera; bridge rails a bit further
+  for (const m of roadMeshes) if (m.castShadow) registerShadowDistance(g, m, m.name.startsWith('curb') ? 70 : 200);
   root.add(roadGroup, waterGroup);
   try { roadGroup.add(buildRoadDecals(roads, recipe.props.filter((p) => p.type === 'manhole').map((p) => p.p), (x, z) => roads.surfaceAt(x, z)?.y ?? hf.sample(x, z))); } catch (e) { console.warn('[world] decals failed', e); }
 
@@ -143,6 +146,14 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   await yieldFrame();
   props.build();
   root.add(props.group);
+  // perf: street furniture casts sun shadows only near the camera (tall poles a bit further)
+  for (const o of props.group.children) {
+    const im = o as THREE.InstancedMesh;
+    if (!im.isInstancedMesh || !im.castShadow) continue;
+    if (!im.geometry.boundingSphere) im.geometry.computeBoundingSphere();
+    registerInstancedShadowLod(g, im, im.geometry.boundingSphere!.radius > 2 ? 130 : 55);
+  }
+  (api as any).signalMasts = props.masts; // surveillance mounts signal-mast clusters on these
 
   // ---- trees (+ shrubs from props)
   P('Planting trees', 0.45);

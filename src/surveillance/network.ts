@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type RAPIER_NS from '@dimforge/rapier3d-compat';
 import type { Game } from '../core/game';
-import type { RecipeCamera, CameraType, Vec3 } from '../core/types';
+import type { RecipeCamera, CameraType, Vec2, Vec3 } from '../core/types';
 import { hashString, rng } from '../core/geo';
 import { canSee, type Observer } from '../ai/perception';
 import { getModel, type ModelDef } from './models';
@@ -78,7 +78,7 @@ export class Network {
   private overlayMats = new Map<string, THREE.Material>();
 
   constructor(private g: Game, readonly root: THREE.Group) {
-    this.pool = new InstancePool(root);
+    this.pool = new InstancePool(root, g);
   }
 
   groundAt(x: number, z: number, fallback: number) {
@@ -101,13 +101,40 @@ export class Network {
   modelFor(rc: RecipeCamera): ModelDef {
     const v = hashString(rc.id);
     const h = rc.type === 'cluster' ? (rc.poleHeight || 6.8) : rc.poleHeight || (rc.type === 'ptz' ? 6.5 : rc.type === 'tower' ? 8 : 4.6);
+    const arm = (rc as RecipeCamera & { armOffset?: number }).armOffset;
+    if (rc.type === 'cluster' && arm !== undefined) return getModel('cluster', 0, h, { armOffset: arm });
     return getModel(rc.type, v % 3, h, { fallbackMast: rc.type === 'cluster' && !this.hasSignalNear(rc.p[0], rc.p[1], 1.5) });
+  }
+
+  private usedMasts = new Set<number>();
+  /**
+   * Move a signal-mast cluster onto the nearest real traffic-signal mast arm the world built (g.world.signalMasts),
+   * hung ~45% along the arm and looking back across the junction at approaching traffic. Keeps the recipe
+   * position (with its own fallback mast) when no world mast is near.
+   */
+  private snapCluster(rc: RecipeCamera): RecipeCamera {
+    const masts = (this.g.world as unknown as { signalMasts?: { x: number; y: number; z: number; dx: number; dz: number; len: number }[] })?.signalMasts;
+    if (!masts?.length) return rc;
+    let bi = -1, bd = 40 * 40;
+    for (let i = 0; i < masts.length; i++) {
+      if (this.usedMasts.has(i)) continue;
+      const m = masts[i];
+      const d = (m.x - rc.p[0]) ** 2 + (m.z - rc.p[1]) ** 2;
+      if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi < 0) return rc;
+    this.usedMasts.add(bi);
+    const m = masts[bi];
+    const a = Math.max(1.2, Math.min(m.len - 0.4, m.len * 0.45, 3));
+    const p: Vec2 = [m.x + m.dx * a, m.z + m.dz * a];
+    return { ...rc, p, y: m.y, heading: Math.atan2(m.dz, m.dx), armOffset: a } as RecipeCamera;
   }
 
   add(rc: RecipeCamera): Cam {
     const model = this.modelFor(rc);
     const slot = this.pool.alloc(model);
-    const gy = this.groundAt(rc.p[0], rc.p[1], rc.y);
+    // mast clusters hang from the arm: keep the signal pole's base height so the clamp meets the arm
+    const gy = (rc as RecipeCamera & { armOffset?: number }).armOffset !== undefined ? rc.y : this.groundAt(rc.p[0], rc.p[1], rc.y);
     const cam = new Cam({ ...rc }, model, slot, gy);
     this.cams.push(cam);
     this.byId.set(rc.id, cam);
@@ -117,7 +144,7 @@ export class Network {
   }
 
   build() {
-    const recipeCams = this.g.recipe.cameras ?? [];
+    const recipeCams = (this.g.recipe.cameras ?? []).map((rc) => (rc.type === 'cluster' ? this.snapCluster(rc) : rc));
     const counts = new Map<string, { m: ModelDef; n: number }>();
     for (const rc of recipeCams) {
       const m = this.modelFor(rc);

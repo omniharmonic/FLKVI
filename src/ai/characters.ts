@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import * as Lib from '../assets/library';
+import { personalize, preparePeople, warmthFor } from '../assets/characters';
 
 export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave';
 export type CharKind = 'civilian' | 'officer';
@@ -334,6 +335,7 @@ export class CharacterFactory {
     let ids: string[] = [];
     try { ids = lib.modelIds('character') ?? []; } catch { ids = []; }
     if (!ids.length) return;
+    try { await preparePeople(); } catch { /* hair/maps optional */ }
     const results = await Promise.all(ids.slice(0, 8).map(async (id: string) => {
       try {
         const r = await lib.loadModelWithAnimations(id);
@@ -356,6 +358,8 @@ export class CharacterFactory {
       const v = variants[seed % variants.length];
       const model = cloneSkinned(v.scene);
       if (kind === 'officer' && !this.gltfOfficer.length) tintAll(model, NAVY);
+      // Individual look (build, height, face, hair, outfit by city climate) on the shared rig geometry.
+      personalize(model, { kind: kind === 'officer' ? 'police' : 'civilian', seed, warmth: warmthFor((globalThis as any).game?.recipe) });
       const head = findBone(model, /head/i);
       const hand = findBone(model, /(right.?hand|hand.?r\b|hand_r|r.?hand|handr)/i);
       model.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.frustumCulled = false; } });

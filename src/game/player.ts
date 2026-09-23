@@ -89,7 +89,7 @@ export class Player implements PlayerAPI, System {
     this.character.root.position.copy(this.position);
     this.character.root.rotation.y = -this.heading;
     g.scene.add(this.character.root);
-    g.events.on('takedownStart', (e) => { this.pose = e.mode === 'cut' ? 'kneel' : 'interact'; });
+    g.events.on('takedownStart', (e) => { this.pose = e.mode === 'cut' ? 'kneel' : 'reach'; });
     g.events.on('takedown', () => { this.pose = 'none'; });
     g.events.on('takedownCancel', () => { this.pose = 'none'; });
     g.events.on('arrested', () => { this.pose = 'none'; this.enter = null; });
@@ -118,6 +118,16 @@ export class Player implements PlayerAPI, System {
     this.pose = 'none';
     if (this.camera) this.camera.yaw = heading;
   }
+
+  /** Turn to face a world heading immediately (0 = north/−Z, clockwise). Used by surveillance at takedown start. */
+  face(heading: number) {
+    this.heading = heading;
+    this.hvel.set(0, 0, 0);
+    this.character.root.rotation.y = -heading;
+  }
+  setHeading(heading: number) { this.face(heading); }
+  /** Right-hand world position (for held tools), or null. */
+  handPosition(out = new THREE.Vector3()) { return this.vehicleId ? null : this.character.handWorld(out); }
 
   hurt(amount: number) {
     this.health = Math.max(0, this.health - amount);

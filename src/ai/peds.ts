@@ -40,6 +40,32 @@ type PedState = 'walk' | 'wait' | 'cross' | 'idle' | 'toBench' | 'sit' | 'notice
 
 const tmpS: Sample = { x: 0, z: 0, h: 0 };
 
+// --- render LOD (perf): cull off-screen peds, cast shadows only near the camera, throttle skinning.
+/** Peds closer than this stay drawn even off-screen (their shadows can fall into view). */
+const PED_KEEP = 14;
+/** Beyond this distance from the camera peds don't cast sun shadows. */
+const PED_SHADOW = 40;
+/** Beyond this distance peds aren't drawn at all (they're a few pixels tall, mostly occluded). */
+const PED_DRAW = 170;
+const pedMeshes = new WeakMap<Character, { meshes: THREE.Mesh[]; shadow: boolean }>();
+const _frustum = new THREE.Frustum();
+const _pm = new THREE.Matrix4();
+const _sph = new THREE.Sphere();
+function pedRenderLod(ch: Character, camD2: number, inView: boolean, flagged = false): boolean {
+  let st = pedMeshes.get(ch);
+  if (!st) {
+    const meshes: THREE.Mesh[] = [];
+    ch.root.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.castShadow) meshes.push(o as THREE.Mesh); });
+    st = { meshes, shadow: true };
+    pedMeshes.set(ch, st);
+  }
+  const vis = camD2 < PED_KEEP * PED_KEEP || (inView && (flagged || camD2 < PED_DRAW * PED_DRAW));
+  ch.root.visible = vis;
+  const sh = camD2 < PED_SHADOW * PED_SHADOW;
+  if (sh !== st.shadow) { st.shadow = sh; for (const m of st.meshes) m.castShadow = sh; }
+  return vis;
+}
+
 export class Ped {
   x = 0; z = 0; y = 0; h = 0;
   v = 0;
@@ -723,6 +749,10 @@ export class PedSystem {
     }
 
     // update peds with LOD
+    const cam = g.camera;
+    _pm.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_pm);
+    const cx = cam.position.x, cz = cam.position.z;
     for (let i = this.peds.length - 1; i >= 0; i--) {
       const p = this.peds[i];
       const d2 = dist2(p.x, p.z, P.x, P.z);
@@ -752,7 +782,10 @@ export class PedSystem {
       p.ch.root.position.set(p.x, p.y, p.z);
       p.ch.root.rotation.y = -p.h;
       p.animAcc += dt;
-      const animEvery = d2 < 40 * 40 ? 1 : d2 < 80 * 80 ? 3 : 6;
+      const camD2 = dist2(p.x, p.z, cx, cz);
+      _sph.center.set(p.x, p.y + 0.9, p.z); _sph.radius = 1.4;
+      const drawn = pedRenderLod(p.ch, camD2, _frustum.intersectsSphere(_sph), !!p.icon.kind);
+      const animEvery = !drawn ? 12 : d2 < 40 * 40 ? 1 : d2 < 80 * 80 ? 3 : 6;
       if ((this.frame + p.id) % animEvery === 0) { p.ch.update(p.animAcc); p.animAcc = 0; }
       // obstacle for cars
       p.obs.x = p.x; p.obs.z = p.z; p.obs.h = p.h; p.obs.v = p.v;

@@ -152,6 +152,10 @@ export function resolveStyle(b: RecipeBuilding, region: Region = 'mountain-west'
       s.fireEscape = b.levels >= 3 && r() < 0.5; s.rooftop = 'hvac'; s.sideWindows = 0.15; s.blankSides = true;
       s.sash = C(pick(r, ['#f1eee6', '#2a2a2a', '#3d2b20', '#26382b', '#e8e1cd']));
       s.trim = C(pick(r, ['#1e2a22', '#2a2a2a', '#4a2a22', '#e8e1cd', '#5b4636', '#233044']));
+      // [compiler/cities-QA] Gulf-coast Creole townhouses: cast-iron balconies (dark railings) on the upper floors
+      if ((region === 'south-central' || region === 'southeast') && pre40 && b.levels >= 2 && b.levels <= 4 && /^(stucco|brick-painted|brick-red)$/.test(b.material)) {
+        s.balconies = range(r, 0.65, 1.0); s.sash = C(pick(r, ['#1e1e1e', '#26382b', '#2a2a2a'])); s.fireEscape = false; s.awnings = false;
+      }
       break;
     }
     case 'art-deco': {

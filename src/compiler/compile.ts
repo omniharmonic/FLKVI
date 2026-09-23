@@ -5,7 +5,7 @@ import { buildQuery, indexOsm } from './osm.ts';
 import { buildHeightfield, terrainSampler, zoomForCell, type TileLoader } from './terrain.ts';
 import { regionFor, climateFor, paletteFor } from './region.ts';
 import { makeDensity, type Ctx, type Bounds } from './context.ts';
-import { buildRoads, buildGraph, RoadIndex, PUBLIC_STREET } from './roads.ts';
+import { buildRoads, buildGraph, RoadIndex, PUBLIC_STREET, fillSidewalksToFacades, swOf } from './roads.ts';
 import { collectRawBuildings, collectPois, collectZones, buildBuildings, insideBuilding } from './buildings.ts';
 import { buildAreas } from './areas.ts';
 import { buildTrees, walk } from './vegetation.ts';
@@ -79,13 +79,17 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   const data = indexOsm(osmJson);
   progress('Inferring buildings', 0.35);
   // density from raw buildings first (roads use it for sidewalks/parking)
-  const ctx0: Ctx = { lat: opt.lat, lon: opt.lon, name: opt.name, proj, bounds, region, climate, palette: paletteFor(opt.lat, opt.lon, region), heightAt, density: () => 0, seed };
+  const ctx0: Ctx = { lat: opt.lat, lon: opt.lon, name: opt.name, proj, bounds, region, climate, palette: paletteFor(opt.lat, opt.lon, region), heightAt, density: () => 0, urban: () => 0, seed };
   const raw = collectRawBuildings(data, ctx0);
-  const density = makeDensity(raw.filter((r) => !r.part).map((r) => ({ c: r.c, area: r.area })), { minX: -half - qm, minZ: -half - qm, maxX: half + qm, maxZ: half + qm });
-  const ctx: Ctx = { ...ctx0, density };
+  const cover = raw.filter((r) => !r.part).map((r) => ({ c: r.c, area: r.area }));
+  const dBounds = { minX: -half - qm, minZ: -half - qm, maxX: half + qm, maxZ: half + qm };
+  const density = makeDensity(cover, dBounds);
+  const urban = makeDensity(cover, dBounds, 7);
+  const ctx: Ctx = { ...ctx0, density, urban };
 
   progress('Laying out streets', 0.42);
   const infos = buildRoads(data, ctx);
+  fillSidewalksToFacades(infos, raw, ctx);
   const gr = buildGraph(infos, data, ctx);
   const roadIdx = new RoadIndex(infos);
   await tick();
@@ -104,7 +108,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   await tick();
 
   progress('Placing street furniture', 0.78);
-  const pr = buildProps(data, infos, gr, roadIdx, bld, areas, ctx);
+  const pr = buildProps(data, infos, gr, roadIdx, bld, areas, ctx, trees);
   await tick();
 
   progress('Placing cameras', 0.88);
@@ -155,7 +159,9 @@ function chooseSpawn(infos: ReturnType<typeof buildRoads>, roads: RoadIndex, bld
     if (!(PUBLIC_STREET.has(r.cls) || ped) || r.cls === 'motorway' || r.cls === 'trunk') continue;
     if (!ped && r.sidewalk <= 0) continue;
     for (const side of [1, -1]) {
-      const off = ped ? r.width * 0.3 : r.width / 2 + r.sidewalk * 0.55;
+      const sw = swOf(r, side);
+      if (!ped && sw < 1.2) continue;
+      const off = ped ? r.width * 0.3 : r.width / 2 + Math.min(sw * 0.55, 2.2);
       walk(r.pts, 7, (p, i, dir) => {
         const q: Vec2 = [p[0] - dir[1] * off * side, p[1] + dir[0] * off * side];
         const d0 = Math.hypot(q[0], q[1]);

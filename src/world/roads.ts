@@ -19,6 +19,8 @@ export interface Chain {
   road: RecipeRoad;
   pts: Vec2[]; ys: number[]; L: number[]; len: number;
   w: number; s: number; lanes: number; oneway: boolean; cls: RoadClass; bridge: boolean; tunnel: boolean;
+  /** Per-side sidewalk widths (left / right of pts direction) when the recipe gives them; else both = s. */
+  sL?: number; sR?: number;
   ends: [string | null, string | null];
   trim: [number, number];
   /** Sidewalk start distance from each end, per chain side [side -p, side +p]. */
@@ -81,7 +83,8 @@ export class RoadNetwork {
     }
     segs = segs.filter((s) => s.pts.length >= 2);
     // merge through degree-2 nodes with compatible attributes
-    const compatible = (a: RecipeRoad, b: RecipeRoad) => Math.abs(a.width - b.width) < 0.6 && Math.abs(a.sidewalk - b.sidewalk) < 0.3 && a.lanes === b.lanes && a.oneway === b.oneway && !!a.bridge === !!b.bridge;
+    const sym = (r: RecipeRoad) => r.sidewalkL === undefined || r.sidewalkL === r.sidewalkR; // one-sided sidewalks: never merged (orientation matters)
+    const compatible = (a: RecipeRoad, b: RecipeRoad) => Math.abs(a.width - b.width) < 0.6 && Math.abs(a.sidewalk - b.sidewalk) < 0.3 && a.lanes === b.lanes && a.oneway === b.oneway && !!a.bridge === !!b.bridge && sym(a) && sym(b);
     const ends = new Map<string, Seg[]>();
     const addEnd = (k: string, s: Seg) => { let l = ends.get(k); if (!l) ends.set(k, (l = [])); if (!l.includes(s)) l.push(s); };
     for (const s of segs) { addEnd(s.k0, s); addEnd(s.k1, s); }
@@ -116,6 +119,7 @@ export class RoadNetwork {
         trim: [0, 0], sw: [[0, 0], [0, 0]], cross: [false, false], stopCtl: [false, false],
       };
       if (c.len < 0.5) continue;
+      if (!sym(r)) { const cap = (v: number) => (r.bridge && v > 0 ? Math.min(2, v) : v); c.sL = cap(r.sidewalkL ?? r.sidewalk); c.sR = cap(r.sidewalkR ?? r.sidewalk); }
       this.chains.push(c);
       for (let i = 0; i + 1 < c.pts.length; i++) {
         const a = c.pts[i], b = c.pts[i + 1], e = c.w + c.s + 2;
@@ -353,16 +357,17 @@ export class RoadNetwork {
     for (let i = 0; i + 1 < c.pts.length; i++) {
       const seg: SurfaceSeg = { ax: c.pts[i][0], az: c.pts[i][1], bx: c.pts[i + 1][0], bz: c.pts[i + 1][1], ya: c.ys[i], yb: c.ys[i + 1], o0: -c.w, o1: c.w, kind: deck ? 'deck' : 'road' };
       this.addSeg(seg, c.w + c.s + 1);
-      if (c.s > 0) {
-        this.addSeg({ ...seg, o0: c.w, o1: c.w + c.s, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
-        this.addSeg({ ...seg, o0: -c.w - c.s, o1: -c.w, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
-      }
+      const sR = c.sR ?? c.s, sL = c.sL ?? c.s;
+      if (sR > 0) this.addSeg({ ...seg, o0: c.w, o1: c.w + sR, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
+      if (sL > 0) this.addSeg({ ...seg, o0: -c.w - sL, o1: -c.w, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
     }
     if (c.s > 0) {
       for (const side of [0, 1] as const) {
         const sg = side === 1 ? 1 : -1;
+        const cs = side === 1 ? (c.sR ?? c.s) : (c.sL ?? c.s);
+        if (cs <= 0) continue;
         const a = c.sw[0][side], b = c.len - c.sw[1][side];
-        const oIn = sg * c.w, oOut = sg * (c.w + c.s);
+        const oIn = sg * c.w, oOut = sg * (c.w + cs);
         // sidewalk top (uv: along, across-from-curb)
         this.sidewalkRibbon(B, c, a, b, oIn, oOut);
         this.wall(B, 'curb', c, a, b, oIn, -0.05, CURB_H, -sg);
@@ -370,7 +375,7 @@ export class RoadNetwork {
         // walk sample points
         for (let s = a + 2; s < b - 1; s += 5) {
           const q = sampleAt(c.pts, c.L, s);
-          const nx = -q.dz, nz = q.dx, o = sg * (c.w + c.s * 0.6);
+          const nx = -q.dz, nz = q.dx, o = sg * (c.w + cs * 0.6);
           this.addWalk([q.x + nx * o, q.z + nz * o]);
         }
       }
