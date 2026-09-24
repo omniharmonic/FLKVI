@@ -70,6 +70,24 @@ export class Surveillance implements SurveillanceAPI {
     g.scene.add(this.root);
     this.net = new Network(g, this.root);
     this.net.build();
+    const streamed=new Set<string>();
+    const history=new Map<string,{status:import('./network').CamStatus;hits:number}>();
+    g.events.on('districtsChanged',({recipes})=>{
+      const next=new Map<string,import('../core/types').RecipeCamera>(recipes.flatMap(r=>r.cameras.map(c=>[`${r.origin.lat}:${Math.round(c.p[0])}:${Math.round(c.p[1])}:${c.type}`,c] as const)));
+      for(const id of [...streamed])if(!next.has(id)){
+        const cam=this.net.byId.get(id);if(cam){history.set(id,{status:cam.status,hits:cam.hits});this.net.remove(cam);}streamed.delete(id);
+      }
+      for(const [id,c]of next)if(!streamed.has(id)){
+        // Avoid duplicate cameras where query margins overlap the initial recipe.
+        if(this.net.cams.some(v=>Math.hypot(v.rc.p[0]-c.p[0],v.rc.p[1]-c.p[1])<20))continue;
+        const cam=this.net.add({...c,id});const prev=history.get(id);
+        if(prev){cam.hits=prev.hits;if(prev.status!=='active'){cam.status='disabled';cam.repairAt=g.elapsed+120;this.net.makeOverlay(cam,'spray',1);}}
+        streamed.add(id);
+      }
+      // Preserve recent disabled state without retaining unbounded meshes/history.
+      while(history.size>256)history.delete(history.keys().next().value!);
+      this.net.recomputeCoverage();
+    });
     this.net.onClang = (cam, strength, p) => {
       g.audio?.play('metal-fall', { at: [p.x, p.y, p.z], volume: strength });
       g.events.emit('noise', { p: [p.x, p.z], radius: 45 * strength, kind: 'metal-fall' });

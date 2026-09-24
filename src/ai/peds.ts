@@ -206,7 +206,6 @@ export class PedSystem {
 
     g.events.on('noise', (e) => this.onStimulus(e.p, e.radius, e.kind, false));
     g.events.on('crime', (e) => this.onCrime(e.p, e.severity, e.kind));
-    g.events.on('playerMelee', (e) => this.onMelee(e.p, e.dir, e.range));
     g.events.on('takedownStart', () => { const P = playerInfo(g); if (P.ok) this.startFilming([P.x, P.z], 45, 1, true); });
     g.events.on('takedown', (e) => this.startFilming(e.p, 50, 0.8, true));
     g.events.on('arrested', () => { const P = playerInfo(g); if (P.ok) this.startFilming([P.x, P.z], 55, 1.3, false); });
@@ -685,28 +684,30 @@ export class PedSystem {
       // witnesses notice crimes in a wide cone (people look around at crashes, shouting)
       if (canSee({ pos: eye, dir: p.h, fovDeg: 240, range: r }, [pt[0], y, pt[1]], this.g)) this.notice(p, pt[0], pt[1], true);
     }
-    // assault / vehicle hit directly on a ped
-    if (kind === 'assault') {
-      let hit: Ped | null = null, bd = 2.5 * 2.5;
-      for (const p of cands) { const d = dist2(p.x, p.z, pt[0], pt[1]); if (d < bd) { bd = d; hit = p; } }
-      if (hit) this.knockDown(hit, hit.x - pt[0], hit.z - pt[1], 2);
-    }
+
   }
 
   /** Player punch/shove: knock down peds in range in front of the player, report an assault. */
-  private onMelee(pt: Vec2, dir: Vec2, range: number) {
+  onMelee(pt: Vec2, dir: Vec2, range: number) {
     const dl = Math.hypot(dir[0], dir[1]) || 1;
     const fx = dir[0] / dl, fz = dir[1] / dl;
     let hit: Ped | null = null;
-    this.hash.query(pt[0], pt[1], range + 0.5, (p) => {
-      if (p.state === 'fallen') return;
-      const rx = p.x - pt[0], rz = p.z - pt[1];
-      const d = Math.hypot(rx, rz);
-      if (d > 0.3 && (rx * fx + rz * fz) / d < 0.3) return;
-      this.knockDown(p, fx, fz, 1.5);
-      hit = p;
-    });
-    if (hit) this.g.events.emit('crime', { kind: 'assault', p: [(hit as Ped).x, (hit as Ped).z], severity: 2 });
+    let nearest = range;
+    const y = this.g.player.position.y;
+    for (const p of this.peds) {
+      if (/fallen|getup/.test(p.state) || Math.abs(p.y-y)>1.2) continue;
+      const rx=p.x-pt[0],rz=p.z-pt[1],d=Math.hypot(rx,rz);
+      if(d>nearest || d>0.25 && (rx*fx+rz*fz)/d<0.55)continue;
+      if(!losClear(this.g,[pt[0],y+1.1,pt[1]],[p.x,p.y+1.1,p.z]))continue;
+      nearest=d;hit=p;
+    }
+    if(hit){
+      this.knockDown(hit,fx,fz,1.5);
+      this.g.events.emit('meleeHit',{p:[hit.x,hit.y+1,hit.z]});
+      this.g.events.emit('crime',{kind:'assault',p:[hit.x,hit.z],severity:2});
+      this.g.events.emit('noise',{p:[hit.x,hit.z],radius:12,kind:'fight'});
+    }
+    return !!hit;
   }
 
   /** Ped is hit: falls (ragdoll-lite), lies, gets up and flees. */
@@ -721,7 +722,7 @@ export class PedSystem {
     p.state = 'fallen';
     p.timer = 3 + this.rnd() * 2.5;
     p.icon.set(null);
-    p.ch.play('idle', 0.1);
+    // The fall clip holds its final pose until recovery.
     // knockback slide
     this.setLeg(p, p.x + (dx / l) * Math.min(4, impulse), p.z + (dz / l) * Math.min(4, impulse));
     p.sx = p.x - dx; p.sz = p.z - dz;
@@ -1095,7 +1096,7 @@ export class PedSystem {
         if (p.timer <= 0) {
           p.ch.setFallen(false);
           p.state = 'getup';
-          p.timer = 1.1;
+          p.timer = p.ch.duration('getup') || 1.1;
         }
         break;
       }
@@ -1203,7 +1204,17 @@ export class PedSystem {
           const tgt = Math.max(-1.2, Math.min(1.2, push));
           p.avoid += (tgt - p.avoid) * Math.min(1, step * 2);
         }
+        const oldX=p.x,oldZ=p.z;
         this.updatePed(p, step, P);
+        // Sweep nearby walkers/impact slides against real walls and props. Shop fades own their doorway transition.
+        if(d2<45*45 && !/enter|exit/.test(p.state)){
+          const dx=p.x-oldX,dz=p.z-oldZ;
+          if(dx*dx+dz*dz>0.00001){
+            const R=g.rapier;
+            const hit=g.physics.castShape({x:oldX,y:p.y+0.85,z:oldZ},{x:0,y:0,z:0,w:1},{x:dx,y:0,z:dz},new R.Ball(0.28),0,1,false,R.QueryFilterFlags.EXCLUDE_SENSORS,0xffff0003);
+            if(hit){const f=Math.max(0,hit.time_of_impact-0.03);p.x=oldX+dx*f;p.z=oldZ+dz*f;p.avoid=Math.sin(p.id)*1.1;}
+          }
+        }
         if (every === 1 || (this.frame + p.id) % (every * 2) === 0) p.y = groundY(g, p.x, p.z, p.y);
       }
       // shop-door fades
@@ -1273,6 +1284,12 @@ export class PedSystem {
       while (this.peds.length < this.targetCount && spawns-- > 0) if (!this.trySpawn(P)) break;
       this.initial = false;
     }
+  }
+
+  /** Refresh path indices after resident districts change, preserving reaction/impact states. */
+  rebindNetwork() {
+    this.enabled=this.net.peds.length>0;
+    for(const p of this.peds)if(/walk|wait|cross|wander|follow/.test(p.state))this.resumeWalking(p);
   }
 
   /** Cancel calls / reset reactions (run restart). */

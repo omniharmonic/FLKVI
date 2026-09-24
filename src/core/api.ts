@@ -5,8 +5,13 @@ import type { Vec2, Vec3, RecipeCamera } from './types';
 
 /** Owned by src/world. */
 export interface WorldAPI {
+  /** Runtime district coverage and loading status (static-host compatible). */
+  streaming?: { readonly status: string; readonly loading: string | null; isReady(x: number, z: number): boolean; recipes(): readonly import('./types').Recipe[] };
+
   /** Terrain height at x,z (m). */
   heightAt(x: number, z: number): number;
+  /** Highest weather-exposed surface (roofs / decks / ground). */
+  coverAt?(x: number, z: number): number;
   /** Top walkable surface at x,z (terrain, road deck; not roofs). */
   groundAt(x: number, z: number): number;
   /** True if static geometry (buildings/terrain) blocks the segment a→b. */
@@ -63,6 +68,8 @@ export interface VehicleHandle {
   siren?: boolean;
   flagged?: boolean;
   destroyed?: boolean;
+  health?: number;
+  gear?: number;
   /** Optional: hazard lights on (both turn signals blink) — broken down, crashed, pulled over. */
   hazards?: boolean;
 }
@@ -126,6 +133,10 @@ export interface SurveillanceAPI {
 
 /** Owned by src/render. */
 export interface SkyAPI {
+  readonly wetness?: number;
+  readonly weather?: 'clear' | 'overcast' | 'rain' | 'storm' | 'fog';
+  setWeather?(weather: 'clear' | 'overcast' | 'rain' | 'storm' | 'fog'): void;
+
   /** Hours 0..24. */
   time: number;
   /** Game-seconds per real second multiplier. */

@@ -139,6 +139,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     if (this.g.player?.vehicleId === id) return; // never yank the player's car
     v.dispose(this.colliderMap);
     this.vehicles.delete(id);
+    this.lastVel.delete(id);
+    this.impactCooldown.delete(id);
   }
 
   nearest(p: Vec2, radius: number): VehicleHandle | undefined {
@@ -205,7 +207,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     const upright = v.object.up.clone().applyQuaternion(v.object.quaternion).y > 0.8;
     // Must be resting on the ground: never freeze a car into parked instancing up a tree / mid-air.
     const grounded = v.position.y - groundY(this.g, v.position.x, v.position.z) < 1;
-    return !!v.parkedSlot && v.driver === 'none' && this.g.player?.vehicleId !== v.id && Math.abs(v.speed) < 0.3 && upright && grounded && !v.destroyed;
+    return !!v.parkedSlot && v.driver === 'none' && this.g.player?.vehicleId !== v.id && Math.abs(v.speed) < 0.3 && upright && grounded && !v.destroyed && v.health >= 100;
   }
 
   private demote(v: Vehicle) {
@@ -215,6 +217,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.parking.deactivate(slot, p.x, p.y, p.z, v.heading);
     v.dispose(this.colliderMap);
     this.vehicles.delete(v.id);
+    this.lastVel.delete(v.id);
+    this.impactCooldown.delete(v.id);
   }
 
   // ------------------------------------------------------------------ loop
@@ -337,7 +341,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     v.lastImpact = mag;
     v.lastImpactDir.copy(dv).normalize();
     const dmg = (mag - 2) * 3.2;
-    this.damage(v, dmg, dv);
+    this.damage(v, dmg, dv, this.contactPoint(v) ?? undefined);
     playSound(g, 'crash', { at: v3(v.position), volume: clamp(mag / 12, 0.2, 1) });
     // Sparks where metal met something hard.
     if (mag > 4) {
@@ -370,13 +374,16 @@ export class VehicleSystem implements VehiclesAPI, System {
     }
   }
 
-  damage(v: Vehicle, amount: number, dvWorld: THREE.Vector3) {
+  damage(v: Vehicle, amount: number, dvWorld: THREE.Vector3, contact?: THREE.Vector3) {
     if (amount <= 0) return;
     v.health = Math.max(0, v.health - amount);
     // Dent: impact comes from the side opposite to the velocity change.
     const dir = dvWorld.clone().negate().normalize();
     const local = dir.applyQuaternion(v.object.quaternion.clone().invert());
-    dent(v, local, clamp(amount / 60, 0.02, 0.14));
+    const at = contact ? v.object.worldToLocal(contact.clone()) : undefined;
+    dent(v, local, clamp(amount / 100, 0.025, 0.32), at);
+    if (amount > 10) v.alignment = clamp(v.alignment + local.x * amount / 500, -0.2, 0.2);
+    if (v.health < 35) v.hazards = true;
     if (v.health <= 0 && !v.destroyed) {
       v.destroyed = true;
       if (this.g.player?.vehicleId === v.id) this.g.events.emit('toast', { text: 'Engine destroyed. Get out!', kind: 'bad' });
@@ -426,13 +433,22 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.parking.refresh(g.camera.position, false, g.camera);
   }
 
+  private viewFrustum = new THREE.Frustum();
+  private viewMatrix = new THREE.Matrix4();
+  private carBounds = new THREE.Sphere();
+
   lateUpdate(dt: number) {
     const g = this.g;
     const night = nightFactor(g);
     updateSharedLightMaterials(night);
     const cam = g.camera.position;
+    g.camera.updateMatrixWorld();
+    this.viewMatrix.multiplyMatrices(g.camera.projectionMatrix, g.camera.matrixWorldInverse);
+    this.viewFrustum.setFromProjectionMatrix(this.viewMatrix);
     const playerVid = g.player?.vehicleId;
     const sirenCars: [number, Vehicle][] = [];
+    const detailDistance = LOD_FAR * (g.quality === 'high' ? 1 : g.quality === 'medium' ? 0.8 : 0.6);
+    const shadowDistance = g.quality === 'high' ? 140 : g.quality === 'medium' ? 100 : 70;
     this.shadows.begin();
     this.farBatch.begin();
     this.wheelBatch.begin();
@@ -440,16 +456,19 @@ export class VehicleSystem implements VehiclesAPI, System {
       v.sync(dt);
       const sleepy = this.sleepyParked(v);
       const d = v.position.distanceTo(cam);
-      v.visual.setFar(d > LOD_FAR && v.id !== playerVid);
+      v.visual.setFar(d > detailDistance && v.id !== playerVid);
       v.headlights = v.driver !== 'none' && !v.destroyed && (night > 0.15 || v.kind === 'police' && !!v.siren);
       v.beam = v.headlights && night > 0.2 && d < 90;
       // far civilian cars render through the per-model far batch (perf)
+      this.carBounds.center.copy(v.position).y += v.model.roofY * 0.5;
+      this.carBounds.radius = Math.hypot(v.model.L * 0.5, v.model.colHalf.x, v.model.roofY);
+      const inView = v.id === playerVid || this.viewFrustum.intersectsSphere(this.carBounds);
       const batched = !sleepy && v.visual.far && v.kind !== 'police' && !v.destroyed && !!v.object.parent;
-      v.object.visible = !sleepy && !batched;
+      v.object.visible = !sleepy && !batched && (inView || d < 14);
       if (!sleepy && v.object.parent) {
         const ch = v.visual.chassis;
         ch.updateWorldMatrix(true, false);
-        this.shadows.add(v.model, ch.matrixWorld);
+        if (d < shadowDistance) this.shadows.add(v.model, ch.matrixWorld);
         if (v.object.visible && !v.visual.far) {
           // wheels: pivot > spin > mesh; parents are fresh after the chassis update above
           for (const pv of v.visual.wheels) {
@@ -460,7 +479,7 @@ export class VehicleSystem implements VehiclesAPI, System {
             this.wheelBatch.add(v.model, w);
           }
         }
-        if (batched) {
+        if (batched && inView) {
           const head = v.headlights ? mats.headOn.emissiveIntensity : 0;
           const tail = v.braking ? mats.tailBrake.emissiveIntensity : v.headlights ? mats.tailRun.emissiveIntensity : 0;
           this.farBatch.add(v.model, v.object.matrixWorld, v.color, head, tail);
@@ -523,9 +542,16 @@ export class VehicleSystem implements VehiclesAPI, System {
     const vc = v.controller;
     const spd = Math.abs(v.speed);
     const driven = v.driver !== 'none';
+    // Wet contact patches throw a low, trailing spray instead of dry tire smoke.
+    const wet = g.sky?.wetness ?? 0;
+    if (wet > 0.2 && spd > 7) for (let i=2;i<4;i++) {
+      if (!vc.wheelIsInContact(i) || r() > wet * Math.min(16, spd) * dt) continue;
+      const p=vc.wheelContactPoint(i);if(!p)continue;
+      this.smoke.emit(new THREE.Vector3(p.x,p.y+0.08,p.z),v.velocity.clone().multiplyScalar(-0.12).setY(0.6),{size:0.25,grow:1.6,life:0.65,shade:0.85,alpha:0.09*wet});
+    }
     // Tire smoke when drifting / burnouts.
     const smoky = v.burnout || (v.slip > 0.3 && spd > 7) || (driven && v.control.handbrake && spd > 8);
-    if (smoky) {
+    if (smoky && wet < 0.4) {
       const rate = v.burnout ? 22 : 16;
       for (let i = 2; i < 4; i++) {
         if (!vc.wheelIsInContact(i) || r() > rate * dt) continue;
@@ -559,14 +585,14 @@ const _right = new THREE.Vector3(), _cp = new THREE.Vector3();
 // ---------------------------------------------------------------- dents
 
 const dentOrigin = new THREE.Vector3();
-function dent(v: Vehicle, localDir: THREE.Vector3, depth: number) {
+function dent(v: Vehicle, localDir: THREE.Vector3, depth: number, contact?: THREE.Vector3) {
   const mesh = v.visual.bodyMesh;
   if (!mesh.userData.dentable) {
     mesh.geometry = mesh.geometry.clone();
     mesh.userData.dentable = true;
     mesh.userData.totalDent = 0;
   }
-  if (mesh.userData.totalDent > 0.5) return;
+  if (mesh.userData.totalDent > 1.2) return;
   mesh.userData.totalDent += depth;
   const m = v.model;
   localDir.y = 0;
@@ -576,15 +602,17 @@ function dent(v: Vehicle, localDir: THREE.Vector3, depth: number) {
   const sx = Math.abs(localDir.x) > 1e-3 ? m.W / Math.abs(localDir.x) : 1e9;
   const sz = Math.abs(localDir.z) > 1e-3 ? (m.L / 2) / Math.abs(localDir.z) : 1e9;
   const s = Math.min(sx, sz);
-  dentOrigin.set(localDir.x * s, m.colCenter.y + 0.1, localDir.z * s);
+  if (contact) dentOrigin.copy(contact);
+  else dentOrigin.set(localDir.x * s, m.colCenter.y + 0.1, localDir.z * s);
+  v.visual.markDamage(dentOrigin, depth);
   const pos = mesh.geometry.attributes.position as THREE.BufferAttribute;
-  const R = 0.7;
+  const R = 0.9 + depth * 2;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const d = Math.hypot(x - dentOrigin.x, (y - dentOrigin.y) * 0.8, z - dentOrigin.z);
     if (d > R) continue;
     const f = (1 - d / R) ** 2 * depth;
-    pos.setXYZ(i, x - localDir.x * f + (Math.random() - 0.5) * f * 0.2, y - f * 0.15, z - localDir.z * f);
+    pos.setXYZ(i, x - localDir.x * f + (Math.sin(i * 12.9898) * 0.5) * f * 0.2, y - f * 0.15, z - localDir.z * f);
   }
   pos.needsUpdate = true;
   mesh.geometry.computeVertexNormals();

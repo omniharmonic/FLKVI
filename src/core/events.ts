@@ -1,5 +1,5 @@
 // Typed event bus shared by all systems. Add new event types here (append only; don't rename).
-import type { Vec2, CameraType } from './types';
+import type { Vec2, CameraType, Recipe } from './types';
 
 export interface GameEvents {
   /** A crime/suspicious act happened at p. severity 1..5. */
@@ -29,6 +29,9 @@ export interface GameEvents {
   playerExitVehicle: { vehicleId: string };
   toast: { text: string; kind?: 'info' | 'warn' | 'good' | 'bad'; ms?: number };
   worldReady: {};
+  districtsChanged: { recipes: Recipe[] };
+  /** Confirmed contact, for sound and camera feedback (a swing alone does not emit this). */
+  meleeHit: { p: [number, number, number] };
   /** Contextual interaction prompt for the HUD (e.g. 'Hold E: Disable · Hold R: Cut'); null hides it. */
   prompt: { text: string | null };
   /** Surveillance: a previously unmapped camera was spotted (fog of war). */

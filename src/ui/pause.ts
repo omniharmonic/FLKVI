@@ -21,7 +21,7 @@ export function openPause(g: Game, onResume: () => void, extra?: { photo?: () =>
   };
   const el = h('div', { class: 'gt-pause' },
     h('div', { class: 'side' },
-      h('div', { class: 'logo', html: 'GROUNDTRUTH<span class="dot">.</span>' }),
+      h('div', { class: 'logo', html: 'FLK <span class="flk-vi">VI</span>' }),
       h('div', { class: 'where' }, `PAUSED · ${(g.recipe?.name ?? '').toUpperCase()}`),
       item('resume', 'Resume', () => onResume()),
       item('run', 'Current run', () => show('run')),
@@ -72,7 +72,7 @@ function credits(g: Game): HTMLElement {
     h('h3', {}, 'Software'),
     h('p', {}, 'Three.js, postprocessing, N8AO, Rapier, ez-tree, Leaflet. Fonts: Inter, JetBrains Mono (OFL). Sound effects and music are synthesized procedurally in the browser unless listed above.'),
     h('h3', {}, 'Disclaimer'),
-    h('p', {}, 'Groundtruth is a work of fiction set in real places. No real brands, agencies or insignia are depicted. Don’t do this in real life.'),
+    h('p', {}, 'FLK VI is a work of fiction set in real places. No real brands, agencies or insignia are depicted. Don’t do this in real life.'),
   );
   fetch(`${import.meta.env.BASE_URL}assets/LICENSES.json`).then((r) => (r.ok ? r.json() : Promise.reject())).then((data) => {
     const entries: any[] = Array.isArray(data) ? data : Array.isArray(data?.assets) ? data.assets : Object.entries(data ?? {}).map(([k, v]) => (typeof v === 'object' ? { id: k, ...(v as object) } : { id: k, license: String(v) }));

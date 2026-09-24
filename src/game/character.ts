@@ -32,9 +32,10 @@ const CLIPS = {
   cIdle: 'Crouch_Idle_Loop', cWalk: 'Crouch_Fwd_Loop',
   jumpStart: 'Jump_Start', jump: 'Jump_Loop', land: 'Jump_Land',
   punch: 'Punch_Cross', jab: 'Punch_Jab', interact: 'Interact', kneel: 'Fixing_Kneeling', drive: 'Driving_Loop',
-  hit: 'Hit_Chest', push: 'Push_Loop',
+  hit: 'Hit_Chest', push: 'Push_Loop', enter: 'Sitting_Enter', exit: 'Sitting_Exit',
 } as const;
 type ClipKey = keyof typeof CLIPS;
+const ONE_SHOTS = new Set<ClipKey>(['punch','jab','jumpStart','land','hit','enter','exit']);
 /** Speeds (m/s) at which each locomotion clip plays at timeScale 1 (measured from foot travel). */
 const NATIVE: Partial<Record<ClipKey, number>> = { walk: 1.45, jog: 3.4, sprint: 5.6, cWalk: 1.2 };
 
@@ -108,7 +109,7 @@ export class Character {
       if (!clip) continue;
       // Strip root translation on the root/pelvis horizontal axes so clips stay in place.
       const act = this.mixer.clipAction(clip);
-      const oneShot = k === 'punch' || k === 'jab' || k === 'jumpStart' || k === 'land' || k === 'hit';
+      const oneShot = ONE_SHOTS.has(k);
       act.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
       act.clampWhenFinished = oneShot;
       act.enabled = true;
@@ -214,13 +215,14 @@ export class Character {
     this.root.add(g);
   }
 
-  playOnce(key: 'punch' | 'jab' | 'hit') {
+  playOnce(key: 'punch' | 'jab' | 'hit' | 'jumpStart' | 'land' | 'enter' | 'exit') {
     const a = this.actions.get(key);
     if (!a) return;
+    if (this.oneShot) this.actions.get(this.oneShot.key)?.stop();
     a.reset();
     a.setEffectiveWeight(1);
     a.play();
-    this.oneShot = { key, t: 0, dur: a.getClip().duration * 0.85 };
+    this.oneShot = { key, t: 0, dur: a.getClip().duration };
   }
 
   update(dt: number, st: CharacterState) {
@@ -252,7 +254,7 @@ export class Character {
     if (this.landT > 0) { this.landT -= dt; }
     // Blend weights
     for (const k of this.actions.keys()) {
-      if (k === 'punch' || k === 'jab' || k === 'jumpStart' || k === 'land' || k === 'hit') continue;
+      if (ONE_SHOTS.has(k)) continue;
       const cur = this.w.get(k) ?? 0;
       const nw = damp(cur, tw[k] ?? 0, 12, dt);
       this.w.set(k, nw);
@@ -270,7 +272,7 @@ export class Character {
     for (const v of this.w.values()) total += v;
     total = Math.max(total, 1e-3);
     for (const [k, a] of this.actions) {
-      if (k === 'punch' || k === 'jab' || k === 'jumpStart' || k === 'land' || k === 'hit') continue;
+      if (ONE_SHOTS.has(k)) continue;
       a.setEffectiveWeight(((this.w.get(k) ?? 0) / total) * (1 - shot));
     }
     // Phase-synced locomotion: all cycles share a normalized phase.

@@ -1,8 +1,8 @@
-# Groundtruth
+# FLK VI
 
-**Take the city back, one camera at a time.**
+**Every road is a way out.**
 
-Groundtruth is a browser open-world game set in real US places. Pick a spot on the map and the game
+FLK VI is an independent browser open-world game set in real US places. Pick a spot on the map and the game
 builds a photoreal 3D version of it from open data: real streets, real building footprints, real
 terrain, plus an inferred network of surveillance cameras. Your job is to take the cameras down
 (spray them, bag them, or cut the poles) and build the longest streak you can before the police
@@ -24,14 +24,14 @@ catch up with you.
 | Look | Mouse | Cut down pole (hold) | `R` |
 | Sprint / Jump | `Shift` / `Space` | Scan: show vision cones (hold) | `Q` |
 | Crouch / Walk (toggle) | `C` / `X` | Binoculars (hold) | `B` |
-| Punch / shove | Left click | Camera map | `M` or `Tab` |
+| Punch / shove | `G` or left click | Camera map | `M` or `Tab` |
 | Enter / exit vehicle | `F` | Photo mode | `P` |
 
 | Driving | | System | |
 |---|---|---|---|
 | Throttle / brake | `W` / `S` | Pause, settings, credits | `Esc` |
 | Steer | `A` / `D` | Capture mouse | Click |
-| Handbrake / Horn | `Space` / `H` | | |
+| Handbrake / Horn | `Space` / `H` | Cycle weather | `F7` |
 | Look back / Reset car | `V` / `R` | | |
 
 ## Core loop and scoring
@@ -51,16 +51,20 @@ takedown, up to 3×). Free-roam mode lets you explore without a run.
 
 ## Cities
 
-Ten featured cities are pre-baked and load in seconds:
+Thirteen featured places have pre-baked starting areas:
 
 Boulder (Pearl Street) · San Francisco (Mission) · New York (Greenwich Village) · New Orleans
 (French Quarter) · Chicago (The Loop) · Phoenix (Downtown) · Seattle (Capitol Hill) · Austin (South
-Congress) · Savannah (Historic District) · Miami Beach (South Beach)
+Congress) · Savannah (Historic District) · Miami Beach (South Beach) · Denver (LoDo) · Santa Fe · Moab
 
 **Or drop anywhere in the US.** Click any point on the picker map, or search for a place, and the
-World Compiler builds that location live in your browser, typically in 20 to 40 seconds. Live
+World Compiler builds that location live in your browser, including rural places without city streets. Live
 compiles depend on the public Overpass API servers, so they can be slow or fail when those servers
-are busy; the game retries against fallback mirrors, and the featured cities always work.
+are busy; the game retries against fallback mirrors. Featured starting areas use bundled recipes.
+
+New districts load as you approach the edge, with terrain, buildings, collision, AI routes and
+cameras. This works on static hosting. A safety boundary remains until the next section is ready;
+slow map servers can cause a wait. Distant districts unload and recent recipes are cached locally.
 
 ## How it works
 
@@ -107,10 +111,28 @@ Useful URL parameters:
 
 - `?autostart&city=<id>` skips the picker and loads a featured city (`boulder`, `sf-mission`,
   `nyc-village`, `nola-quarter`, `chicago-loop`, `phoenix-downtown`, `seattle-caphill`,
-  `austin-soco`, `savannah`, `miami-beach`).
+  `austin-soco`, `savannah`, `miami-beach`, `denver-lodo`, `santa-fe`, `moab`).
+- `&weather=clear|overcast|rain|storm|fog` selects weather; `&nostream` disables automatic district requests for debugging.
 - `&nointro` skips the arrival fly-in; `&time=18.5` sets the starting hour; `&rain=1` forces rain.
 
-Type-check with `npm run typecheck` and build with `npm run build`. Deployment to GitHub Pages runs
+Type-check with `npm run typecheck` and build with `npm run build`.
+
+Regression checks:
+
+```sh
+npm run test:ai                       # 35 traffic, signals and heat checks
+npm run test:deep                     # 5 rural compiler, coordinate and graph checks
+PORT=5200 npm run dev -- --strictPort  # shared server, in a separate terminal
+npm run test:browser                  # 32 real-browser movement, collision and asset checks
+npm run test:integration              # 36 streaming, combat, damage and weather checks
+npm run test:world -- sf-mission       # full city, quality settings, rendering and takedown checks
+```
+
+The browser checks require `agent-browser` on PATH and use `tools/browser.sh` to serialize Chromium sessions.
+See [the polish audit](docs/polish-audit.md) and [world expansion notes](docs/world-expansion.md)
+for changes, validation and remaining engineering work.
+
+Deployment to GitHub Pages runs
 from `.github/workflows/deploy.yml` on every push to `main`.
 
 ## Baking cities

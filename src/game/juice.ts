@@ -15,6 +15,7 @@ export class Juice implements System {
 
   constructor(private g: Game, private cam: CameraRig, private player: Player) {
     const ev = g.events;
+    ev.on('meleeHit', e => { this.cam.addTrauma(0.12); g.audio?.play('crash', {at:e.p,volume:0.12,rate:0.65}); });
     ev.on('takedown', (e) => {
       if (e.mode === 'cut') { this.slowT = 0; this.cam.addTrauma(0.35); }
       else this.cam.addTrauma(0.12);

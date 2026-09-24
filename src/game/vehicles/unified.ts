@@ -208,7 +208,7 @@ export function destSignTexture() {
 
 const NORMAL_MAPS = THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * vSurf.w;');
 
-export type CarBodyMaterial = THREE.MeshPhysicalMaterial & { carUniforms: { uPlateOff: { value: THREE.Vector2 }; uDriver: { value: number } } };
+export type CarBodyMaterial = THREE.MeshPhysicalMaterial & { carUniforms: { uPlateOff: { value: THREE.Vector2 }; uDriver: { value: number }; uDamage: { value: THREE.Vector4[] } } };
 
 /** Paint parameters (mirrors materials.paintMaterial). */
 function applyPaint(m: THREE.MeshPhysicalMaterial, color: string) {
@@ -235,6 +235,7 @@ export function createBodyMaterial(model: CarModel, color: string, plateCell: nu
   const u = {
     uPlateOff: { value: new THREE.Vector2((cell % 4) * 0.25, -Math.floor(cell / 4) * 0.25) },
     uDriver: { value: driverVariant + 1 },
+    uDamage: {value:Array.from({length:4},()=>new THREE.Vector4(0,0,0,0))},
     uGrille: { value: grilleTex },
     uPlate: { value: plateTexture() },
     uPal: { value: paletteTexture() },
@@ -245,35 +246,40 @@ export function createBodyMaterial(model: CarModel, color: string, plateCell: nu
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec3 aCol; attribute vec4 aSurf; attribute float aTex;
-varying vec3 vCol; varying vec4 vSurf; varying float vTex; varying vec2 vRawUv;
+varying vec3 vCarLocal; varying vec3 vCol; varying vec4 vSurf; varying float vTex; varying vec2 vRawUv;
 uniform vec2 uPlateOff; uniform float uDriver;`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
-vCol = aCol; vSurf = aSurf; vTex = aTex;
+vCarLocal = position; vCol = aCol; vSurf = aSurf; vTex = aTex;
 vRawUv = uv + ((aTex > 1.5 && aTex < 2.5) ? uPlateOff : vec2(0.0));`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 if (aTex > 4.5 && abs(aTex - 4.0 - uDriver) > 0.5) transformed = vec3(0.0);`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec3 vCol; varying vec4 vSurf; varying float vTex; varying vec2 vRawUv;
-uniform sampler2D uGrille; uniform sampler2D uPlate; uniform sampler2D uPal;`)
+varying vec3 vCarLocal; varying vec3 vCol; varying vec4 vSurf; varying float vTex; varying vec2 vRawUv;
+uniform vec4 uDamage[4]; uniform sampler2D uGrille; uniform sampler2D uPlate; uniform sampler2D uPal;`)
       .replace('#include <map_fragment>', `
 vec4 tD = texture2D(map, vMapUv);
 vec4 tG = texture2D(uGrille, vRawUv * vec2(4.0, 1.5));
 vec4 tP = texture2D(uPlate, vRawUv);
 vec4 tL = texture2D(uPal, vRawUv);
 vec4 tx = vTex < 0.5 ? tD : vTex < 1.5 ? tG : vTex < 2.5 ? tP : (vTex < 3.5 || vTex > 4.5) ? tL : vec4(1.0);
-diffuseColor = mix(vec4(vCol, diffuseColor.a) * tx, diffuseColor * tx, vSurf.w);`)
+diffuseColor = mix(vec4(vCol, diffuseColor.a) * tx, diffuseColor * tx, vSurf.w);
+float scuff=0.0;
+for(int i=0;i<4;i++){vec4 d=uDamage[i];float r=length((vCarLocal-d.xyz)*vec3(1.0,1.5,1.0));scuff=max(scuff,d.w*(1.0-smoothstep(0.15,1.2,r)));}
+float scratch=0.5+0.5*sin(vCarLocal.y*330.0+sin(vCarLocal.z*21.0)*4.0);
+scuff*=vSurf.w*smoothstep(0.1,0.8,scratch);
+diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.16,0.17,0.18),scuff);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-roughnessFactor = mix(vSurf.x, roughnessFactor, vSurf.w);`)
+roughnessFactor = mix(mix(vSurf.x, roughnessFactor, vSurf.w),0.72,scuff);`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
 metalnessFactor = mix(vSurf.y, metalnessFactor, vSurf.w);`)
       .replace('#include <normal_fragment_maps>', NORMAL_MAPS)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
 #ifdef USE_CLEARCOAT
-material.clearcoat *= vSurf.z;
+material.clearcoat *= vSurf.z * (1.0-scuff);
 #endif`);
   };
-  m.customProgramCacheKey = () => 'gt-car-body-v1';
+  m.customProgramCacheKey = () => 'gt-car-body-damage-v2';
   return m;
 }
 export function setBodyPaint(m: CarBodyMaterial, color: string) { applyPaint(m, color); }

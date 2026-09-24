@@ -66,6 +66,8 @@ type UnitMode = 'patrol' | 'respond' | 'pursue' | 'search' | 'investigate' | 'ro
 
 class Officer {
   x = 0; z = 0; y = 0; h = 0; v = 0;
+  stunned = 0;
+  recovering = false;
   state: 'chase' | 'return' | 'guard' | 'look' | 'surround' | 'hold' = 'chase';
   seenT = -1e9;
   probeT = 0;
@@ -924,6 +926,11 @@ export class PoliceSystem {
 
   private updateOfficer(o: Officer, dt: number, P: PlayerInfo, tgt: Vec3 | null) {
     const g = this.g;
+    if(o.stunned>0){
+      o.stunned=Math.max(0,o.stunned-dt);o.v=0;o.vaultT=0;flashlightFor(o.ch).visible=false;
+      if(o.stunned<o.ch.duration('getup') && !o.recovering){o.recovering=true;o.ch.setFallen(false);}
+      return;
+    }
     let tx = o.x, tz = o.z, speed = 0;
     const T = POLICE_TUNING;
     const L = this.heat.level;
@@ -1328,7 +1335,7 @@ export class PoliceSystem {
       if (L >= T.roadblockLevel) {
         for (const rb of [...this.roadblocks]) {
           const nd = this.net.nodes[rb.node];
-          if (dist2(nd.x, nd.z, P.x, P.z) > 330 * 330 && !visibleToCamera(g, nd.x, groundY(g, nd.x, nd.z), nd.z, 400, true)) {
+          if (!nd || (dist2(nd.x, nd.z, P.x, P.z) > 330 * 330 && !visibleToCamera(g, nd.x, groundY(g, nd.x, nd.z), nd.z, 400, true))) {
             for (const c of rb.cars) { const u = this.units.find((x) => x.car === c); if (u) this.removeUnit(u); }
             for (const o of rb.officers) if (this.officers.includes(o)) this.removeOfficer(o);
             this.roadblocks.splice(this.roadblocks.indexOf(rb), 1);
@@ -1423,7 +1430,7 @@ export class PoliceSystem {
     if (!P.inVehicle) {
       // an officer within reach who can actually touch you (no through-wall arrests, not mid-vault)
       for (const o of this.officers) {
-        if ((o.state === 'chase' || o.state === 'guard' || o.state === 'look') && o.vaultT <= 0 && dist2(o.x, o.z, P.x, P.z) < T.arrestFootDist * T.arrestFootDist &&
+        if (o.stunned<=0 && (o.state === 'chase' || o.state === 'guard' || o.state === 'look') && o.vaultT <= 0 && dist2(o.x, o.z, P.x, P.z) < T.arrestFootDist * T.arrestFootDist &&
           losClear(g, [o.x, o.y + 1.2, o.z], [P.x, P.y + 1.2, P.z])) { rate = 1 / T.arrestFootTime; break; }
       }
       // sprinting away breaks the grab
@@ -1432,7 +1439,7 @@ export class PoliceSystem {
       for (const u of this.units) {
         if (dist2(u.car.x, u.car.z, P.x, P.z) < T.arrestCarDist * T.arrestCarDist) { rate = 1 / T.arrestCarTime; break; }
       }
-      if (!rate) for (const o of this.officers) if (dist2(o.x, o.z, P.x, P.z) < 9) { rate = 1 / T.arrestCarTime; break; }
+      if (!rate) for (const o of this.officers) if (o.stunned<=0 && dist2(o.x, o.z, P.x, P.z) < 9) { rate = 1 / T.arrestCarTime; break; }
     }
     // low heat (a single patrol, early in a run) gives a little more time to react
     if (this.heat.level <= 1) rate *= 0.75;

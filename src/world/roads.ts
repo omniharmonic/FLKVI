@@ -11,8 +11,8 @@ const ARTERIAL = new Set<RoadClass>(['motorway', 'trunk', 'primary', 'secondary'
 export const CURB_H = 0.15;
 const ROAD_LIFT = 0.0;
 const MARK_LIFT = 0.012;
-const YELLOW = new THREE.Color('#d9a21b').convertSRGBToLinear();
-const WHITE = new THREE.Color('#e9e9e4').convertSRGBToLinear();
+const YELLOW = new THREE.Color('#d9a21b');
+const WHITE = new THREE.Color('#e9e9e4');
 
 export interface Chain {
   idx: number;
@@ -612,7 +612,10 @@ export class RoadNetwork {
     try { tri = triangulate(poly); } catch { return; }
     const mb = B.get('sidewalk', J.p[0], J.p[1]);
     const base = mb.count;
-    for (const p of tri.pts) mb.v(p[0], y, p[1], 0, 1, 0, p[0], 5);
+    // Both coordinates must vary across the polygon: a constant V collapsed the concrete
+    // and normal maps into long streaks. Keep V away from the ribbon material's curb-edge mask.
+    const uvOriginZ = Math.min(...tri.pts.map((p) => p[1])) - 1;
+    for (const p of tri.pts) mb.v(p[0], y, p[1], 0, 1, 0, p[0], p[1] - uvOriginZ);
     for (let t = 0; t < tri.tris.length; t += 3) this.upTri(mb, base + tri.tris[t], base + tri.tris[t + 1], base + tri.tris[t + 2]);
     // curb face: faces toward the junction center
     const cb = B.get('curb', J.p[0], J.p[1]);
@@ -789,8 +792,9 @@ export class RoadNetwork {
     for (const smp of S) { if (smp.inside) { flush(); continue; } run.push(smp); }
     flush();
     for (let i = 0; i < S.length; i += 3) if (!S[i].inside) this.addWalk([S[i].x, S[i].z]);
-    if (r.bridge) {
-      for (let i = 0; i + 1 < S.length; i++) this.addSeg({ ax: S[i].x, az: S[i].z, bx: S[i + 1].x, bz: S[i + 1].z, ya: S[i].y, yb: S[i + 1].y, o0: -hw, o1: hw, kind: 'deck' }, hw + 1);
+    for (let i = 0; i + 1 < S.length; i++) {
+      if (S[i].inside || S[i + 1].inside) continue;
+      this.addSeg({ ax: S[i].x, az: S[i].z, bx: S[i + 1].x, bz: S[i + 1].z, ya: S[i].y + lift, yb: S[i + 1].y + lift, o0: -hw, o1: hw, kind: r.bridge ? 'deck' : 'road' }, hw + 1);
     }
   }
 

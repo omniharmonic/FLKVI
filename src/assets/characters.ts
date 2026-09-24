@@ -750,6 +750,8 @@ function installLod(body: THREE.SkinnedMesh, base: Base, full: THREE.BufferGeome
     const e = body.matrixWorld.elements;
     _camP.setFromMatrixPosition(camera.matrixWorld);
     const d = Math.hypot(e[12] - _camP.x, e[13] - _camP.y, e[14] - _camP.z);
+    // Preserve the original face, hands and garment silhouette at conversation/camera distance.
+    if(d<8 && lodScale>=0.8){body.geometry=full;if(hair&&hairFull)hair.geometry=hairFull;return;}
     let lv = level;
     if (lv < 2 && d > LOD_DIST[lv] * lodScale + 2) lv++;
     else if (lv > 0 && d < LOD_DIST[lv - 1] * lodScale - 2) lv--;
@@ -955,7 +957,7 @@ function makeUniforms(base: Base): U {
 }
 
 function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ map: base.map, roughness: 1, metalness: 0 });
+  const m = new THREE.MeshPhysicalMaterial({ map: base.map, roughness: 1, metalness: 0, sheen:0.35, sheenRoughness:0.8, sheenColor:0x8b8b8b });
   m.name = 'gt-person';
   const maps = MAPS[base.sex];
   if (maps.normal) { m.normalMap = maps.normal; m.normalScale.set(0.55, -0.55); }
@@ -982,9 +984,13 @@ function personMaterial(base: Base, u: U): THREE.MeshStandardMaterial {
       .replace('#include <normal_fragment_maps>', `vec3 pzBN = pzBumpN(-vViewPosition, normal, pzH);
         if (pzSkin > 0.5) {
         #include <normal_fragment_maps>
-        } else normal = pzBN;`);
+        } else normal = pzBN;`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        #ifdef USE_SHEEN
+        material.sheenColor *= pzKind>0.5 && pzKind<2.5 ? 1.0 : 0.0;
+        #endif`);
   };
-  m.customProgramCacheKey = () => 'gt-person-v2';
+  m.customProgramCacheKey = () => 'gt-person-cloth-v3';
   return m;
 }
 

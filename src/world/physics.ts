@@ -1,6 +1,6 @@
 // Static physics colliders (Rapier): terrain heightfield, building shells, pole/trunk cylinders, furniture boxes.
 import type RAPIER_NS from '@dimforge/rapier3d-compat';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { RecipeBuilding } from '../core/types';
 import type { Heightfield } from './terrain';
@@ -22,50 +22,12 @@ export function buildTerrainCollider(g: Game, hf: Heightfield) {
   const nrows = hf.rows - 1, ncols = hf.cols - 1;
   const width = ncols * hf.cell, depth = nrows * hf.cell;
   const body = W.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(hf.ox + width / 2, 0, hf.oz + depth / 2));
-  const tryLayout = (transpose: boolean) => {
-    const h = new Float32Array((nrows + 1) * (ncols + 1));
-    if (!transpose) { for (let r = 0; r <= nrows; r++) for (let c = 0; c <= ncols; c++) h[r + c * (nrows + 1)] = hf.h[r * hf.cols + c]; }
-    else { for (let r = 0; r <= nrows; r++) for (let c = 0; c <= ncols; c++) h[c + r * (ncols + 1)] = hf.h[r * hf.cols + c]; }
-    const desc = transpose
-      ? R.ColliderDesc.heightfield(ncols, nrows, h, { x: depth, y: 1, z: width })
-      : R.ColliderDesc.heightfield(nrows, ncols, h, { x: width, y: 1, z: depth });
-    desc.setCollisionGroups(groups(GROUP_STATIC)).setFriction(1.0);
-    return W.createCollider(desc, body);
-  };
-  const check = () => {
-    W.step();
-    let err = 0;
-    const pts = [[0.21, 0.33], [0.77, 0.12], [0.5, 0.5], [0.13, 0.88], [0.62, 0.71]];
-    for (const [fx, fz] of pts) {
-      const x = hf.ox + width * fx, z = hf.oz + depth * fz;
-      const hit = W.castRay(new R.Ray({ x, y: 10000, z }, { x: 0, y: -1, z: 0 }), 20000, true);
-      const y = hit ? 10000 - hit.timeOfImpact : -1e9;
-      err = Math.max(err, Math.abs(y - hf.sample(x, z)));
-    }
-    return err;
-  };
-  let col = tryLayout(false);
-  if (check() > 0.25) {
-    W.removeCollider(col, false);
-    col = tryLayout(true);
-    if (check() > 0.25) {
-      // fallback: trimesh
-      W.removeCollider(col, false);
-      const verts = new Float32Array(hf.cols * hf.rows * 3);
-      for (let r = 0; r < hf.rows; r++) for (let c = 0; c < hf.cols; c++) {
-        const k = (r * hf.cols + c) * 3;
-        verts[k] = hf.ox + c * hf.cell - (hf.ox + width / 2); verts[k + 1] = hf.h[r * hf.cols + c]; verts[k + 2] = hf.oz + r * hf.cell - (hf.oz + depth / 2);
-      }
-      const idx = new Uint32Array(nrows * ncols * 6);
-      let i = 0;
-      for (let r = 0; r < nrows; r++) for (let c = 0; c < ncols; c++) {
-        const a = r * hf.cols + c, b = a + 1, e = a + hf.cols, f = e + 1;
-        idx[i++] = a; idx[i++] = f; idx[i++] = b; idx[i++] = a; idx[i++] = e; idx[i++] = f;
-      }
-      col = W.createCollider(R.ColliderDesc.trimesh(verts, idx).setCollisionGroups(groups(GROUP_STATIC)), body);
-      console.warn('[world] heightfield layout mismatch; using trimesh terrain collider');
-    }
-  }
+  // Rapier uses column-major height samples. Never step the entire live world to
+  // probe a new terrain tile: that advances player/vehicle physics outside the fixed loop.
+  const h = new Float32Array((nrows + 1) * (ncols + 1));
+  for (let r = 0; r <= nrows; r++) for (let c = 0; c <= ncols; c++) h[r + c * (nrows + 1)] = hf.h[r * hf.cols + c];
+  const col = W.createCollider(R.ColliderDesc.heightfield(nrows, ncols, h, { x: width, y: 1, z: depth })
+    .setCollisionGroups(groups(GROUP_STATIC)).setFriction(1), body);
   return col;
 }
 
@@ -99,6 +61,7 @@ export function buildBuildingColliders(g: Game, buildings: RecipeBuilding[], chu
     desc.setCollisionGroups(groups(GROUP_STATIC));
     W.createCollider(desc, body);
   }
+  return body;
 }
 
 /** Retaining walls (oriented boxes) and landmark plinth prisms as static colliders. */
@@ -135,6 +98,7 @@ export function buildPropColliders(g: Game, cols: (PropCollider | PropBox)[], tr
     }
   }
   for (const t of trunks) W.createCollider(R.ColliderDesc.cylinder(t.h / 2, t.r).setTranslation(t.x, t.y + t.h / 2, t.z).setCollisionGroups(gp), body);
+  return body;
 }
 
 export function makeLos(g: Game) {
@@ -152,7 +116,7 @@ export function makeLos(g: Game) {
   };
 }
 
-/** Raised sidewalks + curb faces as static trimeshes (so walkers stand on the 15 cm slab and curbs are steppable). */
+/** Collision surfaces use the rendered road/deck geometry, including elevated bridges and paths. */
 export function buildMeshColliders(g: Game, meshes: THREE.Mesh[]) {
   const R = g.rapier, W = g.physics;
   const body = W.createRigidBody(R.RigidBodyDesc.fixed());
@@ -160,8 +124,13 @@ export function buildMeshColliders(g: Game, meshes: THREE.Mesh[]) {
     const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
     const idx = m.geometry.getIndex();
     if (!pos || !idx || idx.count < 3) continue;
-    const desc = R.ColliderDesc.trimesh(new Float32Array(pos.array as ArrayLike<number>), new Uint32Array(idx.array as ArrayLike<number>));
-    desc.setCollisionGroups(groups(GROUP_PROPS)).setFriction(1.0);
+    m.updateWorldMatrix(true, false);
+    const vertices = new Float32Array(pos.count * 3);
+    const point = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) point.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).toArray(vertices, i * 3);
+    const desc = R.ColliderDesc.trimesh(vertices, new Uint32Array(idx.array as ArrayLike<number>), R.TriMeshFlags.FIX_INTERNAL_EDGES);
+    desc.setCollisionGroups(groups(GROUP_STATIC)).setFriction(1.0);
     W.createCollider(desc, body);
   }
+  return body;
 }

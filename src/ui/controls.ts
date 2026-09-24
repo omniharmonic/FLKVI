@@ -10,7 +10,7 @@ export function controlsGrid(): HTMLElement {
     row('Move', 'W', 'A', 'S', 'D'), row('Look', 'Mouse'),
     row('Sprint', 'Shift'), row('Jump', 'Space'),
     row('Enter / exit vehicle', 'F'), row('Crouch (toggle)', 'C'),
-    row('Walk (toggle)', 'X'), row('Punch / shove', 'Left click'), row('Zoom', 'Wheel'),
+    row('Walk (toggle)', 'X'), row('Punch / shove', 'G', 'Left click'), row('Zoom', 'Wheel'),
     h('h3', {}, 'Takedown'),
     row('Disable camera (hold)', 'E'), row('Cut down pole (hold)', 'R'),
     row('Camera map', 'M'), row('Camera map (alt)', 'Tab'),
@@ -19,7 +19,7 @@ export function controlsGrid(): HTMLElement {
     row('Handbrake', 'Space'), row('Horn', 'H'),
     row('Look back', 'V'), row('Flip / reset car', 'R'),
     h('h3', {}, 'System'),
-    row('Pause / settings', 'Esc'), row('Capture mouse', 'Click'),
+    row('Weather', 'F7'), row('Pause / settings', 'Esc'), row('Capture mouse', 'Click'),
   );
 }
 

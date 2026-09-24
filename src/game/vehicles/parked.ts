@@ -244,7 +244,11 @@ export class ParkingSystem {
    * Rebuild instance lists around the camera (near/far LOD + view-frustum culling). Runs when the
    * camera moves ~2 m or turns ~2°, or when slots change. Pass the camera to enable frustum culling.
    */
+  private lastQuality = '';
   refresh(cam: THREE.Vector3, force = false, camera?: THREE.Camera) {
+    const quality = this.g.quality;
+    if (quality !== this.lastQuality) { this.lastQuality = quality; force = true; }
+    const detailScale = quality === 'high' ? 1 : quality === 'medium' ? 0.8 : 0.6;
     let turned = false;
     if (camera) {
       camera.getWorldDirection(this.dir);
@@ -260,7 +264,7 @@ export class ParkingSystem {
       this.pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       this.frustum.setFromProjectionMatrix(this.pm);
     }
-    const near2 = NEAR_DIST * NEAR_DIST, max2 = MAX_DIST * MAX_DIST, keep2 = KEEP_DIST * KEEP_DIST, sh2 = SHADOW_DIST * SHADOW_DIST;
+    const near2 = (NEAR_DIST * detailScale) ** 2, max2 = MAX_DIST * MAX_DIST, keep2 = KEEP_DIST * KEEP_DIST, sh2 = (SHADOW_DIST * detailScale) ** 2;
     const shadows = this.shadows?.active ? this.shadows : undefined;
     for (const set of this.sets.values()) {
       let n = 0, f = 0, f2 = 0, sc = 0;
@@ -273,7 +277,7 @@ export class ParkingSystem {
       const nw = set.nearWheels.instanceMatrix.array as Float32Array;
       const fb = set.farBody.instanceMatrix.array as Float32Array, fm = set.farMisc.instanceMatrix.array as Float32Array;
       const fb2 = set.farBody2.instanceMatrix.array as Float32Array;
-      const far2 = FAR2_DIST * FAR2_DIST;
+      const far2 = (FAR2_DIST * detailScale) ** 2;
       for (const s of set.slots) {
         if (s.active && !s.sleepy) continue;
         const d2 = (s.x - cam.x) ** 2 + (s.z - cam.z) ** 2;

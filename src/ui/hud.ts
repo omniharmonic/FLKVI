@@ -33,6 +33,7 @@ export class HUD {
   private speed: HTMLElement;
   private speedNum: HTMLElement;
   private speedGauge: HTMLElement;
+  private vehicleCondition: HTMLElement;
   private flag: HTMLElement;
   private street: HTMLElement;
   private clock: HTMLElement;
@@ -82,7 +83,8 @@ export class HUD {
     this.prompt = h('div', { class: 'hud-prompt' }, this.ring, this.promptTxt);
     // speed
     this.speedNum = h('b', {}, '0'); this.speedGauge = h('i'); this.flag = h('div', { class: 'hud-flag' }, 'PLATE FLAGGED');
-    this.speed = h('div', { class: 'hud-speed' }, this.speedNum, h('span', {}, 'MPH'), h('div', { class: 'gauge' }, this.speedGauge), this.flag);
+    this.vehicleCondition = h('div', {class:'hud-condition',style:'font-size:11px;letter-spacing:0.08em;margin-top:6px'});
+    this.speed = h('div', { class: 'hud-speed' }, this.vehicleCondition, this.speedNum, h('span', {}, 'MPH'), h('div', { class: 'gauge' }, this.speedGauge), this.flag);
     // minimap + street
     this.street = h('span', {}, ''); this.clock = h('span', { class: 'clock' }, '');
     const miniWrap = h('div', { class: 'hud-mini' }, this.mini.el);
@@ -246,6 +248,9 @@ export class HUD {
       const mps = Math.abs(v?.speed ?? safe(() => Math.hypot(g.player.velocity.x, g.player.velocity.z), 0));
       const mph = mps * 2.23694;
       this.speedNum.textContent = String(Math.round(mph));
+      const health=Math.round(v?.health??100);
+      this.vehicleCondition.textContent=`${v?.gear===-1?'R':v?.gear??'D'} · CONDITION ${health}%${health<35?' · ENGINE DAMAGE':''}`;
+      this.vehicleCondition.style.color=health<35?'#f28a6c':'#bdc7cf';
       this.speedGauge.style.width = `${Math.min(1, mph / 120) * 100}%`;
       this.flag.classList.toggle('on', safe(() => g.player.plateFlagged, false));
     }

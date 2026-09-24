@@ -219,6 +219,20 @@ export class PropSystem {
   private night = 0;
   private lightTick = 0;
 
+  /** Release only this instance's material/texture clones; library textures remain shared. */
+  disposeMaterials() {
+    const hedge = this.M.hedge as THREE.MeshStandardMaterial;
+    const chain = this.M.chain as THREE.MeshStandardMaterial;
+    const concrete = this.M.concrete as THREE.MeshStandardMaterial;
+    for (const tex of [hedge.map, hedge.normalMap, chain.alphaMap, concrete.map]) tex?.dispose();
+    const materials = new Set(Object.values(this.M));
+    this.group.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) for (const mat of Array.isArray(m.material) ? m.material : [m.material]) materials.add(mat);
+    });
+    for (const mat of materials) mat.dispose();
+  }
+
   constructor(private recipe: Recipe, private roads: RoadNetwork, private groundAt: (x: number, z: number) => number, private inBuilding: (x: number, z: number) => boolean) {
     this.group.name = 'props';
   }

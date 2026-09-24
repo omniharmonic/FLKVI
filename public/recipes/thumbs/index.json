@@ -48,5 +48,20 @@
   "region": "pacific",
   "cams": 43,
   "bldgs": 2701
+ },
+ "denver-lodo": {
+  "region": "mountain-west",
+  "cams": 35,
+  "bldgs": 1528
+ },
+ "moab": {
+  "region": "mountain-west",
+  "cams": 23,
+  "bldgs": 449
+ },
+ "santa-fe": {
+  "region": "southwest",
+  "cams": 35,
+  "bldgs": 1045
  }
 }

@@ -12,7 +12,7 @@ import { setDuck } from '../audio/engine';
 import { stopMenuAmbience } from '../audio';
 import { playArrival as runArrival } from './intro';
 import { createPhotoMode, type PhotoMode } from './photo';
-import { setupResScale, setupFpsOverlay } from './perf';
+import { setupFpsOverlay } from './perf';
 import { trackTakedownShots } from './sharecard';
 
 export { showLoading } from './loading';
@@ -34,7 +34,6 @@ export async function playArrival(g: Game): Promise<void> {
 export function setupHUD(g: Game): void {
   if (chosen?.mode && g.mode !== chosen.mode) g.mode = chosen.mode;
   runStats(g);
-  setupResScale(g);
   setupFpsOverlay(g);
   trackTakedownShots(g);
   const hud = new HUD(g);

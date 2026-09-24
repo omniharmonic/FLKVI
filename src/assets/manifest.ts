@@ -78,7 +78,7 @@ export const CHARACTER_CLIPS: Record<string, string> = {
 /** Kenney Car Kit units → meters (stylized proportions; ~4.1 m long sedan). Wheels are separate nodes named wheel-*. */
 const KENNEY_CAR_SCALE = 1.6;
 const M = 'models/characters/ubc-male.glb', F = 'models/characters/ubc-female.glb', ANIMS = 'models/characters/anims.glb';
-const ch = (path: string, outfit: Outfit, tags: string[]): ModelEntry => ({ path, kind: 'character', anims: ANIMS, clips: CHARACTER_CLIPS, outfit, heightM: path === M ? 1.8 : 1.7, tags });
+const ch = (path: string, outfit: Outfit, tags: string[]): ModelEntry => ({ path, rotY: Math.PI, kind: 'character', anims: ANIMS, clips: CHARACTER_CLIPS, outfit, heightM: path === M ? 1.8 : 1.7, tags });
 
 /**
  * Model registry. Characters face +Z, feet at y=0, meters. Load with loadModel / loadModelWithAnimations.

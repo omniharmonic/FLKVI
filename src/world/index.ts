@@ -19,6 +19,7 @@ import { TreeSystem } from './trees';
 import { buildUnderstory, paintPlantingBeds } from './understory';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, buildWallColliders, makeLos } from './physics';
 import { Nav } from './nav';
+import { WorldStreaming } from './streaming';
 import { resolveLandmarks, buildLandmarks, type LandmarksResult } from './landmarks';
 import { buildRetainingWalls, type WallBox } from './retaining';
 import { settleFoundations, type Prism } from './foundations';
@@ -157,6 +158,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const api: WorldAPI = {
     heightAt: (x, z) => hf.sample(x, z),
     groundAt,
+    coverAt:(x,z)=>{let y=groundAt(x,z);bGrid.query(x,z,0,i=>{const b=recipe.buildings[i];if(pointInPoly(x,z,b.footprint))y=Math.max(y,b.baseY+b.height+b.roofHeight);});return y;},
     losBlocked: (a, b) => (los ? los(a, b) : false),
     nearestNode: (p: Vec2) => nav.nearestNode(p),
     route: (a, b) => nav.route(a, b),
@@ -277,7 +279,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       buildTerrainCollider(g, hf);
       buildBuildingColliders(g, lm.skip.size ? recipe.buildings.filter((b) => !lm.skip.has(b.id)) : recipe.buildings);
       buildPropColliders(g, props.colliders, trees.trunks);
-      buildMeshColliders(g, roadMeshes.filter((m) => /^(sidewalk|curb)\|/.test(m.name)));
+      buildMeshColliders(g, roadMeshes.filter((m) => /^(asphalt|sidewalk|curb|paving|footway|gravel|bridgeRail)\|/.test(m.name)));
       buildWallColliders(g, wallBoxes, prisms);
       los = makeLos(g);
     } catch (e) { console.error('[world] physics failed', e); }
@@ -310,6 +312,8 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     update(dt, game) {
       if (!externalNight && game.sky) setNight(game.sky.nightFactor);
       waterUniforms.uTime.value = game.elapsed;
+      trees.fullDist = game.quality === 'high' ? 48 : game.quality === 'medium' ? 34 : 24;
+      trees.nearDist = game.quality === 'high' ? 150 : game.quality === 'medium' ? 105 : 75;
       trees.update(dt, game.camera, game.elapsed);
       updateTerrainLod(terrainMeshes, game.camera.position);
       props.update(game.elapsed, game.camera);
@@ -317,6 +321,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       landmarks?.update(game);
     },
   });
+  g.addSystem(new WorldStreaming(g, hf));
   P('done', 1);
   console.info('[world] stage ms: ' + times.join(' | '));
   console.info(`[world] built in ${(performance.now() - t0).toFixed(0)} ms: ${roads.chains.length} road chains, ${roads.junctions.size} junctions, ${treeList.length} trees, ${props.lamps.length} lamps`);

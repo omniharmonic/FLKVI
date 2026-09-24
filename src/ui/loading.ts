@@ -28,7 +28,7 @@ export function showLoading(): { update(stage: string, f: number): void; done():
   const live = chosen && !chosen.baked;
   const el = h('div', { class: 'gt-loading' },
     cvs, h('div', { class: 'grad' }),
-    h('div', { class: 'brand', html: 'GROUNDTRUTH<span class="dot">.</span>' }),
+    h('div', { class: 'brand', html: 'FLK <span class="flk-vi">VI</span>' }),
     h('div', { class: 'center' },
       h('div', { class: 'loc' }, live ? 'Compiling world · live' : 'Loading world'),
       h('div', { class: 'name' }, name),

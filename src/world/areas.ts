@@ -6,7 +6,7 @@ import type { Heightfield } from './terrain';
 import type { RoadNetwork } from './roads';
 import { waterNormalTexture } from './textures';
 
-const WHITE = new THREE.Color('#e6e6e1').convertSRGBToLinear();
+const WHITE = new THREE.Color('#e6e6e1');
 
 export function buildAreas(recipe: Recipe, B: ChunkBatcher, hf: Heightfield, roads: RoadNetwork, waterGroup: THREE.Group, inBuilding: (x: number, z: number) => boolean) {
   const waterMeshes: THREE.Mesh[] = [];

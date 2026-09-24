@@ -8,7 +8,7 @@ import { sfx } from '../audio/sfx';
 import { startMenuAmbience } from '../audio';
 import { showSettingsModal } from './settingsPanel';
 import { loadThumbs, fetchRecipe, REGION_LABEL, type CityMeta } from './thumbs';
-import type { TitleBackdrop } from './titlebg';
+
 
 export interface FeaturedCity { id: string; name: string; lat: number; lon: number; blurb: string }
 
@@ -117,7 +117,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
 
     const panel = h('div', { class: 'gt-panel gt-glass' },
       h('div', { class: 'head' },
-        h('div', { class: 'logo', html: 'GROUNDTRUTH<span class="dot">.</span>' }),
+        h('div', { class: 'logo', html: 'FLK <span class="flk-vi">VI</span>' }),
         h('div', { class: 'sub' }, 'Take down the surveillance grid. Don’t get caught. Pick anywhere in the United States.'),
       ),
       h('div', { class: 'body' },
@@ -197,7 +197,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       sfx('ui-click');
       setPin(lat, lon);
       if (!inUSBox(lat, lon)) {
-        sel = { lat, lon, name: 'Outside the United States', tier: 'B', error: 'Groundtruth only covers the United States. Pick a US location.' };
+        sel = { lat, lon, name: 'Outside the United States', tier: 'B', error: 'FLK VI only covers the United States. Pick a US location.' };
         renderSel(); return;
       }
       if (addr) {
@@ -213,7 +213,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
         const r = await nominatim(`reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`);
         if ((pickPoint as any).token !== token) return;
         if (r?.address?.country_code && r.address.country_code !== 'us') {
-          sel = { lat, lon, name: r.address.country || 'Outside the US', tier: 'B', error: 'Groundtruth only covers the United States. Pick a US location.' };
+          sel = { lat, lon, name: r.address.country || 'Outside the US', tier: 'B', error: 'FLK VI only covers the United States. Pick a US location.' };
         } else {
           const d = describe(r?.address, `Dropped pin`);
           sel = { lat, lon, name: d.name, tier: d.tier };
@@ -261,47 +261,26 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
 
     // ---------- title overlay ----------
     let titleUp = true;
-    const now = new Date();
-    // local date + local time (toISOString is UTC, which showed tomorrow's date in the evening)
-    const stamp = (d: Date) => `CAM 04 · GRID 7<br>${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${d.toTimeString().slice(0, 8)}`;
-    const title = h('div', { class: 'gt-title' },
-      h('div', { class: 'scan' }),
-      h('div', { class: 'rec' }, 'REC'),
-      h('div', { class: 'tc', html: stamp(now) }),
-      h('div', { class: 'kicker' }, 'AN OPEN-WORLD HEIST AGAINST THE GRID'),
-      h('h1', { html: 'GROUNDTRUTH<span class="dot">.</span>' }),
-      h('div', { class: 'tag' }, 'Take down the surveillance grid. Don’t get caught.'),
-      h('div', { class: 'press' }, 'CLICK OR PRESS ANY KEY'),
-      h('div', { class: 'foot', html: 'Real US places, built from OpenStreetMap. A work of fiction: no real brands, agencies or insignia.' }),
+    const title = h('div', { class: 'gt-title flk-title' },
+      h('img', { class: 'flk-keyart', src: `${import.meta.env.BASE_URL}art/overlook.png`, alt: '', fetchpriority: 'high' }),
+      h('div', { class: 'flk-title-copy' },
+        h('div', { class: 'flk-eyebrow' }, 'AN OPEN WORLD. A COUNTRY UNDER WATCH.'),
+        h('h1', { class: 'flk-wordmark', 'aria-label': 'FLK VI', html: 'FLK <span>VI</span>' }),
+        h('p', { class: 'flk-tagline' }, 'Every road is a way out.'),
+        h('p', { class: 'flk-intro' }, 'Real places. Open roads. Take down the surveillance grid and disappear into the country.'),
+        h('button', { class: 'flk-start', type: 'button' }, 'CHOOSE YOUR STARTING POINT', h('span', { 'aria-hidden': 'true' }, '↗')),
+        h('div', { class: 'flk-keyhint' }, 'ENTER TO START · KEYBOARD + MOUSE'),
+      ),
+      h('div', { class: 'flk-title-bottom' }, h('span', {}, 'CITY STREETS / HIGH COUNTRY / WIDE OPEN SPACES'), h('span', {}, 'INDEPENDENT BROWSER GAME · KEY ART')),
     );
     el.append(title);
-    // cinematic backdrop: the default city at golden hour (small separate WebGL context, disposed on dismiss)
-    let backdrop: TitleBackdrop | null = null;
-    const bgId = cities[0]?.id ?? 'boulder';
-    // start the (~3 MB) recipe fetch only once the title has painted, so it never delays first paint
-    // three.js + the backdrop renderer load lazily (own chunk) in parallel with the recipe, after first paint
-    const startBackdrop = () => Promise.all([fetchRecipe(bgId), import('./titlebg').catch((e) => { console.warn('[title] backdrop module failed', e); return null; })]).then(([r, mod]) => {
-      if (!r || !mod || !titleUp) return;
-      const { createTitleBackdrop } = mod;
-      try {
-        backdrop = createTitleBackdrop(r, () => title.classList.add('has-bg'));
-        if (backdrop) title.prepend(backdrop.el);
-      } catch (e) { console.warn('[title] backdrop failed', e); }
-    });
-    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { if (titleUp) startBackdrop(); }, 300)));
-    const tc = title.querySelector('.tc') as HTMLElement;
-    const tcTimer = setInterval(() => { const d = new Date(); tc.innerHTML = stamp(d); }, 1000);
-    // slow cinematic drift
-    let drift = true;
-    const driftLoop = () => { if (!drift) return; map.panBy([0.35, 0.05], { animate: false }); requestAnimationFrame(driftLoop); };
-    requestAnimationFrame(driftLoop);
     panel.style.display = 'none';
     const dismiss = () => {
       if (!titleUp) return;
-      titleUp = false; drift = false; clearInterval(tcTimer);
+      titleUp = false;
       sfx('ui-click'); startMenuAmbience();
       title.classList.add('out');
-      setTimeout(() => { backdrop?.dispose(); backdrop = null; title.remove(); }, 900);
+      setTimeout(() => title.remove(), 900);
       panel.style.display = '';
       map.flyTo([39.2, -100.5], 4.5, { duration: 1.2 });
       removeEventListener('keydown', onKey);

@@ -494,6 +494,17 @@ export class TreeSystem {
 
   constructor() { this.group.name = 'trees'; }
 
+  /** Release district-owned instance buffers and atlas; cached species geometry remains shared. */
+  dispose() {
+    this.group.removeFromParent();
+    this.group.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh) m.dispose(); });
+    if (this.far) { this.far.geometry.dispose(); (this.far.material as THREE.Material).dispose(); }
+    this.shadowImpostors?.geometry.dispose();
+    this.atlas?.releaseMaterials(); this.atlas?.rt.dispose();
+    this.group.clear(); this.pending.length = 0; this.plan.length = 0; this.insts.length = 0;
+  }
+
+
   async build(trees: RecipeTree[], renderer: THREE.WebGLRenderer | undefined, onProgress?: (f: number) => void) {
     this.trees = trees;
     this.renderer = renderer;
@@ -797,8 +808,17 @@ export class TreeSystem {
       const d2 = (T.x - cx) ** 2 + (T.z - cz) ** 2;
       if (d2 > T.md2) continue;
       this.sph.center.set(T.x, T.y + T.h * 0.5, T.z); this.sph.radius = T.h * 0.7 + T.r;
-      if (!this.frustum.intersectsSphere(this.sph)) continue;
       const V = this.variants[T.v]!;
+      if (!this.frustum.intersectsSphere(this.sph)) {
+        // Trees behind the camera can still shade the street in front of it. Keep a cheap
+        // shadow proxy so turning the camera doesn't switch their shadows on and off.
+        if (sArr && sAtl && T.h > 3 && d2 < nd2) {
+          sArr.set(T.m, sc * 16);
+          sAtl[sc * 3] = V.atlasIdx % this.cols; sAtl[sc * 3 + 1] = Math.floor(V.atlasIdx / this.cols); sAtl[sc * 3 + 2] = V.ratio;
+          sc++;
+        }
+        continue;
+      }
       if (d2 < fd2) {
         const n = this.nearCount[T.v];
         if (n < V.near[0].instanceMatrix.count) {

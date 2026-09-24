@@ -55,6 +55,13 @@ export class Minimap {
       const x1 = Math.min(b.minX + this.base.width / S, px + half), z1 = Math.min(b.minZ + this.base.height / S, pz + half);
       if (x1 > x0 && z1 > z0) ctx.drawImage(this.base, (x0 - b.minX) * S, (z0 - b.minZ) * S, (x1 - x0) * S, (z1 - z0) * S, x0, z0, x1 - x0, z1 - z0);
     }
+    // Cached Path2D layers for resident districts keep the minimap useful beyond the starting recipe.
+    for(const r of g.world?.streaming?.recipes()??[]){
+      const b=r.bounds,half=R/k*1.45;
+      if(px+half<b.minX||px-half>b.maxX||pz+half<b.minZ||pz-half>b.maxZ)continue;
+      ctx.save();ctx.beginPath();ctx.rect(b.minX,b.minZ,b.maxX-b.minX,b.maxZ-b.minZ);ctx.clip();
+      drawBase(ctx,layersFor(r),k);ctx.restore();
+    }
     // route
     if (nav.route && nav.route.length > 1) {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';

@@ -45,7 +45,7 @@ export const DRIFT = {
   /** Handbrake kick fades out as the slip angle approaches this (rad), so tap length matters less. */
   hbBeta: 0.8,
   /** Held power drift: target slip (rad) ± steering, PD gains (× mass), momentum push (m/s²), lateral bleed, max slip (rad). */
-  holdBeta: 0.65, holdBetaSteer: 0.2, kp: 20, kd: 8, push: 9, holdLat: 0, betaMax: 0.95,
+  holdBeta: 0.65, holdBetaSteer: 0.2, kp: 20, kd: 8, push: 0, holdLat: 0.12, betaMax: 0.95,
   /** Rear grip / side stiffness while a power drift is held (throttle on). */
   holdRearGrip: 0.75, holdRearSide: 0.6,
   /** Gripping: yaw damping toward the steer-requested yaw, recovery torque per rad of slip. */
@@ -82,6 +82,9 @@ export class Vehicle implements VehicleHandle {
   crashed = false;
   /** 0..100; smoke under 45, disabled at 0. */
   health = 100;
+  /** Persistent axle damage: uneven alignment and power loss follow real impacts. */
+  alignment = 0;
+  gripFactor = 1;
   /** Parking slot this vehicle was promoted from (for demotion back to instancing). */
   parkedSlot: { model: string; index: number } | null = null;
   /** Player has driven this car (so it counts as stolen / plate-trackable). */
@@ -193,7 +196,7 @@ export class Vehicle implements VehicleHandle {
     const t = this.tuning, m = this.model;
     const vc = this.g.physics.createVehicleController(this.body);
     this.controller = vc;
-    (vc as any).setIndexForwardAxis = 2; // chassis forward axis = local Z (car faces −Z; see sign handling)
+    vc.setIndexForwardAxis = 2; // chassis forward axis = local Z (car faces −Z; see sign handling)
     for (let i = 0; i < 4; i++) {
       const p = m.wheelPos[i];
       vc.addWheel({ x: p.x, y: this.connY, z: p.z }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, t.rest, m.wheelR);
@@ -268,6 +271,9 @@ export class Vehicle implements VehicleHandle {
     // player can shove free or reverse out instead of being pinned.
     if (driven && (throttle > 0.5 || reverse > 0.5) && spd < 0.8) this.stuckT += dt; else this.stuckT = Math.max(0, this.stuckT - dt * 2);
     engine *= 1 + Math.min(1.6, this.stuckT * 1.2);
+    // Damaged engines progressively lose torque; wet tires lose available grip.
+    engine *= 0.35 + 0.65 * Math.min(1, this.health / 65);
+    this.gripFactor = 1 - 0.3 * (this.g.sky?.wetness ?? 0);
     // Gear change: brief drive cut.
     if (this.shiftT > 0) engine *= 0.3;
     if (this.burnout) { engine = 0; brakeIn = 1; }
@@ -292,19 +298,25 @@ export class Vehicle implements VehicleHandle {
       vc.setWheelEngineForce(i, e);
       vc.setWheelBrake(i, e !== 0 ? 0 : b);
       const held = rear && !hb && this.driftT > 0 && throttle > 0.5;
-      const grip = t.grip * (rear && hb ? DRIFT.hbRearGrip : held ? DRIFT.holdRearGrip : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
+      const grip = t.grip * this.gripFactor * (rear && hb ? DRIFT.hbRearGrip : held ? DRIFT.holdRearGrip : 1) * (rear && throttle > 0.9 && spd < 10 && this.model.id === 'sports' ? 0.8 : 1);
       vc.setWheelFrictionSlip(i, grip);
       vc.setWheelSideFrictionStiffness(i, rear && hb ? DRIFT.hbRearSide : held ? DRIFT.holdRearSide : 1.0);
     }
     // Speed-sensitive steering with smoothing.
     const steerMax = t.steerMax / (1 + spd / 8);
-    const target = (driven ? clamp(ctl.steer, -1, 1) : 0) * steerMax;
+    const target = (driven ? clamp(ctl.steer + this.alignment * Math.min(1, spd / 12), -1, 1) : 0) * steerMax;
     const rate = Math.sign(target - this.steerAngle) !== Math.sign(this.steerAngle) ? 7 : 3.5;
     this.steerAngle += clamp(target - this.steerAngle, -rate * dt, rate * dt);
     // Positive steer = turn right. Rapier steering rotates about local up; sign flipped for −Z forward.
-    vc.setWheelSteering(0, -this.steerAngle);
-    vc.setWheelSteering(1, -this.steerAngle);
-    vc.updateVehicle(dt, undefined, undefined, (c) => !this.ignoreRay(c));
+    // Ackermann geometry: the inside front wheel follows the tighter turning circle.
+    const wheelbase = Math.abs(this.model.wheelPos[2].z - this.model.wheelPos[0].z);
+    const track = Math.abs(this.model.wheelPos[1].x - this.model.wheelPos[0].x);
+    const radius = wheelbase / Math.max(0.001, Math.tan(Math.abs(this.steerAngle)));
+    const inner = Math.atan(wheelbase / Math.max(1, radius - track / 2));
+    const outer = Math.atan(wheelbase / (radius + track / 2));
+    vc.setWheelSteering(0, -Math.sign(this.steerAngle) * (this.steerAngle < 0 ? inner : outer));
+    vc.setWheelSteering(1, -Math.sign(this.steerAngle) * (this.steerAngle > 0 ? inner : outer));
+    vc.updateVehicle(dt, R.QueryFilterFlags.EXCLUDE_SENSORS, undefined, (c) => !this.ignoreRay(c));
 
     // --- Arcade assists ---
     const grounded = this.wheelsOnGround();
@@ -313,13 +325,18 @@ export class Vehicle implements VehicleHandle {
       // Downforce
       const df = t.downforce * spd * spd * mass * 0.001;
       body.addForce({ x: -_up.x * df, y: -_up.y * df, z: -_up.z * df }, true);
-      // Anti-roll: damp roll rate + restore toward level.
+      // Axle anti-roll bars respond to suspension travel, preserving road banking.
       const av = body.angvel();
       const w = _w.set(av.x, av.y, av.z);
-      const rollRate = w.dot(_fwd);
-      const rollAngle = Math.asin(clamp(_right.y, -1, 1));
-      const kRoll = -(rollRate * 0.35 + rollAngle * 1.2) * mass;
-      body.addTorque({ x: _fwd.x * kRoll, y: _fwd.y * kRoll, z: _fwd.z * kRoll }, true);
+      for (const axle of [0, 2]) {
+        if (!vc.wheelIsInContact(axle) || !vc.wheelIsInContact(axle + 1)) continue;
+        const delta = (vc.wheelSuspensionLength(axle + 1) ?? t.rest) - (vc.wheelSuspensionLength(axle) ?? t.rest);
+        const force = clamp(delta * mass * 16, -mass * 2.5, mass * 2.5);
+        for (const [wheel, sign] of [[axle, 1], [axle + 1, -1]]) {
+          const at = this.model.wheelPos[wheel].clone().applyQuaternion(_q).add(new THREE.Vector3(body.translation().x, body.translation().y, body.translation().z));
+          body.addForceAtPoint({x:_up.x*force*sign,y:_up.y*force*sign,z:_up.z*force*sign},at,true);
+        }
+      }
       const pitchRate = w.dot(_right);
       const kPitch = -pitchRate * 0.25 * mass;
       body.addTorque({ x: _right.x * kPitch, y: _right.y * kPitch, z: _right.z * kPitch }, true);
@@ -372,7 +389,7 @@ export class Vehicle implements VehicleHandle {
           }
           body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
           // Lateral grip assist at speed: bleed sideways velocity a bit.
-          const latF = -lat * mass * 0.9 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1);
+          const latF = -lat * mass * this.gripFactor * 0.65 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1);
           body.addForce({ x: _right.x * latF, y: 0, z: _right.z * latF }, true);
           // High-speed stability: a little extra steering-independent yaw damping above ~25 m/s.
           if (spd > 25) {
@@ -393,7 +410,7 @@ export class Vehicle implements VehicleHandle {
     // Auto-flip when stuck upside down / on the side.
     if (_up.y < 0.35 && spd < 2) {
       this.flipTimer += dt;
-      if (this.flipTimer > 2.5 && this.driver === 'player') this.flipUpright();
+      // Recovery is deliberate (R), so a rollover keeps its physical consequence.
     } else this.flipTimer = 0;
     this.updateGearbox(dt, spd, fwdSpeed, throttle, reverse, grounded);
   }

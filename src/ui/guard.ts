@@ -27,8 +27,8 @@ export function showUnsupported(reason: string): void {
     : 'It’s a real-time 3D game played with WASD and a mouse, and it needs the memory and GPU of a desktop or laptop.';
   const el = h('div', { class: 'gt-unsupported', role: 'alert' },
     h('div', { class: 'box' },
-      h('div', { class: 'logo', html: 'GROUNDTRUTH<span class="dot">.</span>' }),
-      h('h1', {}, 'Groundtruth needs a desktop browser with a keyboard and mouse'),
+      h('div', { class: 'logo', html: 'FLK <span class="flk-vi">VI</span>' }),
+      h('h1', {}, 'FLK VI needs a desktop browser with a keyboard and mouse'),
       h('p', {}, detail),
       h('p', { class: 'dim' }, 'Open this page on a computer running a recent Chrome, Edge, Firefox or Safari.'),
       h('div', { class: 'url' }, location.host + location.pathname),

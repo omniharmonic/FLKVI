@@ -8,10 +8,11 @@ import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.j
 import * as Lib from '../assets/library';
 import { personalize, preparePeople, warmthFor } from '../assets/characters';
 
-export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave' | 'talk' | 'film' | 'hit' | 'sprint' | 'jump' | 'foldArms' | 'jog';
+export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave' | 'talk' | 'film' | 'hit' | 'sprint' | 'jump' | 'foldArms' | 'jog' | 'fall' | 'getup';
 
 /** Fallback chain when a rig lacks a clip (glTF clip names come from CHARACTER_CLIPS). */
 const ROLE_ALIASES: Partial<Record<Role, string[]>> = {
+  fall: ['death', 'knockback', 'hit'], getup: ['getUp', 'idle'],
   film: ['film', 'aim', 'phone', 'idle'],
   talk: ['talk', 'idle'],
   hit: ['hit', 'knockback', 'idle'],
@@ -81,7 +82,7 @@ function buildBodyGeometry(p: Palette, build: number): THREE.BufferGeometry {
     geo.translate(at.x, at.y, at.z);
     const n = geo.attributes.position.count;
     const colors = new Float32Array(n * 3);
-    col.set(color).convertSRGBToLinear();
+    col.set(color);
     for (let i = 0; i < n; i++) { colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b; }
     const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
     const bi = BONE_INDEX.get(bone)!;
@@ -305,13 +306,15 @@ export class Character {
     }
   }
 
+  duration(role: Role) { for (const key of [role,...(ROLE_ALIASES[role]??[])]) { const a=this.actions.get(key); if(a)return a.getClip().duration; } return 0; }
+
   has(role: Role) { return this.actions.has(role); }
 
   play(role: Role, fade = 0.25, timeScale = 1) {
     let a = this.actions.get(role);
     if (!a) for (const alt of ROLE_ALIASES[role] ?? ['idle']) { a = this.actions.get(alt); if (a) break; }
     if (!a) return;
-    const once = role === 'hit' || (role === 'jump' && !this.actions.has('jump'));
+    const once = role === 'fall' || role === 'getup' || role === 'hit' || (role === 'jump' && !this.actions.has('jump'));
     a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
     a.clampWhenFinished = once;
     a.timeScale = timeScale;
@@ -344,6 +347,11 @@ export class Character {
   }
 
   setFallen(on: boolean, backwards = true) {
+    if(this.actions.has('death') && this.actions.has('getUp')){
+      this.fallTarget=0;this.fallT=0;this.pivot.rotation.x=0;this.pivot.position.y=0;
+      this.play(on?'fall':'getup',on?0.08:0.16);
+      return;
+    }
     this.fallTarget = on ? 1 : 0;
     if (on) this.fallDir = backwards ? -1 : 1;
   }

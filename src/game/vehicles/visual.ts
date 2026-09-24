@@ -16,6 +16,7 @@ export interface VehicleVisual {
   /** Show/hide the seated driver figure. */
   setDriver(on: boolean): void;
   setPaint(color: string): void;
+  markDamage(local: THREE.Vector3, severity: number): void;
   /** Release the per-car materials. */
   dispose(): void;
   readonly far: boolean;
@@ -79,11 +80,13 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   beam.renderOrder = 2;
   root.add(beam);
   let isFar = false;
+  let damageIndex = 0;
   const phase = (seed % 7) * 0.13;
   const I = lampMat.lampI, On = lampMat.lampOn;
   return {
     root, chassis, bodyMesh, wheels,
     get far() { return isFar; },
+    markDamage(p, severity) { bodyMat.carUniforms.uDamage.value[damageIndex++ % 4].set(p.x,p.y,p.z,Math.min(1,severity*4)); },
     setFar(f: boolean) {
       if (f === isFar) return;
       isFar = f;
@@ -124,7 +127,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       setBodyPaint(bodyMat, col);
       (farBody.material as THREE.Material[])[0] = paintFor(model, c);
     },
-    dispose() { bodyMat.dispose(); lampMat.dispose(); },
+    dispose() { if(bodyMesh.userData.dentable)bodyMesh.geometry.dispose(); bodyMat.dispose(); lampMat.dispose(); },
   };
 }
 

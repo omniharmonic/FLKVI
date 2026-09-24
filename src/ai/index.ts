@@ -11,7 +11,9 @@ import { CharacterFactory } from './characters';
 import { TrafficSystem, TRAFFIC_TUNING } from './traffic';
 import { PedSystem, PED_TUNING } from './peds';
 import { PoliceSystem, POLICE_TUNING } from './police';
+import { mergeDistrictGraphs } from './stream-network';
 import { RoadNet } from './roadnet';
+import { losClear } from './util';
 import { updateFrustum } from './util';
 
 export { canSee, effectiveRange, playerTarget, headingDir, headingOf } from './perception';
@@ -58,11 +60,59 @@ export async function setupAI(g: Game): Promise<void> {
   };
   g.ai = ai;
 
+  g.events.on('playerMelee',({p,dir,range})=>{
+    let officer: (typeof police.officers)[number]|undefined,nearest=range;
+    const y=g.player.position.y;
+    for(const o of police.officers){const dx=o.x-p[0],dz=o.z-p[1],d=Math.hypot(dx,dz);
+      if(o.stunned>0||d>nearest||Math.abs(o.y-y)>1.2||d>0.25&&(dx*dir[0]+dz*dir[1])/d<0.55)continue;
+      if(!losClear(g,[p[0],y+1.1,p[1]],[o.x,o.y+1.1,o.z]))continue;officer=o;nearest=d;
+    }
+    if(peds.onMelee(p,dir,nearest))return;
+    if(officer){officer.stunned=3+officer.ch.duration('getup');officer.recovering=false;officer.ch.setFallen(true);
+      g.events.emit('meleeHit',{p:[officer.x,officer.y+1,officer.z]});g.events.emit('crime',{kind:'assault',p:[officer.x,officer.z],severity:3});}
+  });
+  g.events.on('districtsChanged' , ({recipes}) => {
+    const merged=mergeDistrictGraphs(g.recipe,recipes,(x,z)=>g.world.streaming?.isReady(x,z)??true);
+    const nextNet = new RoadNet(merged);
+    const nodeIds = new Map(merged.graph.nodes.map((n, i) => [n.id, i]));
+    const nodeMap = net.recipe.graph.nodes.map(n => nodeIds.get(n.id) ?? -1);
+    const edgeKey = (network: RoadNet, i: number) => {
+      const e = network.edges[i], graph = network.recipe.graph;
+      return `${graph.nodes[e.from].id}:${graph.nodes[e.to].id}:${graph.edges[e.gi].roadId}`;
+    };
+    const edges = new Map(nextNet.edges.map(e => [edgeKey(nextNet, e.i), e.i]));
+    const edgeMap = net.edges.map(e => edges.get(edgeKey(net, e.i)) ?? -1);
+    for (const rb of police.roadblocks) rb.node = nodeMap[rb.node] ?? -1;
+    // Preserve moving/parked/turning car poses and the shared network identity.
+    Object.assign(net, nextNet);
+    if (traffic) {
+      traffic.enabled = net.edges.length > 0;
+      traffic.sim.occupants.clear();
+      for (const c of [...traffic.sim.cars]) {
+        const handle = traffic.handleOf(c);
+        if (handle?.driver === 'player' || handle?.id === g.player.vehicleId) { traffic.removeCar(c, false); continue; }
+        c.route = null;
+        const e = edgeMap[c.e] ?? -1;
+        if (e < 0 && c.kind === 'civilian') { traffic.removeCar(c); continue; }
+        c.e = e;
+        c.next = edgeMap[c.next] ?? -1;
+        c.turnNode = nodeMap[c.turnNode] ?? -1;
+        if (e < 0) c.mode = 'free';
+        if (c.next < 0) { c.leg = 'lane'; c.turn = null; }
+        if (c.turnNode >= 0) {
+          let occupants = traffic.sim.occupants.get(c.turnNode);
+          if (!occupants) traffic.sim.occupants.set(c.turnNode, occupants = new Set());
+          occupants.add(c);
+        }
+      }
+    }
+    peds.rebindNetwork();
+  });
   let frame = 0;
   g.addSystem({
     name: 'ai',
-    order: 20,
-    update(dt: number) {
+    order: 15,
+    fixedUpdate(dt: number) {
       const t0 = performance.now();
       frame++;
       updateFrustum(g, frame);

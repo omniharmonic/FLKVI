@@ -94,11 +94,12 @@ export class Game {
       let steps = 0;
       while (this.acc >= Game.FIXED_DT && steps < 4) {
         for (const s of this.systems) s.fixedUpdate?.(Game.FIXED_DT, this);
-        this.physics?.step();
+        if (this.physics) { this.physics.timestep = Game.FIXED_DT; this.physics.step(); }
+        this.input.endFixedStep();
         this.acc -= Game.FIXED_DT;
         steps++;
       }
-      if (steps === 4) this.acc = 0;
+      if (steps === 4) this.acc %= Game.FIXED_DT;
       for (const s of this.systems) s.update?.(dt, this);
       for (const s of this.systems) s.lateUpdate?.(dt, this);
     }
@@ -119,13 +120,14 @@ export class Game {
       while (this.acc >= Game.FIXED_DT && steps < 4) {
         for (const s of this.systems) if (s.fixedUpdate) { const t = now(); s.fixedUpdate(Game.FIXED_DT, this); add('fixed:' + s.name, t); }
         let t = now();
-        this.physics?.step();
+        if (this.physics) { this.physics.timestep = Game.FIXED_DT; this.physics.step(); }
+        this.input.endFixedStep();
         add('physics', t);
         this.acc -= Game.FIXED_DT;
         steps++;
       }
       P.steps = (P.steps ?? 0) + steps;
-      if (steps === 4) this.acc = 0;
+      if (steps === 4) this.acc %= Game.FIXED_DT;
       for (const s of this.systems) if (s.update) { const t = now(); s.update(dt, this); add('update:' + s.name, t); }
       for (const s of this.systems) if (s.lateUpdate) { const t = now(); s.lateUpdate(dt, this); add('late:' + s.name, t); }
     }

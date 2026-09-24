@@ -6,6 +6,9 @@ export interface BakedCity {
 }
 
 export const BAKED_CITIES: BakedCity[] = [
+  { id: 'denver-lodo', name: 'Denver — Lower Downtown', lat: 39.7526, lon: -104.9995, blurb: 'Warehouse blocks, Union Station streets and broad avenues beneath the Rockies.' },
+  { id: 'santa-fe', name: 'Santa Fe — Plaza', lat: 35.687, lon: -105.9378, blurb: 'Adobe courtyards, narrow old-town streets and dry foothill light.' },
+  { id: 'moab', name: 'Moab, UT — Main Street', lat: 38.5733, lon: -109.5506, blurb: 'A desert small town: low storefronts, open roads and red-rock country.' },
   { id: 'boulder', name: 'Boulder, CO — Pearl Street', lat: 40.0176, lon: -105.2797, blurb: 'Brick main-street blocks, a pedestrian mall and the Flatirons looming over it all.' },
   { id: 'sf-mission', name: 'San Francisco — Mission District', lat: 37.7599, lon: -122.4214, blurb: 'Victorian row houses, taquerias and busy Valencia and Mission corridors.' },
   { id: 'nyc-village', name: 'New York — Greenwich Village', lat: 40.7336, lon: -74.0027, blurb: 'Brownstones, tangled pre-grid streets and cameras on every corner.' },

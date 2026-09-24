@@ -133,6 +133,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       for (const b of qs[q]) {
         try {
           const tg = performance.now();
+          setBuildingIndex(recipe.buildings);
           stats.windows += generateBuilding(B, b, recipe.region);
           genMs += performance.now() - tg;
           stats.buildings++;
@@ -212,7 +213,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   };
   // perf: only chunks near the camera cast detailed shadows (near cascade); the rest cast their
   // footprint prism into both cascades (their shadows land ≥ 60 m away, where facade relief is sub-texel)
-  const SHADOW_DETAIL_D = 60;
+  let activeQuality = quality;
   const setShadowDetail = (c: Chunk, on: boolean) => {
     c.shadowDetail = on;
     for (const m of c.casters) m.castShadow = on;
@@ -221,6 +222,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   };
   const setLod = (cam: THREE.Camera) => {
     cam.getWorldPosition(camPos);
+    const shadowDetailDistance = activeQuality === 'high' ? 60 : activeQuality === 'medium' ? 45 : 30;
     const budgetEnd = performance.now() + 5;
     for (const c of chunks) {
       let mask = 0;
@@ -234,7 +236,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
           if (!su.job) su.job = { i: 0, B: newLod0Buckets() };
           const job = su.job;
           while (job.i < su.list.length && performance.now() < budgetEnd) {
-            try { generateBuilding(job.B, su.list[job.i], region); } catch { /* ignore */ }
+            try { setBuildingIndex(recipe.buildings); generateBuilding(job.B, su.list[job.i], region); } catch { /* ignore */ }
             job.i++;
           }
           if (job.i >= su.list.length) {
@@ -256,7 +258,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       if (mask !== c.mask1) { c.mask1 = mask; setLod1Mask(c, mask); }
       if (hulls && c.hull) {
         const dc = Math.hypot(Math.max(0, Math.abs(camPos.x - c.cx) - c.radius), Math.max(0, Math.abs(camPos.z - c.cz) - c.radius));
-        const want = c.shadowDetail ? dc < SHADOW_DETAIL_D + 15 : dc < SHADOW_DETAIL_D - 15;
+        const want = c.shadowDetail ? dc < shadowDetailDistance + 15 : dc < shadowDetailDistance - 15;
         if (want !== c.shadowDetail) setShadowDetail(c, want);
       }
     }
@@ -273,6 +275,12 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
     setNightFactor,
     update(_dt: number, g: Game) {
       if (!gRef) { gRef = g; initHulls(g); }
+      if (activeQuality !== g.quality) {
+        activeQuality = g.quality;
+        const distance = opts.lodDistance ?? (activeQuality === 'high' ? 130 : activeQuality === 'medium' ? 95 : 65);
+        const minimum = activeQuality === 'low' ? 35 : 55;
+        for (const c of chunks) for (const su of c.subs) su.dNear = nearDistance(su.tris0, distance, minimum);
+      }
       setLod(g.camera);
     },
   };

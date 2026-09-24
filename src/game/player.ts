@@ -13,6 +13,7 @@ import { clamp, damp, headingToDir, lerpAngle, playSound, groundY, v3, type Soun
 const RADIUS = 0.3;
 const HALF = 0.55; // capsule half-height (segment); total height = 2*(HALF+RADIUS) = 1.7
 const CENTER = HALF + RADIUS;
+const CROUCH_HALF = 0.3; // 1.2 m capsule; feet remain at the same height
 const GRAVITY = 22;
 const JUMP_V = 6.4;
 const SPEED = { walk: 1.45, jog: 3.6, sprint: 6.2, crouch: 1.25 };
@@ -50,6 +51,7 @@ export class Player implements PlayerAPI, System {
   private engineLoad = 0;
   private beepT = 0;
   private meleeT = 0;
+  private punchSide = false;
   private meleePending = -1;
   private lastDamage = 0;
   private walkToggle = false;
@@ -82,7 +84,7 @@ export class Player implements PlayerAPI, System {
     kcc.enableAutostep(0.42, 0.18, false);
     kcc.enableSnapToGround(0.45);
     kcc.setMaxSlopeClimbAngle((48 * Math.PI) / 180);
-    kcc.setMinSlopeSlideAngle((38 * Math.PI) / 180);
+    kcc.setMinSlopeSlideAngle((50 * Math.PI) / 180);
     kcc.setApplyImpulsesToDynamicBodies(true);
     kcc.setCharacterMass(80);
     kcc.setSlideEnabled(true);
@@ -104,10 +106,27 @@ export class Player implements PlayerAPI, System {
     return hit ? 300 - hit.timeOfImpact : fallback;
   }
 
+  /** Resize the capsule around its feet, and refuse to stand into a low ceiling. */
+  private setCrouching(on: boolean, force = false) {
+    if (on === this.crouching) return;
+    if (!on && !force) {
+      const R = this.g.rapier;
+      const hit = this.g.physics.intersectionWithShape(
+        this.body.translation(), this.body.rotation(), new R.Capsule(HALF, RADIUS),
+        R.QueryFilterFlags.EXCLUDE_SENSORS, undefined, this.collider, this.body,
+      );
+      if (hit) return;
+    }
+    this.crouching = on;
+    this.collider.setHalfHeight(on ? CROUCH_HALF : HALF);
+    this.collider.setTranslationWrtParent({ x: 0, y: on ? CROUCH_HALF - HALF : 0, z: 0 });
+  }
+
   // ------------------------------------------------------------------ API
   respawn(p: Vec2, heading = 0) {
     if (this.vehicleId) this.exitVehicle(true);
     this.enter = null;
+    this.setCrouching(false, true);
     const y = this.groundAt(p[0], p[1], this.position.y);
     this.body.setTranslation({ x: p[0], y: y + CENTER + 0.05, z: p[1] }, true);
     this.body.setNextKinematicTranslation({ x: p[0], y: y + CENTER + 0.05, z: p[1] });
@@ -118,6 +137,7 @@ export class Player implements PlayerAPI, System {
     this.health = 100;
     this.busy = false;
     this.pose = 'none';
+    this.meleePending = -1; this.meleeT = 0;
     if (this.camera) this.camera.yaw = heading;
   }
 
@@ -134,6 +154,7 @@ export class Player implements PlayerAPI, System {
   hurt(amount: number) {
     this.health = Math.max(0, this.health - amount);
     this.lastDamage = this.g.elapsed;
+    if (!this.vehicleId && amount > 1) this.character.playOnce('hit');
   }
 
   // ------------------------------------------------------------------ loop
@@ -156,10 +177,9 @@ export class Player implements PlayerAPI, System {
     const want = new THREE.Vector3().addScaledVector(f, fz).addScaledVector(r, fx);
     const has = want.lengthSq() > 0.01;
     if (has) want.normalize();
+    if (can && inp.consumePress('KeyC')) this.setCrouching(!this.crouching);
     this.sprinting = has && can && (inp.isDown('ShiftLeft') || inp.isDown('ShiftRight')) && !this.crouching;
-    if (can && inp.wasPressed('KeyC')) this.crouching = !this.crouching;
-    if (this.sprinting) this.crouching = false;
-    if (can && (inp.wasPressed('CapsLock') || inp.wasPressed('KeyX'))) this.walkToggle = !this.walkToggle;
+    if (can && (inp.consumePress('CapsLock') || inp.consumePress('KeyX'))) this.walkToggle = !this.walkToggle;
     const speed = this.crouching ? SPEED.crouch : this.sprinting ? SPEED.sprint : this.walkToggle ? SPEED.walk : SPEED.jog;
     want.multiplyScalar(has ? speed : 0);
     const accel = this.grounded ? (has ? 16 : 22) : 3.5;
@@ -168,11 +188,12 @@ export class Player implements PlayerAPI, System {
     if (dv.length() > maxDv) dv.setLength(maxDv);
     this.hvel.add(dv);
     // Jump (buffered + coyote time)
-    if (can && inp.wasPressed('Space')) this.jumpBuf = 0.15;
+    if (can && inp.consumePress('Space')) this.jumpBuf = 0.15;
     this.jumpBuf -= dt;
     this.coyote = this.grounded ? 0.12 : this.coyote - dt;
     if (this.jumpBuf > 0 && this.coyote > 0 && !this.crouching) {
       this.vy = JUMP_V; this.jumpBuf = 0; this.coyote = 0; this.grounded = false;
+      this.character.playOnce('jumpStart');
     }
     this.vy -= GRAVITY * dt;
     if (this.grounded && this.vy < -2) this.vy = -2;
@@ -185,10 +206,11 @@ export class Player implements PlayerAPI, System {
     const nx = t.x + mv.x, ny = t.y + mv.y, nz = t.z + mv.z;
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     if (this.grounded && this.vy < 0) {
+      if (!wasGrounded && this.vy < -3) this.character.playOnce('land');
       if (!wasGrounded && this.vy < -14) this.hurt((-this.vy - 14) * 6);
       this.vy = 0;
     }
-    if (mv.y > desired.y + 1e-3 && this.vy > 0 && Math.abs(mv.y) < 1e-4) this.vy = 0; // bonked head
+    if (this.vy > 0 && mv.y < desired.y - 1e-3) this.vy = 0; // bonked head
     // Actual horizontal velocity (for anims)
     const act = new THREE.Vector3(mv.x / dt, 0, mv.z / dt);
     if (act.length() < this.hvel.length() * 0.5 && has) this.hvel.lerp(act, 0.5); // pressing into a wall
@@ -214,11 +236,14 @@ export class Player implements PlayerAPI, System {
     if (this.vehicleId) this.vehicleAudio(dt);
     // Melee
     this.meleeT -= dt;
-    if (!this.vehicleId && !this.enter && can && inp.locked && inp.mouseWasPressed(0) && this.meleeT <= 0) {
+    if (!this.vehicleId && !this.enter && can && (inp.wasPressed('KeyG') || inp.locked && inp.mouseWasPressed(0)) && this.meleeT <= 0) {
       this.meleeT = 0.6;
       this.meleePending = 0.18;
-      this.character.playOnce(Math.random() < 0.5 ? 'punch' : 'jab');
+      this.punchSide = !this.punchSide;
+      this.face(this.camera?.yaw ?? this.heading);
+      this.character.playOnce(this.punchSide ? 'jab' : 'punch');
     }
+    if (!can || this.vehicleId || this.enter) this.meleePending = -1;
     if (this.meleePending > 0) {
       this.meleePending -= dt;
       if (this.meleePending <= 0) this.resolveMelee();
@@ -289,7 +314,7 @@ export class Player implements PlayerAPI, System {
     if (e.phase === 'approach') {
       const to = door.clone().sub(cur).setY(0);
       const d = to.length();
-      if (d < 0.35 || e.t > 1.1) { e.phase = 'door'; e.t = 0; playSound(this.g, 'door', { at: v3(door), volume: 0.7 }); }
+      if (d < 0.35 || e.t > 1.1) { e.phase = 'door'; e.t = 0; this.character.playOnce('enter'); playSound(this.g, 'door', { at: v3(door), volume: 0.7 }); }
       else {
         to.setLength(Math.min(d, SPEED.jog * dt));
         this.vy -= GRAVITY * dt;
@@ -305,7 +330,7 @@ export class Player implements PlayerAPI, System {
       // Face the car and "open the door", then get in.
       this.groundSpeed = damp(this.groundSpeed, 0, 10, dt);
       this.heading = lerpAngle(this.heading, v.heading + Math.PI / 2, 0.2);
-      if (e.t > 0.35) this.seat(v, e);
+      if (e.t > 0.65) this.seat(v, e);
     }
   }
 
@@ -327,7 +352,7 @@ export class Player implements PlayerAPI, System {
     v.body.wakeUp();
     this.vehicleId = v.id;
     this.collider.setEnabled(false);
-    this.crouching = false;
+    this.setCrouching(false, true);
     playSound(g, 'door', { at: v3(v.position), volume: 0.8, rate: 0.9 });
     g.events.emit('playerEnterVehicle', { vehicleId: v.id, stolen: true });
     this.engine = playSound(g, 'engine', { at: v3(v.position), loop: true, volume: 0.55, rate: 0.7 });
@@ -370,6 +395,7 @@ export class Player implements PlayerAPI, System {
     this.body.setNextKinematicTranslation({ x: out.x, y: out.y + CENTER + 0.05, z: out.z });
     this.position.copy(out);
     this.heading = v.heading - Math.PI / 2;
+    if (!force) this.character.playOnce('exit');
     this.hvel.set(0, 0, 0);
     const vs = v.velocity.clone().setY(0);
     if (vs.length() > 3) this.hvel.copy(vs).multiplyScalar(0.5);
@@ -409,7 +435,7 @@ export class Player implements PlayerAPI, System {
     c.brake = inp.isDown('KeyS') || inp.isDown('ArrowDown') ? 1 : 0;
     c.steer = (inp.isDown('KeyD') || inp.isDown('ArrowRight') ? 1 : 0) - (inp.isDown('KeyA') || inp.isDown('ArrowLeft') ? 1 : 0);
     c.handbrake = inp.isDown('Space');
-    if (inp.wasPressed('KeyR') && (v.object.up.clone().applyQuaternion(v.object.quaternion).y < 0.6 || Math.abs(v.speed) < 1)) v.flipUpright();
+    if (inp.consumePress('KeyR') && (v.object.up.clone().applyQuaternion(v.object.quaternion).y < 0.6 || Math.abs(v.speed) < 1)) v.flipUpright();
   }
 
   private vehicleAudio(dt: number) {

@@ -12,8 +12,8 @@ export class Nav {
     graph.nodes.forEach((n, i) => { this.grid.add(n.p[0], n.p[1], i); this.idToIdx.set(n.id, i); });
     this.adj = graph.nodes.map(() => []);
     for (const e of graph.edges) {
-      const a = this.idToIdx.get(e.from), b = this.idToIdx.get(e.to);
-      if (a === undefined || b === undefined) continue;
+      const a = e.from, b = e.to;
+      if (!graph.nodes[a] || !graph.nodes[b]) continue;
       const sp = Math.max(2, e.speed || 10);
       this.maxSpeed = Math.max(this.maxSpeed, sp);
       this.adj[a].push({ to: b, cost: (e.length || 1) / sp });

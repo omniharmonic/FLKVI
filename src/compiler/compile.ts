@@ -94,6 +94,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
     }
   })();
   const farP = (async () => {
+    if (farHalf <= 0) return null; // neighboring streamed tiles reuse the initial backdrop
     const fcell = 50;
     const z = zoomForCell(opt.lat, 30, 12);
     return buildHeightfield(proj, -farHalf, -farHalf, farHalf, farHalf, fcell, z, io.tiles, 1);
@@ -122,7 +123,8 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
 
   progress('Laying out streets', 0.42);
   const infos = buildRoads(data, ctx);
-  if (!infos.some((i) => i.drivable)) throw new Error('No streets are mapped here. Drop the pin on a town or city street, or pick a featured city.');
+  // Rural paths, parks and unmapped wilderness are valid exploration locations too.
+  // Empty road graphs are supported by the world and AI services.
   dropMedianSidewalks(infos);
   fillSidewalksToFacades(infos, raw, ctx);
   const gr = buildGraph(infos, data, ctx);
@@ -150,7 +152,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   const cameras = placeCameras(infos, gr, roadIdx, bld, areas, pr.signalPoles, ctx);
 
   progress('Choosing a spawn point', 0.95);
-  const spawn = chooseSpawn(infos, roadIdx, bld, cameras, heightAt);
+  const spawn = chooseSpawn(infos, roadIdx, bld, cameras, heightAt, areas);
 
   const roads = infos.map((i) => {
     const r = i.road;
@@ -186,7 +188,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-function chooseSpawn(infos: ReturnType<typeof buildRoads>, roads: RoadIndex, bld: ReturnType<typeof buildBuildings>, cams: RecipeCamera[], heightAt: (x: number, z: number) => number): Recipe['spawn'] {
+function chooseSpawn(infos: ReturnType<typeof buildRoads>, roads: RoadIndex, bld: ReturnType<typeof buildBuildings>, cams: RecipeCamera[], heightAt: (x: number, z: number) => number, areas: Recipe['areas']): Recipe['spawn'] {
   let best: { p: Vec2; h: number; score: number } | null = null;
   for (const inf of infos) {
     const r = inf.road;
@@ -211,7 +213,36 @@ function chooseSpawn(infos: ReturnType<typeof buildRoads>, roads: RoadIndex, bld
     }
   }
   const b = best as { p: Vec2; h: number } | null;
-  if (!b) return { p: [0, 0], y: r2(heightAt(0, 0)), heading: 0 };
+  if (!b) {
+    // Prefer a real trail or road shoulder when there are no urban sidewalks.
+    const candidates: { p: Vec2; h: number }[] = [];
+    for (const { road: r } of infos) {
+      if (r.tunnel || r.bridge || r.cls === 'motorway' || r.cls === 'trunk') continue;
+      walk(r.pts, 12, (p, _i, d) => {
+        const off = r.lanes > 0 ? r.width / 2 + 1.2 : 0;
+        candidates.push({ p: [p[0] - d[1] * off, p[1] + d[0] * off], h: headingOf(d[0], d[1]) });
+      }, 1);
+    }
+    // No mapped paths: sample outward for dry, reasonably level ground.
+    for (let radius = 0; radius <= 240; radius += 20) for (let a = 0; a < (radius ? 16 : 1); a++) {
+      candidates.push({ p: [Math.cos(a * Math.PI / 8) * radius, Math.sin(a * Math.PI / 8) * radius], h: 0 });
+    }
+    const water = areas.filter(a => a.kind === 'water');
+    const inside = (p: Vec2, ring: Vec2[]) => {
+      let yes = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) yes = !yes;
+      }
+      return yes;
+    };
+    const safe = candidates.find(({p}) => !insideBuilding(p[0], p[1], bld, 1)
+      && !water.some(a => inside(p, a.poly) && !a.holes?.some(h => inside(p, h)))
+      && Math.abs(heightAt(p[0] + 2, p[1]) - heightAt(p[0] - 2, p[1])) < 2
+      && Math.abs(heightAt(p[0], p[1] + 2) - heightAt(p[0], p[1] - 2)) < 2);
+    if (!safe) throw new Error('No safe dry ground near this pin. Choose a nearby shore, trail or road.');
+    return { p: safe.p.map(r2) as Vec2, y: r2(heightAt(...safe.p)), heading: safe.h };
+  }
   const h = ((b.h % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
   return { p: [r2(b.p[0]), r2(b.p[1])], y: r2(heightAt(b.p[0], b.p[1])), heading: +h.toFixed(3) };
 }

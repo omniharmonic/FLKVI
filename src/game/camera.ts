@@ -113,7 +113,10 @@ export class CameraRig implements System {
     const fwd = headingToDir(yaw);
     const dir = new THREE.Vector3(fwd.x * Math.cos(pitch), -Math.sin(pitch), fwd.z * Math.cos(pitch));
     const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
-    const origin = this.pivot.clone().addScaledVector(right, shoulder + this.sway);
+    const offset = shoulder + this.sway;
+    const shoulderDir = right.clone().multiplyScalar(Math.sign(offset) || 1);
+    const shoulderDist = Math.min(Math.abs(offset), this.castCamera(this.pivot, shoulderDir, Math.abs(offset), veh?.id ?? null));
+    const origin = this.pivot.clone().addScaledVector(shoulderDir, shoulderDist);
     // Collision: cast from pivot toward the desired camera spot.
     const want = this.dist;
     const hitD = this.castCamera(origin, dir.clone().negate(), want + 0.3, veh ? veh.id : null);
@@ -146,9 +149,10 @@ export class CameraRig implements System {
     const g = this.g;
     const R = g.rapier;
     if (!R || !g.physics) return max;
-    const ray = new R.Ray({ x: o.x, y: o.y, z: o.z }, { x: d.x, y: d.y, z: d.z });
     const own = this.player.collider;
-    const hit = g.physics.castRay(ray, max, true, undefined, undefined, undefined, undefined, (c) => {
+    // A ray protects only the centre pixel: the near plane still clips through corners.
+    const hit = g.physics.castShape(o, { x: 0, y: 0, z: 0, w: 1 }, d, new R.Ball(0.22), 0, max, true,
+      R.QueryFilterFlags.EXCLUDE_SENSORS, undefined, own, undefined, (c) => {
       if (c.handle === own.handle || c.isSensor()) return false;
       const v = this.vehicles.colliderMap.get(c.handle);
       if (v) return false; // cars never push the camera around
@@ -157,7 +161,7 @@ export class CameraRig implements System {
       return !b || b.isFixed();
     });
     void vehId;
-    return hit ? hit.timeOfImpact : max;
+    return hit ? hit.time_of_impact : max;
   }
 
   private groundAt(x: number, z: number) {

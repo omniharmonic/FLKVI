@@ -18,6 +18,8 @@ import { makeSkyUniforms, makeSkyMaterial, type SkyUniforms } from './skyShader'
 import { createPost, type PostChain } from './post';
 import { lookForRecipe, type LookPreset } from './grading';
 import { Rain } from './rain';
+import { settings, onSettingsChange } from '../ui/settings';
+import { setPeopleLodScale } from '../assets/characters';
 
 export { addGlobalUniforms };
 export const renderGlobals = globals;
@@ -47,6 +49,10 @@ function smoothstep(a: number, b: number, x: number) {
 function lum(c: THREE.Color) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
 
 interface TierCfg { pixelRatio: number; shadowMap: number; shadowFar: number; ao: boolean; aoHalf: boolean; aoMode: string; bloomScale: number; envSize: number; smaa: boolean }
+function resolutionScale() {
+  return Number.isFinite(settings.resScale) ? THREE.MathUtils.clamp(settings.resScale, 0.5, 1) : 1;
+}
+
 function tierConfig(q: Quality): TierCfg {
   const dpr = window.devicePixelRatio || 1;
   switch (q) {
@@ -69,6 +75,12 @@ class RenderSky implements SkyAPI {
   ssrAllowed = true;
 
   // weather
+  weather: 'clear' | 'overcast' | 'rain' | 'storm' | 'fog' = 'clear';
+  private weatherTimer = 240;
+  private autoWeather = true;
+  private cloudWeather = 0;
+  private fogWeather = 0;
+  get wetness() { return this.wet; }
   rainTarget = 0;
   rain = 0;
   wet = 0;
@@ -154,7 +166,7 @@ class RenderSky implements SkyAPI {
     this.hemi.name = 'night-fill';
     g.scene.add(this.hemi);
 
-    g.scene.add(this.rainFx.object);
+    g.scene.add(this.rainFx.object, this.rainFx.splashes);
     g.scene.fog = new THREE.FogExp2(0x8899aa, this.look.haze);
     g.scene.environmentIntensity = 1;
 
@@ -173,6 +185,10 @@ class RenderSky implements SkyAPI {
     } catch { /* storage blocked: treat as first load */ }
     if (q.has('rain')) this.rainTarget = q.get('rain') === '0' ? 0 : 1;
     else if (!firstLoad && Math.random() < Math.min(0.15, this.look.rainChance)) this.rainTarget = 1;
+    this.weather=this.rainTarget?'rain':'clear';
+    const weather=q.get('weather');
+    if(weather && ['clear','overcast','rain','storm','fog'].includes(weather))this.setWeather(weather as typeof this.weather);
+    if(q.has('rain'))this.autoWeather=false;
     this.rain = this.wet = this.rainTarget;
 
     this.updateCelestial();
@@ -236,11 +252,22 @@ class RenderSky implements SkyAPI {
     this.fogColor.lerp(this.fogColorT, k);
     this.fogSun.lerp(this.fogSunT, k);
 
+    if(this.autoWeather){
+      this.weatherTimer-=dt;
+      if(this.weatherTimer<=0){
+        const r=Math.random(),wet=Math.min(0.65,0.2+this.look.rainChance);
+        const next=r<wet*0.2?'storm':r<wet?'rain':r<wet+0.2?'overcast':r>0.95?'fog':'clear';
+        this.setWeather(next);this.autoWeather=true;this.weatherTimer=180+Math.random()*240;
+      }
+    }
+    const cloudTarget=this.weather==='clear'?0:this.weather==='fog'?0.45:this.weather==='overcast'?0.65:1;
+    this.cloudWeather+=(cloudTarget-this.cloudWeather)*(1-Math.exp(-dt/10));
+    this.fogWeather+=((this.weather==='fog'?1:0)-this.fogWeather)*(1-Math.exp(-dt/12));
     // weather smoothing: rain builds in ~6 s, surfaces soak in ~20 s and dry over ~90 s
     this.rain += (this.rainTarget - this.rain) * (1 - Math.exp(-dt / 6));
     const wetRate = this.rainTarget > this.wet ? 1 / 20 : 1 / 90;
     this.wet += (this.rainTarget - this.wet) * (1 - Math.exp(-dt * wetRate));
-    const overcast = smoothstep(0, 1, this.rain);
+    const overcast = Math.max(this.cloudWeather, smoothstep(0, 1, this.rain));
 
     // --- night factor
     this.nightFactor = smoothstep(4, -8, elDeg);
@@ -306,7 +333,7 @@ class RenderSky implements SkyAPI {
     const fogCol = _c2.copy(this.fogColor);
     if (overcast > 0) fogCol.lerp(_c.setScalar(lum(this.fogColor)), overcast * 0.6);
     fog.color.copy(fogCol);
-    fog.density = this.look.haze * (1 + overcast * 2.5);
+    fog.density = this.look.haze * (1 + overcast * 2.5) + this.fogWeather * 0.009;
     globals.fogHeight.set(this.look.heightFog * (1 + overcast * 2), this.look.heightFalloff, this.baseHeight(), 1);
     globals.sunDir.set(sunDir.x, sunDir.y, sunDir.z);
     globals.fogSun.set(this.fogSun.r * dim, this.fogSun.g * dim, this.fogSun.b * dim);
@@ -317,7 +344,7 @@ class RenderSky implements SkyAPI {
     // --- night fill (sky + city bounce)
     // dusk fill: lifts street-level shadows while the low sun only reaches rooftops
     const dusk = smoothstep(16, 1, elDeg) * smoothstep(-8, -1, elDeg);
-    this.hemi.intensity = this.nightFactor * 0.26 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor) + dusk * 0.6;
+    this.hemi.intensity = 0.12 * (1 - this.nightFactor) + this.nightFactor * 0.26 * this.look.cityGlow + overcast * 0.25 * (1 - this.nightFactor) + dusk * 0.6;
     this.hemi.color.setRGB(0.38, 0.45, 0.62);
     this.hemi.groundColor.setRGB(0.42, 0.3, 0.2);
 
@@ -343,7 +370,7 @@ class RenderSky implements SkyAPI {
 
     // --- rain particles follow the camera
     const amb = _c.copy(this.fogColor).multiplyScalar(this.exposure).addScalar(0.02 * this.nightFactor);
-    this.rainFx.update(dt, g.camera.position, this.rain, amb);
+    this.rainFx.update(dt, g.camera.position, this.rain, amb, g.world?.coverAt?.bind(g.world), this.weather==='storm'?2:1);
   }
 
   /**
@@ -444,12 +471,15 @@ class RenderSky implements SkyAPI {
     if (this.g.scene.environment !== this.pmremRT.texture) this.g.scene.environment = this.pmremRT.texture;
   }
 
-  setRain(on: boolean) {
-    this.rainTarget = on ? 1 : 0;
+  setWeather(weather: 'clear' | 'overcast' | 'rain' | 'storm' | 'fog') {
+    this.weather=weather;this.autoWeather=false;
+    this.rainTarget=weather==='storm'?1:weather==='rain'?0.65:0;
   }
+  setRain(on: boolean) { this.setWeather(on?'rain':'clear'); }
   toggleRain() {
-    this.setRain(this.rainTarget < 0.5);
-    this.g.events.emit('toast', { text: this.rainTarget ? 'Rain rolling in' : 'Skies clearing', kind: 'info', ms: 1500 });
+    const states: typeof this.weather[]=['clear','overcast','rain','storm','fog'];
+    this.setWeather(states[(states.indexOf(this.weather)+1)%states.length]);
+    this.g.events.emit('toast', { text: `Weather: ${this.weather}`, kind: 'info', ms: 1500 });
   }
 }
 
@@ -460,7 +490,7 @@ class RenderSky implements SkyAPI {
  * clamped and time-scaled) and only once the frame has been hitch-free for WARM seconds, so startup work
  * (shader compiles, tree/texture streaming) never counts.
  */
-interface Bench { done: boolean; steps: number; last: number; calm: number; samples: number[]; cooldown: number }
+interface Bench { done: boolean; warming: number; steps: number; last: number; calm: number; samples: number[]; cooldown: number }
 const BENCH_WARM = 5;        // s of hitch-free frames before sampling starts
 const BENCH_HITCH = 0.1;     // s: a frame this long is a hitch and restarts the warm-up (before sampling)
 const BENCH_WINDOW = 3;      // s of samples per verdict
@@ -513,7 +543,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   const stored = readStoredQuality();
   if (stored) g.quality = stored;
   const cfg = tierConfig(g.quality);
-  renderer.setPixelRatio(cfg.pixelRatio);
+  renderer.setPixelRatio(cfg.pixelRatio * resolutionScale());
 
   const size = () => ({ w: g.container.clientWidth || innerWidth, h: g.container.clientHeight || innerHeight });
   const { w, h } = size();
@@ -524,7 +554,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   const post = createPost(renderer, g.scene, g.camera, w, h);
   const sky = new RenderSky(g, post);
   g.sky = sky;
-  const state: RenderState = { post, sky, bench: { done: !!stored, steps: 0, last: 0, calm: 0, samples: [], cooldown: 0 } };
+  const state: RenderState = { post, sky, bench: { done: !!stored, warming: 0, steps: 0, last: 0, calm: 0, samples: [], cooldown: 0 } };
   STATE.set(g, state);
   applyQuality(g, g.quality);
 
@@ -535,6 +565,14 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
     g.camera.aspect = s.w / s.h;
     g.camera.updateProjectionMatrix();
   };
+  let lastResolutionScale = resolutionScale();
+  onSettingsChange(() => {
+    const scale = resolutionScale();
+    if (scale === lastResolutionScale) return;
+    lastResolutionScale = scale;
+    renderer.setPixelRatio(tierConfig(g.quality).pixelRatio * scale);
+    onResize();
+  });
   addEventListener('resize', onResize);
   new ResizeObserver(onResize).observe(g.container);
   onResize();
@@ -575,9 +613,12 @@ function autoBenchmark(g: Game, _dt: number) {
   if (b.cooldown > 0) { b.cooldown -= real; return; }
   if (!b.samples.length) {
     // warm-up: wait for WARM seconds without a hitch (shader compiles, streaming, tab switches)
-    if (real > BENCH_HITCH) { b.calm = 0; return; }
-    b.calm += real;
-    if (b.calm < BENCH_WARM) return;
+    // A consistently slow GPU must not wait forever for five hitch-free seconds.
+    // Ignore tab/OS suspensions, but start measuring after a bounded startup window.
+    if (real > 1) { b.calm = 0; b.warming = 0; return; }
+    b.warming += real;
+    b.calm = real > BENCH_HITCH ? 0 : b.calm + real;
+    if (b.calm < BENCH_WARM && b.warming < 12) return;
   }
   b.samples.push(real);
   let span = 0;
@@ -593,6 +634,7 @@ function autoBenchmark(g: Game, _dt: number) {
     console.info(`[render] auto quality: median ${(1000 * median).toFixed(1)} ms/frame -> ${order[idx + 1]}`);
     b.steps++;
     b.calm = 0;
+    b.warming = 0;
     b.cooldown = BENCH_COOLDOWN - BENCH_WARM - BENCH_WINDOW;
   } else {
     if (b.steps === 0) console.info(`[render] auto quality: median ${(1000 * median).toFixed(1)} ms/frame, keeping ${g.quality}`);
@@ -606,7 +648,7 @@ function applyQuality(g: Game, q: Quality) {
   if (!st) return;
   const cfg = tierConfig(q);
   const { post, sky } = st;
-  g.renderer.setPixelRatio(cfg.pixelRatio);
+  g.renderer.setPixelRatio(cfg.pixelRatio * resolutionScale());
   const w = g.container.clientWidth || innerWidth;
   const h = g.container.clientHeight || innerHeight;
   g.renderer.setSize(w, h, false);
@@ -618,6 +660,7 @@ function applyQuality(g: Game, q: Quality) {
   }
   post.bloom.resolution.scale = cfg.bloomScale;
   post.smaa.edgeDetectionMaterial.edgeDetectionThreshold = q === 'low' ? 0.15 : 0.08;
+  setPeopleLodScale(q === 'high' ? 1 : q === 'medium' ? 0.8 : 0.6);
   sky.applyShadowTier(q);
   sky.ssrAllowed = q !== 'low';
 }

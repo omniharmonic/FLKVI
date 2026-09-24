@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import type { Recipe, Terrain, RecipeArea } from '../core/types';
 import { surface, NOISE_GLSL } from './materials';
+import { streamedTerrainBounds } from './stream-uniforms';
 
 export class Heightfield {
   h: Float32Array;
@@ -482,7 +483,17 @@ export function buildFarTerrain(far: Terrain, near: Heightfield): THREE.Mesh {
         diffuseColor.rgb *= mix(vec3(1.05, 1.0, 0.9), vec3(0.9, 1.0, 1.04), n3);
       #endif`);
   };
-  mat.customProgramCacheKey = () => 'farTerrain2';
+  const patch = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, renderer) => {
+    patch(sh, renderer);
+    sh.uniforms.gtDistricts = streamedTerrainBounds;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 gtWorldXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\ngtWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 gtWorldXZ; uniform vec4 gtDistricts[5];')
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for(int i=0;i<5;i++){vec4 b=gtDistricts[i];if(gtWorldXZ.x>=b.x && gtWorldXZ.y>=b.y && gtWorldXZ.x<=b.z && gtWorldXZ.y<=b.w)discard;}`);
+  };
+  mat.customProgramCacheKey = () => 'farTerrain-stream-v1';
   mat.name = 'farTerrain';
   const m = new THREE.Mesh(g, mat);
   m.name = 'farTerrain';

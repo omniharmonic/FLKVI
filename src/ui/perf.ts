@@ -3,26 +3,6 @@ import type { Game } from '../core/game';
 import { h, uiRoot } from './dom';
 import { settings, saveSettings, onSettingsChange } from './settings';
 
-/** Keeps renderer pixel ratio = (tier pixel ratio chosen by src/render) × settings.resScale. */
-export function setupResScale(g: Game): () => void {
-  let base = 0; let lastSet = -1;
-  const apply = () => {
-    const r = g.renderer; if (!r) return;
-    const cur = r.getPixelRatio();
-    if (Math.abs(cur - lastSet) > 1e-4) base = cur; // render changed it (quality tier / auto bench)
-    const scale = Math.min(1, Math.max(0.5, settings.resScale || 1));
-    const want = base * scale;
-    if (Math.abs(cur - want) > 1e-4) {
-      r.setPixelRatio(want); lastSet = want;
-      dispatchEvent(new Event('resize')); // render's resize handler resizes the composer
-    } else lastSet = cur;
-  };
-  g.addSystem({ name: 'ui-resscale', order: 1000, update: () => apply() });
-  onSettingsChange(apply);
-  apply();
-  return apply;
-}
-
 export function setupFpsOverlay(g: Game): void {
   const fps = h('b', {}, '—'); const ms = h('span', {}, ''); const dc = h('span', {}, ''); const tri = h('span', {}, '');
   const el = h('div', { class: 'gt-fps gt-passthrough', 'aria-hidden': 'true' }, fps, h('i', {}, 'FPS'), ms, dc, tri);

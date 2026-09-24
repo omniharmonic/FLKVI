@@ -94,7 +94,7 @@ export class GrainEffect extends Effect {
     super('GrainEffect', GRAIN_FRAG, {
       blendFunction: BlendFunction.SRC,
       uniforms: new Map<string, THREE.Uniform>([
-        ['amount', new THREE.Uniform(0.06)],
+        ['amount', new THREE.Uniform(0.02)],
         ['seed', new THREE.Uniform(0)],
       ]),
     });
@@ -232,9 +232,9 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
 
   const ao = new N8AOPostPass(scene, camera, w, h);
   // contact-level AO: tight radius so corners/curbs/under-awnings darken without dirty halos
-  ao.configuration.aoRadius = 1.4;
+  ao.configuration.aoRadius = 0.9;
   ao.configuration.distanceFalloff = 0.8;
-  ao.configuration.intensity = 1.6;
+  ao.configuration.intensity = 1.2;
   ao.configuration.color = new THREE.Color(0.03, 0.035, 0.05);
   ao.configuration.gammaCorrection = false;
   ao.configuration.halfRes = false;
@@ -264,7 +264,7 @@ export function createPost(renderer: THREE.WebGLRenderer, scene: THREE.Scene, ca
   const exposure = new ExposureEffect();
   const tone = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL });
   const grade = new GradeEffect();
-  const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.42 });
+  const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.24 });
   const mainPass = new EffectPass(camera, bloom, exposure, tone, grade, vignette);
   composer.addPass(mainPass);
 

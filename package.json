@@ -21,7 +21,12 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "compile:city": "node --experimental-strip-types tools/compile-city.ts",
-    "check:licenses": "node --experimental-strip-types tools/check-licenses.ts"
+    "check:licenses": "node --experimental-strip-types tools/check-licenses.ts",
+    "test:ai": "node --experimental-strip-types src/ai/tests/sim.test.ts",
+    "test:browser": "bash tools/check-game.sh",
+    "test:world": "bash tools/check-world.sh",
+    "test:deep": "node --experimental-strip-types tools/deep-regressions.ts",
+    "test:integration": "bash tools/check-deep.sh"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",

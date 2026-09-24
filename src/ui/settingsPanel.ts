@@ -43,6 +43,7 @@ export function settingsRows(g: Game | null): HTMLElement[] {
   rows.push(slider('Field of view', 50, 90, 1, settings.fov ?? 62, (v) => `${v.toFixed(0)}°`, (v) => saveSettings({ fov: v })));
   rows.push(opts('Show FPS (F3)', ['off', 'on'], settings.showFps ? 'on' : 'off', (v) => saveSettings({ showFps: v === 'on' })));
   if (g) {
+    rows.push(opts('Weather', ['clear','overcast','rain','storm','fog'], g.sky?.weather??'clear', v=>g.sky?.setWeather?.(v as NonNullable<typeof g.sky.weather>)));
     const skyTime = (() => { try { return g.sky?.time ?? 12; } catch { return 12; } })();
     rows.push(slider('Time of day', 0, 23.75, 0.25, skyTime, (v) => `${String(Math.floor(v) % 24).padStart(2, '0')}:${String(Math.round((v % 1) * 60)).padStart(2, '0')}`, (v) => { try { if (g.sky) g.sky.time = v; } catch { /* */ } }));
   }

@@ -3,6 +3,7 @@
 // Depth of field is not offered: src/render has no DOF pass.
 import * as THREE from 'three';
 import type { Game } from '../core/game';
+import type { VehicleSystem } from '../game/vehicles/manager';
 import { h, uiRoot } from './dom';
 import { renderAndGrab, canvasBlob, downloadBlob, fileStamp } from './perf';
 import { settings } from './settings';
@@ -71,7 +72,7 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(relock
     const b = await canvasBlob(c, 'image/png');
     if (!b) return;
     const city = (g.recipe?.name ?? 'city').split(/[,—-]/)[0].trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadBlob(b, `groundtruth-${city}-${fileStamp()}.png`);
+    downloadBlob(b, `flk-vi-${city}-${fileStamp()}.png`);
   }
 
   const onKeyDown = (ev: KeyboardEvent) => {
@@ -139,6 +140,9 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(relock
       for (const s of ((g as any).systems ?? []) as { name: string; update?: (dt: number, g: unknown) => void }[]) {
         if (VIEW_SYSTEMS.has(s.name)) s.update?.(dt, g);
       }
+      const vehicles = g.vehicles as VehicleSystem | undefined;
+      vehicles?.parking.refresh(cam.position, false, cam);
+      vehicles?.lateUpdate(0); // rebuild view-dependent batches without advancing the simulation
     } catch (err) { console.warn('[photo] view update', err); }
   };
 

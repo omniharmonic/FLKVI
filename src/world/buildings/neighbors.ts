@@ -5,10 +5,14 @@ import type { RecipeBuilding, Vec2 } from '../../core/types';
 const CELL = 24;
 interface Entry { b: RecipeBuilding; minX: number; maxX: number; minZ: number; maxZ: number; y0: number; y1: number }
 let grid: Map<string, Entry[]> | null = null;
+const indices = new WeakMap<RecipeBuilding[], Map<string, Entry[]>>();
 
 /** (Re)build the index for a recipe's buildings. Call once before generating facades. */
 export function setBuildingIndex(buildings: RecipeBuilding[] | undefined) {
+  const cached = buildings && indices.get(buildings);
+  if (cached) { grid = cached; return; }
   grid = new Map();
+  if (buildings) indices.set(buildings, grid);
   for (const b of buildings ?? []) {
     const fp = b.footprint;
     if (!fp || fp.length < 3 || !(b.height > 2)) continue;
