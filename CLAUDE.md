@@ -40,7 +40,7 @@ Several agents work in this tree **at the same time**. Don't run `npm install` (
 - **Do NOT start your own vite server.** One shared dev server runs at **http://127.0.0.1:5200** (the lead keeps it up; it hot-reloads everyone's edits). If it's down, tell the lead in your report rather than starting others; you may start it yourself only with `PORT=5200 npx vite --strictPort` if nothing is listening on 5200.
 - **Never run `agent-browser` directly.** Always go through the lock script, which allows ONE headless Chromium machine-wide, caps a session at 240 s, and always closes the browser:
   `tools/browser.sh 'agent-browser open "http://127.0.0.1:5200/?autostart"; sleep 25; agent-browser screenshot /path/to/scratch/shot.png'`
-  The lead monitors Chromium counts; a second browser is a violation. Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. Software WebGL is slow — judge visuals, not fps.
+  The lead monitors Chromium counts; a second browser is a violation. Batch what you need (several screenshots / evals) into one call, keep sessions short, and don't loop screenshotting. The test browser now uses the real GPU (Apple M4 via ANGLE/Metal), so fps and ms/frame numbers are meaningful.
 - **Never** `pkill`/`killall` by name; only kill PIDs you started. No long-running background processes left behind when you finish.
 - Keep your scratch scripts and screenshots in your OWN subfolder of the scratchpad (e.g. `<scratchpad>/<your-role>/`); other agents share the scratchpad and generic names like `shoot.sh` get overwritten.
 - Heavy Node jobs (baking cities, texture conversion) one at a time. Prefer Boulder for browser tests (lightest city); memory on this host is tight.

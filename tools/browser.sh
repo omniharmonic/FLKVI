@@ -13,7 +13,8 @@ while ! mkdir "$LOCK" 2>/dev/null; do
 done
 export AGENT_BROWSER_SESSION=gt-shared
 # Cap test-browser memory so a heavy city load cannot starve the host.
-export AGENT_BROWSER_ARGS="--js-flags=--max-old-space-size=1536,--renderer-process-limit=2,--disable-gpu-shader-disk-cache"
+# Real GPU (ANGLE/Metal) instead of SwiftShader: realistic perf numbers and far less host CPU load.
+export AGENT_BROWSER_ARGS="--use-gl=angle,--use-angle=metal,--enable-gpu,--ignore-gpu-blocklist,--js-flags=--max-old-space-size=1536,--renderer-process-limit=2"
 cleanup() { agent-browser close >/dev/null 2>&1; rmdir "$LOCK" 2>/dev/null; }
 trap cleanup EXIT INT TERM
 agent-browser set viewport 1024 576 >/dev/null 2>&1
