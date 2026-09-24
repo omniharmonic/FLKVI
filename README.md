@@ -8,7 +8,7 @@ terrain, plus an inferred network of surveillance cameras. Your job is to take t
 (spray them, bag them, or cut the poles) and build the longest streak you can before the police
 catch up with you.
 
-![Pearl Street, Boulder, Colorado, at dusk](docs/screenshot.jpg)
+![Pearl Street Mall, Boulder, Colorado, at golden hour](docs/screenshot.jpg)
 
 **Play:** <https://omniharmonic.github.io/groundtruth/>
 

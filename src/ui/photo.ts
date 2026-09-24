@@ -8,6 +8,9 @@ import { renderAndGrab, canvasBlob, downloadBlob, fileStamp } from './perf';
 import { settings } from './settings';
 import { sfx } from '../audio/sfx';
 
+/** Systems whose update is pure view-dependent culling/LOD (safe to run while the sim is paused). */
+const VIEW_SYSTEMS = new Set(['world', 'render-shadow-distance', 'render-instanced-shadow-lod']);
+
 export interface PhotoMode { readonly isOpen: boolean; open(): void; close(relock?: boolean): void }
 
 export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(relock: boolean): void }): PhotoMode {
@@ -130,6 +133,13 @@ export function createPhotoMode(g: Game, hooks: { onOpen(): void; onClose(relock
     cam.quaternion.setFromEuler(e);
     if (Math.abs(cam.fov - fov) > 1e-3) { cam.fov = fov; cam.updateProjectionMatrix(); }
     cam.updateMatrixWorld();
+    // The sim is paused, but view-dependent culling/LOD (trees, building detail, terrain, shadow LODs) runs in
+    // system updates: keep those following the free camera, or flying away shows missing trees / flat facades.
+    try {
+      for (const s of ((g as any).systems ?? []) as { name: string; update?: (dt: number, g: unknown) => void }[]) {
+        if (VIEW_SYSTEMS.has(s.name)) s.update?.(dt, g);
+      }
+    } catch (err) { console.warn('[photo] view update', err); }
   };
 
   function openMode() {
