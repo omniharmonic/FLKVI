@@ -6,6 +6,8 @@ import type { RecipeBuilding } from '../core/types';
 import type { Heightfield } from './terrain';
 import type { PropCollider, PropBox } from './props';
 import { triangulate } from './util';
+import { foundationBottom, type Prism } from './foundations';
+import type { WallBox } from './retaining';
 
 /** Collision membership bits. Terrain + buildings = STATIC (used for line of sight); poles/trees/furniture = PROPS. */
 export const GROUP_STATIC = 0x0001;
@@ -76,7 +78,9 @@ export function buildBuildingColliders(g: Game, buildings: RecipeBuilding[], chu
     const cx = fp.reduce((s, p) => s + p[0], 0) / fp.length, cz = fp.reduce((s, p) => s + p[1], 0) / fp.length;
     const key = `${Math.floor(cx / chunk)},${Math.floor(cz / chunk)}`;
     let bin = bins.get(key); if (!bin) bins.set(key, (bin = { v: [], i: [] }));
-    const y0 = b.baseY + (b.minHeight ?? 0) - (b.minHeight ? 0 : 1.5);
+    let y0 = b.baseY + (b.minHeight ?? 0) - (b.minHeight ? 0 : 1.5);
+    const fb = foundationBottom.get(b);
+    if (fb !== undefined) y0 = Math.min(y0, fb); // plinth down to the low side of a sloping site
     const y1 = b.baseY + b.height + (b.roofHeight || 0) * 0.55;
     const base = bin.v.length / 3;
     const n = fp.length;
@@ -94,6 +98,28 @@ export function buildBuildingColliders(g: Game, buildings: RecipeBuilding[], chu
     const desc = R.ColliderDesc.trimesh(new Float32Array(bin.v), new Uint32Array(bin.i), R.TriMeshFlags.FIX_INTERNAL_EDGES);
     desc.setCollisionGroups(groups(GROUP_STATIC));
     W.createCollider(desc, body);
+  }
+}
+
+/** Retaining walls (oriented boxes) and landmark plinth prisms as static colliders. */
+export function buildWallColliders(g: Game, walls: WallBox[], prisms: Prism[]) {
+  const R = g.rapier, W = g.physics;
+  if (!walls.length && !prisms.length) return;
+  const body = W.createRigidBody(R.RigidBodyDesc.fixed());
+  const gs = groups(GROUP_STATIC);
+  for (const w of walls) {
+    const dx = w.bx - w.ax, dz = w.bz - w.az, L = Math.hypot(dx, dz);
+    if (L < 0.05 || !(w.y1 > w.y0)) continue;
+    const a = -Math.atan2(dz, dx);
+    const q = { x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) };
+    W.createCollider(R.ColliderDesc.cuboid(L / 2 + 0.05, (w.y1 - w.y0) / 2, Math.max(0.1, w.t / 2)).setTranslation((w.ax + w.bx) / 2, (w.y0 + w.y1) / 2, (w.az + w.bz) / 2).setRotation(q).setCollisionGroups(gs), body);
+  }
+  for (const p of prisms) {
+    const n = p.ring.length, v: number[] = [], idx: number[] = [];
+    for (const q of p.ring) v.push(q[0], p.y0, q[1]);
+    for (const q of p.ring) v.push(q[0], p.y1, q[1]);
+    for (let k = 0; k < n; k++) { const a = k, c = (k + 1) % n; idx.push(a, c, n + c, a, n + c, n + a); }
+    W.createCollider(R.ColliderDesc.trimesh(new Float32Array(v), new Uint32Array(idx)).setCollisionGroups(gs), body);
   }
 }
 

@@ -9,6 +9,7 @@ import type { Game } from '../../core/game';
 import type { Progress } from '../../core/location';
 import type { Recipe, RecipeBuilding } from '../../core/types';
 import { generateBuilding } from './building';
+import { setBuildingIndex } from './neighbors';
 import { newBuckets, newLod0Buckets, newFarBuckets, type Buckets } from './facade';
 import { surfaceMaterial, glassMaterial, signMaterial, setNight, refreshSigns, prepareBuildingTextures, U } from './materials';
 import { centroid } from './poly';
@@ -97,6 +98,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
   const signM = signMaterial();
   const texMs = performance.now() - tTex;
 
+  setBuildingIndex(recipe.buildings); // party-wall detection for the facade grammar
   // bucket buildings by chunk (centroid), then by quarter inside the chunk
   const byChunk = new Map<string, { i: number; j: number; cx: number; cz: number; list: RecipeBuilding[]; y: number }>();
   const quarterOf = new Map<RecipeBuilding, number>();

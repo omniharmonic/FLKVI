@@ -7,7 +7,9 @@ import { layer, relTint, signSlot } from './materials';
 import type { Style } from './kits';
 import { signWord } from './kits';
 import { shopCategory } from './shopGlsl';
-import { wallLantern, wallPack, plaque, downLens, ghostSign, storefrontClutter, sidewalkY } from './streetDetail';
+import { wallLantern, wallPack, plaque, downLens, storefrontClutter, sidewalkY } from './streetDetail';
+import { blankWallDressing } from './blankwall';
+import { abuttedAt, type Abutment } from './neighbors';
 
 export interface Buckets {
   /** surface buckets: [lod0 detail, lod1 far, common] */
@@ -409,7 +411,15 @@ function lintel(c: BCtx, f: Frame, o: Op) {
 // ---------------------------------------------------------------------------------------------
 // Edge facade
 // ---------------------------------------------------------------------------------------------
-export interface EdgeInfo { a: Vec2; b: Vec2; L: number; f: Frame; street: boolean; front: boolean; rear: boolean; i: number }
+export interface EdgeInfo {
+  a: Vec2; b: Vec2; L: number; f: Frame; street: boolean; front: boolean; rear: boolean; i: number;
+  /** fraction of the edge with a neighboring building within ~2 m outside it (undefined = unknown, e.g. courtyards) */
+  abut?: number;
+  /** lowest roof top (world y) among the abutting neighbors; the wall above it is exposed */
+  abutTop?: number;
+  /** full abutment result (per-position mask) */
+  abutInfo?: Abutment;
+}
 
 /** Plain wall rect in common bucket (identical at both LODs). */
 function plainWall(c: BCtx, f: Frame, s0: number, s1: number, y0: number, y1: number, id: string, color: THREE.Color, d = 0) {
@@ -443,7 +453,13 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
 
   const tooShort = L < 1.4;
   let hasWin = true;
-  if (!e.street && st.blankSides) hasWin = e.rear ? r() < 0.85 : r() < st.sideWindows;
+  if (e.abut !== undefined) {
+    // party walls (a neighbor within ~2 m outside) are blank — lot-line walls can't have openings; walls
+    // facing a street or an open lot/yard/parking get windows. Partly abutted walls drop just the bays in
+    // front of the neighbor (below). (One rng draw kept so styles stay stable.)
+    r();
+    if (!e.street && e.abut >= 0.85) hasWin = false;
+  } else if (!e.street && st.blankSides) hasWin = e.rear ? r() < 0.85 : r() < st.sideWindows;
   if (tooShort) hasWin = false;
 
   const margin = st.cornerPiers ? 0.7 : 0.55;
@@ -485,6 +501,7 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
         } else if (w.pattern !== 'blank') {
           for (let i = 0; i < nb; i++) {
             const cx = margin + (i + 0.5) * bay;
+            if (!e.street && e.abutInfo?.mask && (abuttedAt(e.abutInfo, L, cx - bay * 0.3) || abuttedAt(e.abutInfo, L, cx + bay * 0.3))) continue;
             const balc = balcCols.has(i) && fl.k > 0;
             const sd = nextSeed();
             for (let g = 0; g < w.group; g++) {
@@ -514,10 +531,23 @@ export function facadeEdge(c: BCtx, e: EdgeInfo) {
     }
     // podium/modern accent panels: vertical accent strip panels on upper floors
     if (st.accentTex && c.floors.length > 1 && L > 8) accentPanels(c, e, nb, bay, margin);
-    // faded painted advertising on blank side walls of old brick buildings
-    if (!hasWin && !c.ghostDone && !c.isPart && wallId.startsWith('brick') && (b.era === 'pre-1900' || b.era === '1900-1939') && (b.seed % 5) < 3 && L > 6) {
-      ghostSign(c, surf, f, L, (c.streakTop ?? c.top) - 0.7, b.seed >>> 2);
-      c.ghostDone = true;
+    // blank walls: rain streaks, patched brick, pipes, roof ladder, ghost sign or mural
+    if (!hasWin && !e.street) blankWallDressing(c, surf, e);
+    else if (!e.street && e.abutInfo?.mask) {
+      // partly abutted wall: dress the longest blank run in front of the neighbor (exposed above its roof)
+      const m = e.abutInfo.mask, n = m.length, step = (L - 0.8) / n;
+      let best0 = -1, best1 = -1;
+      for (let k = 0; k < n; k++) {
+        if (!m[k]) continue;
+        let j = k; while (j + 1 < n && m[j + 1]) j++;
+        if (j - k > best1 - best0) { best0 = k; best1 = j; }
+        k = j;
+      }
+      const sA = best0 === 0 ? 0 : 0.4 + best0 * step + step * 0.5, sB = best1 === n - 1 ? L : 0.4 + (best1 + 0.5) * step;
+      if (best0 >= 0 && sB - sA >= 5) {
+        const sf = new Frame(f.ox + f.tx * sA, f.oz + f.tz * sA, f.tx, f.tz, f.u0 + sA);
+        blankWallDressing(c, surf, { ...e, f: sf, L: sB - sA });
+      }
     }
   }
 

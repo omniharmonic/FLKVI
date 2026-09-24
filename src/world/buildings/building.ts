@@ -7,6 +7,7 @@ import { resolveStyle } from './kits';
 import { facadeEdge, surf, plainWall, type BCtx, type Buckets, type EdgeInfo, type Floor } from './facade';
 import { buildRoof, rooftopProps, chimney } from './roofs';
 import { cleanRing, signedArea, outwardNormal, ringArea, centroid } from './poly';
+import { edgeAbutment } from './neighbors';
 
 const C = (h: string) => new THREE.Color(h);
 
@@ -83,7 +84,10 @@ export function generateBuilding(B: Buckets, b: RecipeBuilding, region: Region):
     const f = Frame.fromEdge(a, q, u0);
     const nn = outwardNormal(a, q);
     const dot = nn[0] * fN[0] + nn[1] * fN[1];
-    const e: EdgeInfo = { a, b: q, L, f, street: streetSet.has(i), front: i === frontEdge, rear: !streetSet.has(i) && dot < -0.7, i };
+    const street = streetSet.has(i);
+    // party wall? (another building within ~2 m outside this edge); street edges are never party walls
+    const ab = street ? { cover: 0, top: -Infinity } : edgeAbutment(b, a, q, nn, base, top);
+    const e: EdgeInfo = { a, b: q, L, f, street, front: i === frontEdge, rear: !street && dot < -0.7, i, abut: ab.cover, abutTop: ab.top, abutInfo: ab };
     facadeEdge(c, e);
     u0 += L;
   }

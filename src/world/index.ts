@@ -17,9 +17,11 @@ import { PropSystem } from './props';
 import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
 import { buildUnderstory, paintPlantingBeds } from './understory';
-import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, makeLos } from './physics';
+import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, buildWallColliders, makeLos } from './physics';
 import { Nav } from './nav';
 import { resolveLandmarks, buildLandmarks, type LandmarksResult } from './landmarks';
+import { buildRetainingWalls, type WallBox } from './retaining';
+import { settleFoundations, type Prism } from './foundations';
 import { releaseAfterUpload, uploadNow } from '../render/memory';
 import { registerShadowDistance, registerInstancedShadowLod, registerShadowProxy, setShadowCascades } from '../render/shadowProxy';
 
@@ -44,11 +46,12 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // ---- ground data
   P('Shaping terrain', 0.16);
   await yieldFrame();
-  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving']);
+  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving', 'stone']);
   const hf = makeFineHeightfield(recipe.terrain);
+  const h0 = hf.h.slice();
   const roads = new RoadNetwork(recipe);
   roads.analyze();
-  roads.flattenTerrain(hf);
+  const flat = roads.flattenTerrain(hf);
 
   // building footprint index (placement checks)
   const bGrid = new Grid<number>(50);
@@ -63,13 +66,31 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     return hit;
   };
 
+  // hand-built landmarks replace some OSM buildings and keep their plazas clear (src/world/landmarks)
+  const lm = resolveLandmarks(recipe);
+
   P('Paving streets', 0.22);
   await yieldFrame();
   const B = new ChunkBatcher(320); // perf: bigger chunks = fewer draw calls (ground tris are cheap)
+  // retaining walls where a street's grade leaves the ground beside it (undo the smeared flatten blend there)
+  let wallBoxes: WallBox[] = [];
+  const legacyGround = new URLSearchParams(location.search).has('legacyground'); // TEMP before/after
+  if (!legacyGround) try {
+    const rw = buildRetainingWalls(roads, hf, h0, flat, inBuilding, B);
+    wallBoxes = rw.boxes;
+    console.info(`[world] retaining walls: ${rw.walls} runs, ${rw.length.toFixed(0)} m`);
+  } catch (e) { console.warn('[world] retaining walls failed', e); }
   const waterGroup = new THREE.Group(); waterGroup.name = 'water';
   buildAreas(recipe, B, hf, roads, waterGroup, inBuilding); // also carves water beds into hf
   const crosswalks = recipe.props.filter((p) => p.type === 'crosswalk').map((p) => p.p);
   roads.build(B, hf, crosswalks);
+  // seat buildings / landmarks on the rendered ground (street-frontage level) with plinths where it falls away
+  let prisms: Prism[] = [];
+  if (!legacyGround) try {
+    const fd = settleFoundations(recipe, hf, roads, lm, B);
+    prisms = fd.prisms;
+    console.info(`[world] foundations: ${fd.moved} re-seated, ${fd.plinths} plinths (max ${fd.maxLift.toFixed(1)} m at ${fd.worst})`);
+  } catch (e) { console.warn('[world] foundations failed', e); }
 
   const mats: Record<string, THREE.Material> = {
     asphalt: surfaceMaterial('asphalt', { tint: new THREE.Color(2.1, 2.08, 2.05), roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 26, antiTile: true, tintVar: new THREE.Color(1.25, 1.24, 1.22), tintAmt: 0.5 } }),
@@ -80,6 +101,9 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     gravel: surfaceMaterial('gravel', { polygonOffset: -1, patch: { macro: 0.12 } }),
     paving: surfaceMaterial('paving', { polygonOffset: -2, patch: { macro: 0.1, antiTile: true } }),
     bridgeRail: new THREE.MeshStandardMaterial({ color: 0x5a5f63, metalness: 0.6, roughness: 0.5, side: THREE.DoubleSide }),
+    retainWall: surfaceMaterial('concrete', { tint: new THREE.Color(1.5, 1.47, 1.4), roughness: 1, patch: { macro: 0.14, macroScale: 5, antiTile: true, tintVar: new THREE.Color(0.78, 0.77, 0.72), tintAmt: 0.5 } }),
+    plinthConc: surfaceMaterial('concrete', { tint: new THREE.Color(1.55, 1.52, 1.45), roughness: 1, patch: { macro: 0.1, macroScale: 4, antiTile: true } }),
+    plinthStone: surfaceMaterial('stone', { tint: new THREE.Color(0.86, 0.84, 0.8), roughness: 1, patch: { macro: 0.12, macroScale: 6 } }),
   };
   const wear = markingWearTexture().clone();
   wear.repeat.set(1 / 4, 1 / 4); wear.needsUpdate = true;
@@ -90,7 +114,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   mats.marking.name = 'marking';
 
   const roadGroup = new THREE.Group(); roadGroup.name = 'roads';
-  const roadMeshes = B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true }, renderOrder: { marking: 1 } });
+  const roadMeshes = B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true, retainWall: true, plinthConc: true, plinthStone: true }, renderOrder: { marking: 1 } });
   // perf: curb shadows only near the camera; bridge rails a bit further
   for (const m of roadMeshes) if (m.castShadow) registerShadowDistance(g, m, m.name.startsWith('curb') ? 70 : 200);
   root.add(roadGroup, waterGroup);
@@ -144,6 +168,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   let externalNight = false;
   g.world = api;
   (api as any).roads = roads; // debug
+  (api as any).walls = wallBoxes; // debug
 
   // ---- props
   P('Placing street furniture', 0.36);
@@ -158,9 +183,6 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     registerInstancedShadowLod(g, im, im.geometry.boundingSphere!.radius > 2 ? 130 : 55);
   }
   (api as any).signalMasts = props.masts; // surveillance mounts signal-mast clusters on these
-
-  // hand-built landmarks replace some OSM buildings and keep their plazas clear (src/world/landmarks)
-  const lm = resolveLandmarks(recipe);
 
   // ---- trees (+ shrubs from props)
   P('Planting trees', 0.45);
@@ -257,6 +279,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       buildBuildingColliders(g, lm.skip.size ? recipe.buildings.filter((b) => !lm.skip.has(b.id)) : recipe.buildings);
       buildPropColliders(g, props.colliders, trees.trunks);
       buildMeshColliders(g, roadMeshes.filter((m) => /^(sidewalk|curb)\|/.test(m.name)));
+      buildWallColliders(g, wallBoxes, prisms);
       los = makeLos(g);
     } catch (e) { console.error('[world] physics failed', e); }
   }

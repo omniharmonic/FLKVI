@@ -365,7 +365,7 @@ class RenderSky implements SkyAPI {
       m!.addEventListener('removed', () => { mat.userData.gtFarInScene = false; });
     }
     const k = smoothstep(0, 1, n);
-    this.farMat.color.setRGB(1 + (0.2 - 1) * k, 1 + (0.25 - 1) * k, 1 + (0.46 - 1) * k);
+    this.farMat.color.setRGB(1 + (0.24 - 1) * k, 1 + (0.33 - 1) * k, 1 + (0.72 - 1) * k);
   }
 
   private baseHeight() {

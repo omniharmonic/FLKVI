@@ -36,7 +36,7 @@ export const LAYER_IDS = [
   'roof-asphalt-shingle', 'roof-clay-tile', 'roof-standing-seam', 'roof-slate', 'roof-membrane', 'roof-gravel',
   'paint', 'fabric', 'metal', 'concrete-plain', 'wood-planks', 'dark', 'trim-stone',
   // overlays / atlases (canvas-generated): faded painted wall signs (alpha = paint), address plaques
-  'ghost', 'plaque',
+  'ghost', 'plaque', 'mural',
 ] as const;
 export type LayerId = (typeof LAYER_IDS)[number];
 
@@ -48,13 +48,13 @@ const GRIME: Partial<Record<LayerId, number>> = {
 };
 /** Corrections for library tile sizes that measure wrong against their brick/shingle modules. */
 const SIZE_FIX: Record<string, number> = { 'brick-tan': 1.35, 'roof-asphalt-shingle': 5.0 };
-const NO_LIB = new Set(['trim-stone', 'paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain', 'ghost', 'plaque']);
+const NO_LIB = new Set(['trim-stone', 'paint', 'fabric', 'metal', 'dark', 'concrete-plain', 'glass-curtain', 'ghost', 'plaque', 'mural']);
 /** Normal-map strength per layer (mortar joints / stone relief read at street level). */
 const NRM: Partial<Record<LayerId, number>> = {
   'brick-red': 1.7, 'brick-brown': 1.7, 'brick-tan': 1.6, 'brick-painted': 1.4, stone: 1.5, sandstone: 1.5, 'trim-stone': 1.2,
   stucco: 1.3, adobe: 1.3, 'lap-siding': 1.3, 'board-batten': 1.3, 'wood-shingle': 1.3,
 };
-/** Index offset in aLayer marking a painted-sign overlay quad (base layer + OVERLAY). */
+/** Index offset in aLayer marking a painted-sign overlay quad (base layer + OVERLAY); + 2 * OVERLAY = mural. */
 export const OVERLAY = 64;
 
 const GHOST_TEXTS = [
@@ -87,6 +87,95 @@ function ghostCanvas(R: number): HTMLCanvasElement {
     const n = 0.55 + 0.45 * rnd();
     const k = f < 0.18 ? 0.15 : n * (0.7 + 0.3 * f);
     d.data[i + 3] = Math.round(d.data[i + 3] * k * 0.8);
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+/**
+ * Mural atlas: 2x2 cells of generic, non-branded community murals (landscape, geometric, botanical, waves),
+ * alpha = paint coverage with soft ragged borders and age flaking. Drawn once at load (CPU canvas).
+ */
+function muralCanvas(R: number): HTMLCanvasElement {
+  const c = document.createElement('canvas'); c.width = c.height = R;
+  const x = c.getContext('2d', { willReadFrequently: true })!;
+  const S = R / 2;
+  let s = 97531;
+  const rnd = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 4294967296);
+  const cell = (i: number, j: number, draw: () => void) => {
+    x.save(); x.beginPath(); x.rect(i * S, j * S, S, S); x.clip(); x.translate(i * S, j * S); draw(); x.restore();
+  };
+  const grad = (y0: number, y1: number, stops: string[]) => {
+    const g = x.createLinearGradient(0, y0, 0, y1); stops.forEach((st, k) => g.addColorStop(k / (stops.length - 1), st)); return g;
+  };
+  const ridge = (base: number, amp: number, fq: number, ph: number, fill: string) => {
+    x.fillStyle = fill; x.beginPath(); x.moveTo(0, S);
+    for (let px = 0; px <= S; px += 4) x.lineTo(px, base - amp * (0.6 * Math.sin(px * fq + ph) + 0.4 * Math.sin(px * fq * 2.7 + ph * 1.9)));
+    x.lineTo(S, S); x.closePath(); x.fill();
+  };
+  // 0: mountain landscape at sunset
+  cell(0, 0, () => {
+    x.fillStyle = grad(0, S * 0.7, ['#2f4f7a', '#e0795a', '#f4c26b']); x.fillRect(0, 0, S, S);
+    x.fillStyle = '#fbe3a1'; x.beginPath(); x.arc(S * 0.66, S * 0.48, S * 0.11, 0, Math.PI * 2); x.fill();
+    ridge(S * 0.55, S * 0.12, 0.035, 0.4, '#6a4f7d');
+    ridge(S * 0.66, S * 0.09, 0.05, 2.1, '#3f4f6e');
+    ridge(S * 0.8, S * 0.05, 0.03, 1.2, '#2f5a45');
+    x.fillStyle = '#1f3d2e';
+    for (let k = 0; k < 14; k++) { const tx = rnd() * S, th = S * (0.08 + rnd() * 0.08), ty = S * 0.86 + rnd() * S * 0.05; x.beginPath(); x.moveTo(tx, ty - th); x.lineTo(tx - th * 0.3, ty); x.lineTo(tx + th * 0.3, ty); x.fill(); }
+    x.fillStyle = '#c9a15a'; x.fillRect(0, S * 0.92, S, S * 0.08);
+  });
+  // 1: mid-century geometric: overlapping circles and bands
+  cell(1, 0, () => {
+    x.fillStyle = '#efe6d2'; x.fillRect(0, 0, S, S);
+    const cols = ['#d9583b', '#2a6f97', '#f2b134', '#3c8d6e', '#1d2b3a'];
+    for (let k = 0; k < 5; k++) { x.fillStyle = cols[k]; x.fillRect(0, S * (0.12 + k * 0.17), S, S * 0.07); }
+    x.globalAlpha = 0.92;
+    for (let k = 0; k < 7; k++) { x.fillStyle = cols[k % 5]; x.beginPath(); x.arc(S * (0.12 + rnd() * 0.76), S * (0.15 + rnd() * 0.7), S * (0.07 + rnd() * 0.14), 0, Math.PI * 2); x.fill(); }
+    x.globalAlpha = 1;
+    x.strokeStyle = '#1d2b3a'; x.lineWidth = 5;
+    x.beginPath(); x.moveTo(S * 0.05, S * 0.9); x.lineTo(S * 0.5, S * 0.2); x.lineTo(S * 0.95, S * 0.9); x.stroke();
+  });
+  // 2: botanical: big leaves and blossoms on teal
+  cell(0, 1, () => {
+    x.fillStyle = '#1f6f6b'; x.fillRect(0, 0, S, S);
+    for (let k = 0; k < 16; k++) {
+      const lx = rnd() * S, ly = rnd() * S, a = rnd() * Math.PI * 2, L = S * (0.14 + rnd() * 0.16);
+      x.save(); x.translate(lx, ly); x.rotate(a);
+      x.fillStyle = ['#8fc46a', '#4f9a55', '#c7e08a', '#2f7a4b'][k % 4];
+      x.beginPath(); x.moveTo(0, 0); x.quadraticCurveTo(L * 0.5, -L * 0.32, L, 0); x.quadraticCurveTo(L * 0.5, L * 0.32, 0, 0); x.fill();
+      x.strokeStyle = 'rgba(20,50,30,0.5)'; x.lineWidth = 1.5; x.beginPath(); x.moveTo(0, 0); x.lineTo(L * 0.95, 0); x.stroke();
+      x.restore();
+    }
+    for (let k = 0; k < 6; k++) {
+      const fx = rnd() * S, fy = rnd() * S, r0 = S * (0.04 + rnd() * 0.04);
+      x.fillStyle = ['#f28c6b', '#f5d06a', '#e9e1f4'][k % 3];
+      for (let p = 0; p < 6; p++) { const a = p / 6 * Math.PI * 2; x.beginPath(); x.ellipse(fx + Math.cos(a) * r0, fy + Math.sin(a) * r0, r0 * 0.8, r0 * 0.45, a, 0, Math.PI * 2); x.fill(); }
+      x.fillStyle = '#7a3b2a'; x.beginPath(); x.arc(fx, fy, r0 * 0.45, 0, Math.PI * 2); x.fill();
+    }
+  });
+  // 3: river / waves with birds
+  cell(1, 1, () => {
+    x.fillStyle = grad(0, S, ['#9fd0e0', '#2c6f9a', '#153a5c']); x.fillRect(0, 0, S, S);
+    for (let k = 0; k < 7; k++) {
+      x.strokeStyle = ['#e8f4f2', '#7cc0d0', '#f2c572'][k % 3]; x.lineWidth = 6 + (k % 3) * 3;
+      x.beginPath();
+      for (let px = -10; px <= S + 10; px += 6) { const py = S * (0.35 + k * 0.09) + Math.sin(px * 0.045 + k) * S * 0.035; if (px < -5) x.moveTo(px, py); else x.lineTo(px, py); }
+      x.stroke();
+    }
+    x.strokeStyle = '#1b2530'; x.lineWidth = 3;
+    for (let k = 0; k < 9; k++) { const bx = S * (0.1 + rnd() * 0.8), by = S * (0.06 + rnd() * 0.22), bw = S * (0.025 + rnd() * 0.03); x.beginPath(); x.moveTo(bx - bw, by - bw * 0.4); x.quadraticCurveTo(bx - bw * 0.4, by - bw * 0.6, bx, by); x.quadraticCurveTo(bx + bw * 0.4, by - bw * 0.6, bx + bw, by - bw * 0.4); x.stroke(); }
+  });
+  // paint coverage: ragged border fade + flaking with age
+  const d = x.getImageData(0, 0, R, R);
+  const flake = new Float32Array((R / 4) * (R / 4)).map(() => rnd());
+  for (let py = 0; py < R; py++) for (let px = 0; px < R; px++) {
+    const i = (py * R + px) * 4;
+    const u = (px % S) / S, v = (py % S) / S;
+    const edge = Math.min(u, 1 - u, v, 1 - v) * S;
+    const rag = 3 + 4 * flake[((py >> 2) * (R / 4) + (px >> 2))];
+    let a = Math.max(0, Math.min(1, (edge - 1) / rag));
+    const f = flake[((py >> 2) * (R / 4) + (px >> 2))];
+    if (f < 0.07) a *= 0.25; else a *= 0.9 + 0.1 * rnd();
+    d.data[i + 3] = Math.round(a * 255);
   }
   x.putImageData(d, 0, 0);
   return c;
@@ -173,8 +262,8 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
         if (!n) { const pt = procTexture(id); n = pt.nrm; dn = pt.nrmData ?? null; }
       }
     }
-    if (id === 'ghost' || id === 'plaque') {
-      a = id === 'ghost' ? ghostCanvas(R) : plaqueCanvas(R); n = flatNormal(R); da = dn = null; sizeM = 1; rgh = id === 'ghost' ? 0.9 : 0.45; mtl = 0;
+    if (id === 'ghost' || id === 'plaque' || id === 'mural') {
+      a = id === 'ghost' ? ghostCanvas(R) : id === 'mural' ? muralCanvas(R) : plaqueCanvas(R); n = flatNormal(R); da = dn = null; sizeM = 1; rgh = id === 'plaque' ? 0.45 : 0.9; mtl = 0;
     }
     if (!a) {
       const pt = procTexture(id);
@@ -263,12 +352,22 @@ varying vec3 vBWPos;
 varying vec3 vBWN;
 ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
-  int bL = vLayer >= ${OVERLAY} ? vLayer - ${OVERLAY} : vLayer;
+  int bOv = vLayer / ${OVERLAY};
+  int bL = vLayer - bOv * ${OVERLAY};
   vec4 bTex = texture(uAlbArr, vec3(vMapUv / uLScale[bL], float(bL)));
-  if (vLayer >= ${OVERLAY}) { // faded painted sign over the wall texture
+  if (bOv == 1) { // faded painted sign over the wall texture
     vec4 gp = texture(uAlbArr, vec3(vWx.zw, ${LAYER_IDS.indexOf('ghost')}.0));
     float lum = dot(bTex.rgb, vec3(0.3, 0.55, 0.15));
     bTex.rgb = mix(bTex.rgb, gp.rgb * (0.45 + 1.3 * lum), gp.a * 0.62);
+  } else if (bOv == 2) { // mural: paint over the masonry (wall tint divided out so the palette survives)
+    vec4 mp = texture(uAlbArr, vec3(vWx.zw, ${LAYER_IDS.indexOf('mural')}.0));
+    float lum = dot(bTex.rgb, vec3(0.3, 0.55, 0.15));
+    #ifdef USE_COLOR
+      vec3 bTint = max(vColor.rgb, vec3(0.05));
+    #else
+      vec3 bTint = vec3(1.0);
+    #endif
+    bTex.rgb = mix(bTex.rgb, mp.rgb * (0.7 + 0.75 * lum) / bTint, mp.a * 0.88);
   }
   diffuseColor.rgb *= bTex.rgb;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -295,7 +394,7 @@ ${NOISE_GLSL}`)
       .replace('texture2D( normalMap, vNormalMapUv )', 'texture(uNrmArr, vec3(vNormalMapUv / uLScale[bL], float(bL)))')
       .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * uLNrm[bL];');
   };
-  m.customProgramCacheKey = () => 'bldg-surface-v2';
+  m.customProgramCacheKey = () => 'bldg-surface-v3';
   surfaceMat = m;
   return m;
 }
