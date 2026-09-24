@@ -81,7 +81,12 @@ export class Game {
     requestAnimationFrame(loop);
   }
 
+  /** Optional per-phase CPU profiler (enabled by `?prof`): ms accumulated per key since last reset. */
+  prof: Record<string, number> | null = new URLSearchParams(location.search).has('prof') ? {} : null;
+
   private frame() {
+    const P = this.prof;
+    if (P) return this.frameProf(P);
     const dt = Math.min(this.clock.getDelta(), 0.1) * this.timeScale;
     if (!this.paused) {
       this.elapsed += dt;
@@ -99,5 +104,35 @@ export class Game {
     }
     this.input.endFrame();
     this.renderFrame(dt);
+  }
+
+  private frameProf(P: Record<string, number>) {
+    const now = () => performance.now();
+    const add = (k: string, t0: number) => { const t = now(); P[k] = (P[k] ?? 0) + t - t0; return t; };
+    const f0 = now();
+    const dt = Math.min(this.clock.getDelta(), 0.1) * this.timeScale;
+    P.frames = (P.frames ?? 0) + 1;
+    if (!this.paused) {
+      this.elapsed += dt;
+      this.acc += dt;
+      let steps = 0;
+      while (this.acc >= Game.FIXED_DT && steps < 4) {
+        for (const s of this.systems) if (s.fixedUpdate) { const t = now(); s.fixedUpdate(Game.FIXED_DT, this); add('fixed:' + s.name, t); }
+        let t = now();
+        this.physics?.step();
+        add('physics', t);
+        this.acc -= Game.FIXED_DT;
+        steps++;
+      }
+      P.steps = (P.steps ?? 0) + steps;
+      if (steps === 4) this.acc = 0;
+      for (const s of this.systems) if (s.update) { const t = now(); s.update(dt, this); add('update:' + s.name, t); }
+      for (const s of this.systems) if (s.lateUpdate) { const t = now(); s.lateUpdate(dt, this); add('late:' + s.name, t); }
+    }
+    this.input.endFrame();
+    const t = now();
+    this.renderFrame(dt);
+    add('render', t);
+    add('total', f0);
   }
 }

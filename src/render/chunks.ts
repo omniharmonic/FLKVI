@@ -122,6 +122,18 @@ export function patchShaderChunks() {
   SC.fog_fragment = FOG_FRAGMENT;
   SC.lights_physical_pars_fragment = WET_PARS + SC.lights_physical_pars_fragment;
   SC.lights_physical_fragment = WET_APPLY + SC.lights_physical_fragment;
+  // perf: the scene keeps ~20 pooled spot/point lights (streetlights, headlights, sirens, searchlights) in the
+  // scene permanently so toggling them never recompiles shaders - but three evaluates the full BRDF for every
+  // one of them on every fragment, even at intensity 0 or out of range (this was the single largest GPU cost:
+  // ~8 ms/frame on an M4 at 1024x576). Skip RE_Direct for invisible point/spot lights; zero-color lights add
+  // exactly nothing, so the image is unchanged.
+  const lfb = SC.lights_fragment_begin;
+  const cut = lfb.indexOf('#if ( NUM_SUN_LIGHTS > 0 )');
+  if (cut > 0) {
+    const RE = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+    const head = lfb.slice(0, cut).split(RE).join('if ( directLight.visible ) ' + RE);
+    SC.lights_fragment_begin = head + lfb.slice(cut);
+  }
 
   const lib = THREE.ShaderLib as unknown as Record<string, { uniforms: Record<string, THREE.IUniform> }>;
   for (const key of Object.keys(lib)) {

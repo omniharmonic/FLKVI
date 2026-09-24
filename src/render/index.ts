@@ -455,10 +455,22 @@ class RenderSky implements SkyAPI {
 
 // ------------------------------------------------------------------------------------------------
 
+/**
+ * Auto-quality benchmark state. Frame times are measured with performance.now() (not the game dt, which is
+ * clamped and time-scaled) and only once the frame has been hitch-free for WARM seconds, so startup work
+ * (shader compiles, tree/texture streaming) never counts.
+ */
+interface Bench { done: boolean; steps: number; last: number; calm: number; samples: number[]; cooldown: number }
+const BENCH_WARM = 5;        // s of hitch-free frames before sampling starts
+const BENCH_HITCH = 0.1;     // s: a frame this long is a hitch and restarts the warm-up (before sampling)
+const BENCH_WINDOW = 3;      // s of samples per verdict
+const BENCH_SLOW = 0.022;    // s: median frame time above this steps quality down one tier
+const BENCH_COOLDOWN = 10;   // s between steps (then re-measure)
+
 interface RenderState {
   post: PostChain;
   sky: RenderSky;
-  bench: { t: number; frames: number; sum: number; done: boolean; steps: number };
+  bench: Bench;
 }
 const STATE = new WeakMap<Game, RenderState>();
 
@@ -512,7 +524,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   const post = createPost(renderer, g.scene, g.camera, w, h);
   const sky = new RenderSky(g, post);
   g.sky = sky;
-  const state: RenderState = { post, sky, bench: { t: 0, frames: 0, sum: 0, done: !!stored, steps: 0 } };
+  const state: RenderState = { post, sky, bench: { done: !!stored, steps: 0, last: 0, calm: 0, samples: [], cooldown: 0 } };
   STATE.set(g, state);
   applyQuality(g, g.quality);
 
@@ -552,23 +564,38 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   (window as any).__render = { sky, post, setQuality: (q: Quality) => setQuality(g, q) };
 }
 
-function autoBenchmark(g: Game, dt: number) {
+function autoBenchmark(g: Game, _dt: number) {
   const st = STATE.get(g);
   if (!st || st.bench.done) return;
   const b = st.bench;
-  b.t += dt;
-  if (b.t < 0.75) return; // skip warm-up (shader compiles)
-  b.frames++;
-  b.sum += dt;
-  if (b.t < 2.75) return;
-  const avg = b.sum / Math.max(1, b.frames);
+  const now = performance.now() / 1000;
+  const real = b.last ? now - b.last : 0;
+  b.last = now;
+  if (!real || document.hidden) return;
+  if (b.cooldown > 0) { b.cooldown -= real; return; }
+  if (!b.samples.length) {
+    // warm-up: wait for WARM seconds without a hitch (shader compiles, streaming, tab switches)
+    if (real > BENCH_HITCH) { b.calm = 0; return; }
+    b.calm += real;
+    if (b.calm < BENCH_WARM) return;
+  }
+  b.samples.push(real);
+  let span = 0;
+  for (const v of b.samples) span += v;
+  if (span < BENCH_WINDOW) return;
+  const sorted = b.samples.slice().sort((x, y) => x - y);
+  const median = sorted[sorted.length >> 1];
+  b.samples.length = 0;
   const order: Quality[] = ['high', 'medium', 'low'];
   const idx = order.indexOf(g.quality);
-  if (avg > 1 / 42 && idx < 2 && b.steps < 2) {
+  if (median > BENCH_SLOW && idx < 2 && b.steps < 2) {
     applyQuality(g, order[idx + 1]);
-    console.info(`[render] auto quality: ${(1000 * avg).toFixed(1)} ms/frame -> ${order[idx + 1]}`);
-    b.t = 0; b.frames = 0; b.sum = 0; b.steps++;
+    console.info(`[render] auto quality: median ${(1000 * median).toFixed(1)} ms/frame -> ${order[idx + 1]}`);
+    b.steps++;
+    b.calm = 0;
+    b.cooldown = BENCH_COOLDOWN - BENCH_WARM - BENCH_WINDOW;
   } else {
+    if (b.steps === 0) console.info(`[render] auto quality: median ${(1000 * median).toFixed(1)} ms/frame, keeping ${g.quality}`);
     b.done = true;
   }
 }
