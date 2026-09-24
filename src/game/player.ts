@@ -379,16 +379,24 @@ export class Player implements PlayerAPI, System {
     g.events.emit('playerExitVehicle', { vehicleId: id });
   }
 
+  // No Rapier world scene queries here: they panic when a collider was removed since the last step
+  // (parked-car promotion, AI despawns). Static + live-vehicle colliders go through the vehicles'
+  // OverlapChecker; parked-slot colliders (which it skips) are tested one by one.
   private spotFree(p: THREE.Vector3) {
-    const R = this.g.rapier;
+    const R = this.g.rapier, W = this.g.physics;
+    const center = { x: p.x, y: p.y + CENTER + 0.12, z: p.z };
+    const self = (c: RAPIER_NS.Collider) => c.handle === this.collider.handle;
+    if (this.vehicles.overlap.boxHits({ x: RADIUS, y: HALF + RADIUS, z: RADIUS }, center, 0, self)) return false;
     const shape = new R.Capsule(HALF, RADIUS);
-    let blocked = false;
-    this.g.physics.intersectionsWithShape({ x: p.x, y: p.y + CENTER + 0.12, z: p.z }, { x: 0, y: 0, z: 0, w: 1 }, shape, (c) => {
-      if (c.handle === this.collider.handle || c.isSensor()) return true;
-      blocked = true;
-      return false;
-    });
-    return !blocked;
+    const rot = { x: 0, y: 0, z: 0, w: 1 };
+    for (const [handle] of this.vehicles.parking.colliderToSlot) {
+      const c = W.getCollider(handle);
+      if (!c || c.isSensor()) continue;
+      const t = c.translation();
+      if (Math.abs(t.x - p.x) > 6 || Math.abs(t.z - p.z) > 6) continue;
+      if (c.intersectsShape(shape, center, rot)) return false;
+    }
+    return true;
   }
 
   private driveInput(_dt: number, can: boolean) {
@@ -444,18 +452,20 @@ export class Player implements PlayerAPI, System {
     const c = this.position.clone().addScaledVector(f, 0.75).setY(this.position.y + 1.1);
     g.events.emit('playerMelee', { p: [this.position.x, this.position.z], dir: [f.x, f.z], range: 1.3 });
     let hitSomething = false;
-    g.physics.intersectionsWithShape({ x: c.x, y: c.y, z: c.z }, { x: 0, y: 0, z: 0, w: 1 }, new R.Ball(0.55), (col) => {
-      if (col.handle === this.collider.handle || col.isSensor()) return true;
+    // Per-collider shape test instead of a world scene query (those panic after collider removals).
+    const ball = new R.Ball(0.55), at = { x: c.x, y: c.y, z: c.z }, rot = { x: 0, y: 0, z: 0, w: 1 };
+    let hitCar = false;
+    g.physics.colliders.forEach((col) => {
+      if (col.handle === this.collider.handle || col.isSensor()) return;
       const b = col.parent();
-      if (!b || b.isFixed()) return true;
-      if (this.vehicles.colliderMap.has(col.handle)) {
-        playSound(g, 'crash', { at: v3(c), volume: 0.15, rate: 1.6 });
-        return true;
-      }
+      if (!b || b.isFixed()) return;
+      const t = col.translation();
+      if (Math.abs(t.x - c.x) > 5 || Math.abs(t.z - c.z) > 5 || !col.intersectsShape(ball, at, rot)) return;
+      if (this.vehicles.colliderMap.has(col.handle)) { hitCar = true; return; }
       hitSomething = true;
       if (b.isDynamic()) b.applyImpulse({ x: f.x * 120, y: 40, z: f.z * 120 }, true);
-      return true;
     });
+    if (hitCar) playSound(g, 'crash', { at: v3(c), volume: 0.15, rate: 1.6 });
     if (hitSomething) {
       g.events.emit('crime', { kind: 'assault', p: [this.position.x, this.position.z], severity: 2 });
       g.events.emit('noise', { p: [this.position.x, this.position.z], radius: 12, kind: 'fight' });

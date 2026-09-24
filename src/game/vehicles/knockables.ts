@@ -98,10 +98,14 @@ export class Knockables {
     for (const im of list) { im.setMatrixAt(it.i, ZERO); im.instanceMatrix.needsUpdate = true; }
     // Remove the prop's static collider (fixed cylinder under the prop's axis).
     const kill: RAPIER_NS.Collider[] = [];
-    g.physics.intersectionsWithPoint({ x: it.x, y: it.y + Math.min(0.5, info.h / 2), z: it.z }, (c) => {
+    // Direct scan, not a world scene query: two knocks in one frame would otherwise query after a
+    // removal and panic Rapier. The prop's cylinder is centred on its axis.
+    g.physics.colliders.forEach((c) => {
+      if (c.shapeType() !== R.ShapeType.Cylinder) return;
       const b = c.parent();
-      if (b && b.isFixed() && c.shapeType() === R.ShapeType.Cylinder) kill.push(c);
-      return true;
+      if (!b || !b.isFixed()) return;
+      const t = c.translation();
+      if (Math.abs(t.x - it.x) < 0.35 && Math.abs(t.z - it.z) < 0.35 && t.y > it.y - 0.5 && t.y < it.y + info.h + 0.5) kill.push(c);
     });
     for (const c of kill) g.physics.removeCollider(c, false);
     // Dynamic copy.

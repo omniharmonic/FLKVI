@@ -18,7 +18,13 @@ export class OverlapChecker {
   private q = new THREE.Quaternion();
   private yAxis = new THREE.Vector3(0, 1, 0);
 
-  constructor(private g: Game, private skip: (c: RAPIER_NS.Collider) => boolean, private dynamic: () => RAPIER_NS.Collider[]) {}
+  /**
+   * @param skip colliders never tested (parked-slot colliders, characters…)
+   * @param dynamic moving colliders to test too (live vehicles)
+   * @param signature cheap number that changes when static colliders are added/removed (triggers a rebuild)
+   */
+  constructor(private g: Game, private skip: (c: RAPIER_NS.Collider) => boolean, private dynamic: () => RAPIER_NS.Collider[], private signature: () => number) {}
+  private sig = NaN;
 
   private key(ix: number, iz: number) { return (ix + 4096) * 8192 + (iz + 4096); }
 
@@ -40,11 +46,12 @@ export class OverlapChecker {
       l.push(c.handle);
     });
     this.builtAt = this.g.elapsed;
+    this.sig = this.signature();
   }
 
   /** True if an oriented box (half extents h, centre p, yaw heading) overlaps any solid collider. */
   boxHits(h: { x: number; y: number; z: number }, p: { x: number; y: number; z: number }, heading: number, extraSkip?: (c: RAPIER_NS.Collider) => boolean): boolean {
-    if (this.g.elapsed - this.builtAt > 20) this.build();
+    if (this.g.elapsed - this.builtAt > 20 || this.signature() !== this.sig) this.build();
     const W = this.g.physics, R = this.g.rapier;
     const shape = new R.Cuboid(h.x, h.y, h.z);
     this.q.setFromAxisAngle(this.yAxis, -heading);

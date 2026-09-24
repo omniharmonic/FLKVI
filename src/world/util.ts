@@ -247,7 +247,7 @@ export const yieldFrame = (): Promise<void> => {
   const now = performance.now();
   if (typeof MessageChannel === 'undefined' || now - lastPaintYield > 120) {
     lastPaintYield = now;
-    return new Promise<void>((r) => setTimeout(() => { const d = performance.now() - now; if (d > 50) ((globalThis as any).__gtY ??= []).push([Math.round(now), Math.round(d)]); r(); }, 0));
+    return new Promise<void>((r) => setTimeout(r, 0));
   }
   if (!mc) {
     mc = new MessageChannel();

@@ -31,7 +31,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const times: string[] = [];
   let tl = performance.now(), lastStage = 'init';
   const P = (s: string, f: number) => {
-    if (s !== lastStage) { const f0 = performance.now(); try { const gl = g.renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); } catch { /* */ } const n = performance.now(); times.push(`${lastStage} ${(n - tl).toFixed(0)} (gpu ${(n - f0).toFixed(0)})`); tl = n; lastStage = s; }
+    if (s !== lastStage) { const n = performance.now(); times.push(`${lastStage} ${(n - tl).toFixed(0)}`); tl = n; lastStage = s; }
     onProgress(s, Math.max(0, Math.min(1, f)));
   };
   P('Loading materials', 0);

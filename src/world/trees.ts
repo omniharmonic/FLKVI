@@ -495,6 +495,7 @@ export class TreeSystem {
   constructor() { this.group.name = 'trees'; }
 
   async build(trees: RecipeTree[], renderer: THREE.WebGLRenderer | undefined, onProgress?: (f: number) => void) {
+    if (location.search.includes('nobake')) renderer = undefined; // TEMP experiment
     this.trees = trees;
     this.renderer = renderer;
     // profiles used (rare profiles fold into their fallback to keep draw calls bounded)
@@ -561,11 +562,7 @@ export class TreeSystem {
     this.nearCount = new Array(this.plan.length).fill(0);
     this.midCount = new Array(this.plan.length).fill(0);
     this.buildImpostors(renderer);
-    const __sync = () => { const t = performance.now(); try { const gl = renderer!.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); } catch { /* */ } return (performance.now() - t).toFixed(0); };
-    const __s0 = __sync();
     const warm = renderer && this.atlas ? this.atlas.warm(renderer) : null;
-    const __s1 = __sync();
-    console.info(`[veg] TIMING sync-before ${__s0} sync-after-warm ${__s1}`);
     // near-spawn variants now (behind the loading screen), the rest after the game starts
     const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
     const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;

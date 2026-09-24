@@ -73,7 +73,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     g.scene.add(this.smoke.points, this.skids.mesh, this.sparks.points);
     this.knockables = new Knockables(g, this.rayIgnore);
     this.overlap = new OverlapChecker(g, (c) => this.parking.colliderToSlot.has(c.handle) || this.rayIgnore.has(c.handle),
-      () => { const out: RAPIER_NS.Collider[] = []; for (const v of this.vehicles.values()) out.push(...v.colliders); return out; });
+      () => { const out: RAPIER_NS.Collider[] = []; for (const v of this.vehicles.values()) out.push(...v.colliders); return out; },
+      () => g.physics.colliders.len() - this.parking.colliderToSlot.size - this.colliderMap.size);
     // Fixed light pool (constant light count → no shader recompiles).
     for (let i = 0; i < 2; i++) {
       const s = new THREE.SpotLight(0xfff1dc, 0, 70, 0.52, 0.55, 1.4);
@@ -190,7 +191,9 @@ export class VehicleSystem implements VehiclesAPI, System {
 
   private demotable(v: Vehicle) {
     const upright = v.object.up.clone().applyQuaternion(v.object.quaternion).y > 0.8;
-    return !!v.parkedSlot && v.driver === 'none' && this.g.player?.vehicleId !== v.id && Math.abs(v.speed) < 0.3 && upright && !v.destroyed;
+    // Must be resting on the ground: never freeze a car into parked instancing up a tree / mid-air.
+    const grounded = v.position.y - groundY(this.g, v.position.x, v.position.z) < 1;
+    return !!v.parkedSlot && v.driver === 'none' && this.g.player?.vehicleId !== v.id && Math.abs(v.speed) < 0.3 && upright && grounded && !v.destroyed;
   }
 
   private demote(v: Vehicle) {
@@ -404,7 +407,8 @@ export class VehicleSystem implements VehiclesAPI, System {
         if (!v.parkedSlot || v.driver !== 'none' || g.player?.vehicleId === v.id) continue;
         const d = Math.hypot(v.position.x - focus.x, v.position.z - focus.z);
         const upright = v.object.up.clone().applyQuaternion(v.object.quaternion).y > 0.8;
-        if (d > DEMOTE_RADIUS && Math.abs(v.speed) < 0.3 && upright && !v.destroyed) this.demote(v);
+        const grounded = v.position.y - groundY(g, v.position.x, v.position.z) < 1;
+        if (d > DEMOTE_RADIUS && Math.abs(v.speed) < 0.3 && upright && grounded && !v.destroyed) this.demote(v);
       }
     }
     this.parking.refresh(g.camera.position, false, g.camera);
