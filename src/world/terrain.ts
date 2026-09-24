@@ -20,15 +20,17 @@ export class Heightfield {
     r = r < 0 ? 0 : r >= this.rows ? this.rows - 1 : r;
     return this.h[r * this.cols + c];
   }
-  /** Triangle interpolation matching the mesh (diagonal from (c,r) to (c+1,r+1)). */
+  /** Triangle interpolation matching the mesh AND Rapier's heightfield collider, which splits every cell along
+   *  the (c+1,r)–(c,r+1) diagonal (measured: the other diagonal left groundAt up to ~0.5 m off the collider on
+   *  steep cells). */
   sample(x: number, z: number) {
     let fx = (x - this.ox) / this.cell, fz = (z - this.oz) / this.cell;
     fx = Math.max(0, Math.min(this.cols - 1.0001, fx));
     fz = Math.max(0, Math.min(this.rows - 1.0001, fz));
     const c = Math.floor(fx), r = Math.floor(fz), u = fx - c, v = fz - r;
-    const h00 = this.at(c, r), h11 = this.at(c + 1, r + 1);
-    if (u >= v) { const h10 = this.at(c + 1, r); return h00 + (h10 - h00) * u + (h11 - h10) * v; }
-    const h01 = this.at(c, r + 1); return h00 + (h11 - h01) * u + (h01 - h00) * v;
+    const h10 = this.at(c + 1, r), h01 = this.at(c, r + 1);
+    if (u + v <= 1) { const h00 = this.at(c, r); return h00 + (h10 - h00) * u + (h01 - h00) * v; }
+    const h11 = this.at(c + 1, r + 1); return h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
   }
   /** Bilinear (for resampling source terrains). */
   bilinear(x: number, z: number) {
@@ -344,8 +346,8 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
       for (let r = 0; r < d - 1; r += step) rs.push(r); rs.push(d - 1);
       for (let i = 0; i < rs.length - 1; i++) for (let k = 0; k < cs.length - 1; k++) {
         const a = rs[i] * w + cs[k], b = rs[i] * w + cs[k + 1], e = rs[i + 1] * w + cs[k], f = rs[i + 1] * w + cs[k + 1];
-        // diagonal a-f (matches Heightfield.sample)
-        idx.push(a, f, b, a, e, f);
+        // diagonal b-e (matches Heightfield.sample and the Rapier heightfield collider)
+        idx.push(a, e, b, b, e, f);
       }
       {
         // skirts along the border, at this LOD's vertex spacing (both windings: visible from any side)

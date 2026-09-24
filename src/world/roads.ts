@@ -48,6 +48,8 @@ export class RoadNetwork {
   /** Vehicular corridor grid (for path clipping / placement). */
   private corr = new Grid<{ c: Chain; i: number }>(30);
   private cornerGrid = new Grid<{ poly: Vec2[]; y: number }>(24);
+  /** Rendered junction polygons (flat at J.y) for surface queries. */
+  private jPolyGrid = new Grid<{ poly: Vec2[]; y: number; kind: SurfaceSeg['kind'] }>(24);
   private jGrid = new Grid<Junction>(40);
   paths: RecipeRoad[] = [];
 
@@ -157,6 +159,69 @@ export class RoadNetwork {
       J.y = J.arms.reduce((s, a) => s + (a.atStart ? a.chain.ys[0] : a.chain.ys[a.chain.ys.length - 1]), 0) / J.arms.length;
       this.computeTrims(J);
     }
+    this.levelApproaches();
+  }
+
+  /**
+   * Junction polygons are flat at J.y while each arm's ribbon follows its own profile, so on a steep street the
+   * two met with a step at the trim line (and the flattened terrain, the junction surface disc and the ribbon
+   * disagreed by up to ~2 m there). Like real hill-town intersections, each approach is now level with its junction
+   * up to the trim and eases back into the street's own grade over the next ~18 m (extra vertices are inserted so
+   * the ribbon, markings, surface queries and terrain flattening all follow the same profile).
+   */
+  private levelApproaches() {
+    const endJ = new Map<Chain, [Junction | null, Junction | null]>();
+    for (const J of this.junctions.values()) for (const a of J.arms) {
+      const e = endJ.get(a.chain) ?? [null, null];
+      e[a.atStart ? 0 : 1] = J;
+      endJ.set(a.chain, e);
+    }
+    const smooth = (t: number) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+    let changed = false;
+    for (const c of this.chains) {
+      if (c.bridge) continue;
+      if (c.internal) {
+        // links inside a merged junction cluster are paved by the (flat) cluster polygon
+        let best: Junction | null = null, bd = Infinity;
+        const m = c.pts[Math.floor(c.pts.length / 2)];
+        this.jGrid.query(m[0], m[1], 60, (J) => { const d = dist2(J.p, m); if (d < bd) { bd = d; best = J; } });
+        if (best) c.ys = c.ys.map(() => (best as Junction).y);
+        continue;
+      }
+      const [J0, J1] = endJ.get(c) ?? [null, null];
+      if (!J0 && !J1) continue;
+      const L0 = c.L, y0 = (s: number) => sampleAt(c.pts, L0, s, c.ys).y;
+      const t0 = J0 ? c.trim[0] : 0, t1 = J1 ? c.trim[1] : 0;
+      const free = Math.max(0, c.len - t0 - t1);
+      const lb0 = J0 ? Math.min(18, J1 ? free / 2 : free) : 0, lb1 = J1 ? Math.min(18, J0 ? free / 2 : free) : 0;
+      const d0 = J0 ? Math.abs(J0.y - y0(t0)) : 0, d1 = J1 ? Math.abs(J1.y - y0(c.len - t1)) : 0;
+      if (d0 < 0.05 && d1 < 0.05) continue;
+      const ss = new Set<number>(L0);
+      if (J0 && d0 >= 0.05) for (let k = 0; k <= 6; k++) ss.add(Math.min(c.len, t0 + (lb0 * k) / 6));
+      if (J1 && d1 >= 0.05) for (let k = 0; k <= 6; k++) ss.add(Math.max(0, c.len - t1 - (lb1 * k) / 6));
+      const sorted = [...ss].sort((a, b) => a - b).filter((v, i, a) => i === 0 || v - a[i - 1] > 0.25 || v === c.len);
+      const ref0 = J0 ? y0(Math.min(c.len, t0 + lb0)) : 0, ref1 = J1 ? y0(Math.max(0, c.len - t1 - lb1)) : 0;
+      const pts: Vec2[] = [], ys: number[] = [];
+      for (const s of sorted) {
+        const q = sampleAt(c.pts, L0, s, c.ys);
+        let y = q.y;
+        if (J0 && d0 >= 0.05 && s < t0 + lb0) y = s <= t0 ? J0.y : J0.y + (ref0 - J0.y) * smooth((s - t0) / Math.max(0.01, lb0));
+        const se = c.len - s;
+        if (J1 && d1 >= 0.05 && se < t1 + lb1) y = se <= t1 ? J1.y : J1.y + (ref1 - J1.y) * smooth((se - t1) / Math.max(0.01, lb1));
+        pts.push([q.x, q.z]); ys.push(y);
+      }
+      pts[0] = c.pts[0]; pts[pts.length - 1] = c.pts[c.pts.length - 1];
+      c.pts = pts; c.ys = ys; c.L = cumLen(pts); c.len = c.L[c.L.length - 1];
+      changed = true;
+    }
+    if (changed) {
+      // segment indices changed: rebuild the corridor index
+      this.corr = new Grid<{ c: Chain; i: number }>(30);
+      for (const c of this.chains) for (let i = 0; i + 1 < c.pts.length; i++) {
+        const a = c.pts[i], b = c.pts[i + 1], e = c.w + c.s + 2;
+        this.corr.addBox(Math.min(a[0], b[0]) - e, Math.min(a[1], b[1]) - e, Math.max(a[0], b[0]) + e, Math.max(a[1], b[1]) + e, { c, i });
+      }
+    }
   }
 
   /** Merge junctions linked by very short chains (OSM double nodes, divided roads) into one polygon. */
@@ -258,36 +323,62 @@ export class RoadNetwork {
     const owner = new Int32Array(hf.cols * hf.rows).fill(-1);
     const BL = 5;
     let cur = -1;
-    const apply = (ax: number, az: number, bx: number, bz: number, ya: number, yb: number, hw: number, _prio = false, drop = 0.03) => {
+    // Per road, each vertex takes the height of its NEAREST point on that road (a min over all segments within
+    // reach pulled vertices down to the road's downhill end: up to ~2 m below the ribbon on steep streets, so the
+    // terrain collider and groundAt disagreed). Across roads the lower target still wins where both are solid.
+    const nearD = new Float32Array(hf.cols * hf.rows), nearY = new Float32Array(hf.cols * hf.rows);
+    const stamp = new Int32Array(hf.cols * hf.rows).fill(-99);
+    let touched: number[] = [];
+    let pass = 0;
+    const collect = (ax: number, az: number, bx: number, bz: number, ya: number, yb: number, hw: number, openA = false, openB = false) => {
       const x0 = Math.min(ax, bx) - hw - BL, x1 = Math.max(ax, bx) + hw + BL, z0 = Math.min(az, bz) - hw - BL, z1 = Math.max(az, bz) + hw + BL;
       const c0 = Math.max(0, Math.floor((x0 - hf.ox) / hf.cell)), c1 = Math.min(hf.cols - 1, Math.ceil((x1 - hf.ox) / hf.cell));
       const r0 = Math.max(0, Math.floor((z0 - hf.oz) / hf.cell)), r1 = Math.min(hf.rows - 1, Math.ceil((z1 - hf.oz) / hf.cell));
       const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
       for (let r = r0; r <= r1; r++) for (let cc = c0; cc <= c1; cc++) {
         const x = hf.ox + cc * hf.cell, z = hf.oz + r * hf.cell;
-        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2));
+        const tr = ((x - ax) * dx + (z - az) * dz) / l2;
+        // a road ending in a junction doesn't reach past its end (that ground belongs to the other arms)
+        if ((openA && tr < 0) || (openB && tr > 1)) continue;
+        const t = Math.max(0, Math.min(1, tr));
         const d = Math.hypot(x - (ax + dx * t), z - (az + dz * t));
+        if (d >= hw + BL) continue;
+        const k = r * hf.cols + cc;
+        if (stamp[k] !== pass) { stamp[k] = pass; nearD[k] = d; nearY[k] = ya + (yb - ya) * t; touched.push(k); }
+        else if (d < nearD[k]) { nearD[k] = d; nearY[k] = ya + (yb - ya) * t; }
+      }
+    };
+    const commit = (hw: number, drop: number, soft = false) => {
+      for (const k of touched) {
+        if (soft && best[k] >= 0.999) continue; // junctions only fill what no road core already levels
+        const d = nearD[k];
         let wgt = d <= hw ? 1 : d >= hw + BL ? 0 : 1 - (d - hw) / BL;
         wgt = wgt * wgt * (3 - 2 * wgt);
-        const k = r * hf.cols + cc;
         if (wgt > best[k] || wgt >= 0.999) {
-          const y = ya + (yb - ya) * t - drop;
+          const y = nearY[k] - drop;
           if (wgt >= 0.999 && best[k] >= 0.999) { if (y < target[k]) { target[k] = y; owner[k] = cur; } } else { target[k] = y; owner[k] = cur; }
           best[k] = Math.max(best[k], wgt);
         }
       }
+      touched = [];
+      pass++;
     };
     for (const c of this.chains) {
       if (c.bridge) continue;
       const hw = c.w + c.s + 0.6;
       cur = c.idx;
-      for (let i = 0; i + 1 < c.pts.length; i++) apply(c.pts[i][0], c.pts[i][1], c.pts[i + 1][0], c.pts[i + 1][1], c.ys[i], c.ys[i + 1], hw);
+      const n = c.pts.length;
+      for (let i = 0; i + 1 < n; i++) collect(c.pts[i][0], c.pts[i][1], c.pts[i + 1][0], c.pts[i + 1][1], c.ys[i], c.ys[i + 1], hw, i === 0 && !!c.ends[0], i === n - 2 && !!c.ends[1]);
+      commit(hw, 0.03);
     }
     for (const J of this.junctions.values()) {
       if (J.arms.every((a) => a.chain.bridge)) continue;
-      const rad = Math.max(...J.arms.map((a) => dist2(a.o, J.p) + a.trim + a.s)) + 1;
+      // the arms are level with the junction up to their trim (levelApproaches), so the junction only needs to
+      // own its polygon + corners; a larger disc used to win (min rule) over the uphill arms' ribbons
+      const rad = Math.max(...J.arms.map((a) => dist2(a.o, J.p) + Math.min(a.trim, Math.hypot(a.trim, a.w)))) + 0.5;
       cur = -2;
-      apply(J.p[0], J.p[1], J.p[0] + 0.01, J.p[1], J.y, J.y, rad, true, 0.06);
+      collect(J.p[0], J.p[1], J.p[0] + 0.01, J.p[1], J.y, J.y, rad);
+      commit(rad, 0.06, true);
     }
     for (let k = 0; k < best.length; k++) if (best[k] > 0) hf.h[k] = hf.h[k] + (target[k] - hf.h[k]) * best[k];
     return { best, owner };
@@ -364,8 +455,16 @@ export class RoadNetwork {
       const seg: SurfaceSeg = { ax: c.pts[i][0], az: c.pts[i][1], bx: c.pts[i + 1][0], bz: c.pts[i + 1][1], ya: c.ys[i], yb: c.ys[i + 1], o0: -c.w, o1: c.w, kind: deck ? 'deck' : 'road' };
       this.addSeg(seg, c.w + c.s + 1);
       const sR = c.sR ?? c.s, sL = c.sL ?? c.s;
-      if (sR > 0) this.addSeg({ ...seg, o0: c.w, o1: c.w + sR, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
-      if (sL > 0) this.addSeg({ ...seg, o0: -c.w - sL, o1: -c.w, ya: seg.ya + CURB_H, yb: seg.yb + CURB_H, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
+      // sidewalk surfaces only where the sidewalk ribbon is drawn (not across the junction / the other arms)
+      const side = (sw: number, o0: number, o1: number, sideIdx: 0 | 1) => {
+        const lo = deck ? 0 : c.sw[0][sideIdx], hi = deck ? c.len : c.len - c.sw[1][sideIdx];
+        const s0 = Math.max(lo, c.L[i]), s1 = Math.min(hi, c.L[i + 1]);
+        if (sw <= 0 || s1 - s0 < 0.05) return;
+        const A = sampleAt(c.pts, c.L, s0, c.ys), Bq = sampleAt(c.pts, c.L, s1, c.ys);
+        this.addSeg({ ax: A.x, az: A.z, bx: Bq.x, bz: Bq.z, ya: A.y + CURB_H, yb: Bq.y + CURB_H, o0, o1, kind: deck ? 'deck' : 'sidewalk' }, c.w + c.s + 1);
+      };
+      side(sR, c.w, c.w + sR, 1);
+      side(sL, -c.w - sL, -c.w, 0);
     }
     if (c.s > 0) {
       for (const side of [0, 1] as const) {
@@ -496,8 +595,10 @@ export class RoadNetwork {
     const base = mb.count;
     for (const p of tri.pts) mb.v(p[0], y + ROAD_LIFT, p[1], 0, 1, 0, p[0], p[1]);
     for (let t = 0; t < tri.tris.length; t += 3) this.upTri(mb, base + tri.tris[t], base + tri.tris[t + 1], base + tri.tris[t + 2]);
-    const jr = Math.max(...J.arms.map((a) => dist2(a.o, P) + Math.min(a.trim, Math.hypot(a.trim, a.w))));
-    this.segGrid.addBox(P[0] - jr, P[1] - jr, P[0] + jr, P[1] + jr, { ax: P[0], az: P[1], bx: P[0] + 0.01, bz: P[1], ya: y, yb: y, o0: -jr, o1: jr, kind: J.arms.some((a) => a.chain.bridge) ? 'deck' : 'road' });
+    // surface query uses the drawn polygon (a disc of the farthest arm's reach reported J.y over the other arms'
+    // sloping ribbons)
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    this.jPolyGrid.addBox(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs), { poly, y, kind: J.arms.some((a) => a.chain.bridge) ? 'deck' : 'road' });
   }
 
   /** Ensure triangle faces up (+Y) given 2D xz positions in builder. */
@@ -738,6 +839,7 @@ export class RoadNetwork {
   surfaceAt(x: number, z: number): { y: number; kind: SurfaceSeg['kind'] } | null {
     let best: { y: number; kind: SurfaceSeg['kind'] } | null = null;
     this.cornerGrid.query(x, z, 0, (c) => { if ((!best || c.y > best.y) && pointInPoly(x, z, c.poly)) best = { y: c.y, kind: 'sidewalk' }; });
+    this.jPolyGrid.query(x, z, 0, (j) => { if ((!best || j.y > best.y) && pointInPoly(x, z, j.poly)) best = { y: j.y, kind: j.kind }; });
     this.segGrid.query(x, z, 0, (s) => {
       const dx = s.bx - s.ax, dz = s.bz - s.az, l2 = dx * dx + dz * dz;
       if (l2 < 0.001) {

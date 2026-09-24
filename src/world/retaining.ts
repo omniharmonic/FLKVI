@@ -168,9 +168,16 @@ function emitWall(B: ChunkBatcher, run: WP[], cut: boolean, boxes: WallBox[]) {
       const i2 = mb.v(bx1, top(Bp), bz1, 0, 1, 0, u + L, outer - inner), i3 = mb.v(ax1, top(A), az1, 0, 1, 0, u, outer - inner);
       mb.triN(i0, i1, i2, 0, 1, 0); mb.triN(i0, i2, i3, 0, 1, 0);
     }
-    const [cx0, cz0] = at(A, (inner + outer) / 2), [cx1, cz1] = at(Bp, (inner + outer) / 2);
-    boxes.push({ ax: cx0, az: cz0, bx: cx1, bz: cz1, y0: Math.min(lowIn(A), lowOut(A), lowIn(Bp), lowOut(Bp)), y1: Math.max(top(A), top(Bp)), t: outer - inner });
     u += L;
+  }
+  // colliders: one box per ~6 m of wall (the line is near-straight at that scale)
+  for (let i = 0; i + 1 < run.length; i += 4) {
+    const j = Math.min(run.length - 1, i + 4);
+    const A = run[i], Bp = run[j];
+    let y0 = Infinity, y1 = -Infinity;
+    for (let k = i; k <= j; k++) { y0 = Math.min(y0, lowIn(run[k]), lowOut(run[k])); y1 = Math.max(y1, top(run[k])); }
+    const m = (inner + outer) / 2;
+    boxes.push({ ax: A.x + A.nx * m, az: A.z + A.nz * m, bx: Bp.x + Bp.nx * m, bz: Bp.z + Bp.nz * m, y0, y1, t: outer - inner });
   }
   // end caps
   for (const [p, sgn] of [[run[0], -1], [run[run.length - 1], 1]] as [WP, number][]) {

@@ -74,8 +74,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const B = new ChunkBatcher(320); // perf: bigger chunks = fewer draw calls (ground tris are cheap)
   // retaining walls where a street's grade leaves the ground beside it (undo the smeared flatten blend there)
   let wallBoxes: WallBox[] = [];
-  const legacyGround = new URLSearchParams(location.search).has('legacyground'); // TEMP before/after
-  if (!legacyGround) try {
+  try {
     const rw = buildRetainingWalls(roads, hf, h0, flat, inBuilding, B);
     wallBoxes = rw.boxes;
     console.info(`[world] retaining walls: ${rw.walls} runs, ${rw.length.toFixed(0)} m`);
@@ -86,7 +85,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   roads.build(B, hf, crosswalks);
   // seat buildings / landmarks on the rendered ground (street-frontage level) with plinths where it falls away
   let prisms: Prism[] = [];
-  if (!legacyGround) try {
+  try {
     const fd = settleFoundations(recipe, hf, roads, lm, B);
     prisms = fd.prisms;
     console.info(`[world] foundations: ${fd.moved} re-seated, ${fd.plinths} plinths (max ${fd.maxLift.toFixed(1)} m at ${fd.worst})`);

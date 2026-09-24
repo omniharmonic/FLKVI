@@ -12,6 +12,7 @@ import type { Heightfield } from './terrain';
 import type { RoadNetwork } from './roads';
 import type { ResolvedLandmarks } from './landmarks';
 import { Grid, pointInPoly, polyArea, type ChunkBatcher } from './util';
+import { waterLevelFn } from './areas';
 
 /** Plinth bottom (lowest ground − margin) for buildings lifted above part of their footprint; physics extends
  *  building colliders down to it. */
@@ -22,8 +23,24 @@ export interface Prism { ring: Vec2[]; y0: number; y1: number }
 const OLD_ERAS = new Set(['pre-1900', '1900-1939']);
 
 export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNetwork, lm: ResolvedLandmarks, B: ChunkBatcher) {
+  // water surfaces (same level rule as areas.ts): moored boats / piers mapped as buildings float on them, and a
+  // plinth only needs to reach the water line (not the carved bed below it)
+  const waters = recipe.areas.filter((a) => a.kind === 'water' && a.poly.length >= 3).map((a) => {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (const p of a.poly) { x0 = Math.min(x0, p[0]); z0 = Math.min(z0, p[1]); x1 = Math.max(x1, p[0]); z1 = Math.max(z1, p[1]); }
+    return { a, lvl: waterLevelFn(a, hf), x0, z0, x1, z1 };
+  });
+  const waterAt = (x: number, z: number) => {
+    for (const w of waters) {
+      if (x < w.x0 || x > w.x1 || z < w.z0 || z > w.z1) continue;
+      if (pointInPoly(x, z, w.a.poly) && !(w.a.holes ?? []).some((h) => pointInPoly(x, z, h))) return w.lvl(x, z);
+    }
+    return null;
+  };
   const ground = (x: number, z: number) => {
-    const t = hf.sample(x, z);
+    let t = hf.sample(x, z);
+    const wl = waterAt(x, z);
+    if (wl !== null) t = Math.max(t, wl);
     const s = roads.surfaceAt(x, z);
     if (!s || s.kind === 'deck') return t;
     return Math.max(t, s.y);
@@ -132,7 +149,7 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
       const bottom: number[] = [];
       for (let j = 0; j <= k; j++) {
         const t = j / k, x = a[0] + (b[0] - a[0]) * t, z = a[1] + (b[1] - a[1]) * t;
-        bottom.push(Math.min(ground(x + nx * 0.4, z + nz * 0.4), hf.sample(x, z)) - 0.35);
+        bottom.push(Math.min(ground(x + nx * 0.4, z + nz * 0.4), Math.max(hf.sample(x, z), waterAt(x, z) ?? -Infinity)) - 0.35);
       }
       for (let j = 0; j < k; j++) {
         const t0 = j / k, t1 = (j + 1) / k;
@@ -153,17 +170,6 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
       u += L;
     }
     return any;
-  };
-
-  // water surfaces (same level rule as areas.ts): moored boats / piers mapped as buildings float on them
-  const waters = recipe.areas.filter((a) => a.kind === 'water' && a.poly.length >= 3).map((a) => {
-    let lvl = Infinity;
-    for (const p of a.poly) lvl = Math.min(lvl, hf.sample(p[0], p[1]));
-    return { a, lvl: lvl - 0.35 };
-  });
-  const waterAt = (x: number, z: number) => {
-    for (const w of waters) if (pointInPoly(x, z, w.a.poly) && !(w.a.holes ?? []).some((h) => pointInPoly(x, z, h))) return w.lvl;
-    return null;
   };
 
   // ---- ground-level buildings (parts that start above ground follow their host below)

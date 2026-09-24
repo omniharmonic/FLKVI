@@ -59,7 +59,7 @@ export function buildRoadDecals(roads: RoadNetwork, extraManholes: [number, numb
     cracks: textureSet('decal-cracks') ? decalMaterial('decal-cracks', { opacity: 0.85 }) : null,
     oil: textureSet('decal-oil') ? decalMaterial('decal-oil', { opacity: 0.55, roughness: 0.35 }) : null,
     manhole: textureSet('decal-manhole') ? decalMaterial('decal-manhole', { roughness: 0.5 }) : null,
-    patch: surfaceMaterial('asphalt-patched', { fallback: 'asphalt', tint: new THREE.Color(0.45, 0.45, 0.45), polygonOffset: -2, patch: { worldUv: true } }),
+    patch: surfaceMaterial('asphalt-patched', { fallback: 'asphalt', tint: new THREE.Color(1.55, 1.54, 1.52), polygonOffset: -2, patch: { worldUv: true } }),
   };
   const lift: Record<string, number> = { cracks: 0.007, oil: 0.008, manhole: 0.009, patch: 0.004 };
   for (const [key, list] of Object.entries(sets)) {

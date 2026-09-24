@@ -90,14 +90,47 @@ function stalls(B: ChunkBatcher, a: RecipeArea, hf: Heightfield, roads: RoadNetw
   }
 }
 
+/**
+ * Water surface height for an area: slightly below the lowest bank. A lake or a river reach is one flat level, but
+ * a creek / stream polygon that runs downhill (Boulder Creek falls ~14 m across the map) would otherwise sit at its
+ * lowest bank everywhere and carve a canyon upstream — there the level follows the local banks (lowest bank sample
+ * within ~30 m), so the surface steps down with the terrain.
+ */
+const levelCache = new WeakMap<RecipeArea, (x: number, z: number) => number>();
+export function waterLevelFn(a: RecipeArea, hf: Heightfield): (x: number, z: number) => number {
+  const hit = levelCache.get(a);
+  if (hit) return hit; // measured before the bed was carved
+  const bank: [number, number, number][] = [];
+  const ring = a.poly;
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i], q = ring[(i + 1) % ring.length];
+    const L = Math.hypot(q[0] - p[0], q[1] - p[1]), n = Math.max(1, Math.ceil(L / 5));
+    for (let k = 0; k < n; k++) { const x = p[0] + ((q[0] - p[0]) * k) / n, z = p[1] + ((q[1] - p[1]) * k) / n; bank.push([x, z, hf.sample(x, z)]); }
+  }
+  let lo = Infinity, hi = -Infinity;
+  for (const b of bank) { lo = Math.min(lo, b[2]); hi = Math.max(hi, b[2]); }
+  const flat = lo - 0.35;
+  if (!(hi - lo > 1.5)) { const f = () => flat; levelCache.set(a, f); return f; }
+  const R = 30;
+  const f = (x: number, z: number) => {
+    let m = Infinity, nd = Infinity, nh = lo;
+    for (const b of bank) {
+      const d = Math.hypot(b[0] - x, b[1] - z);
+      if (d < R && b[2] < m) m = b[2];
+      if (d < nd) { nd = d; nh = b[2]; }
+    }
+    return (m === Infinity ? nh : m) - 0.35;
+  };
+  levelCache.set(a, f);
+  return f;
+}
+
 function waterMesh(a: RecipeArea, hf: Heightfield): THREE.Mesh | null {
   let tri;
   try { tri = triangulate(a.poly, a.holes); } catch { return null; }
   const sub = subdivide(tri.pts, tri.tris, 20);
-  // water level: slightly below the lowest bank sample
-  let lvl = Infinity;
-  for (const p of a.poly) lvl = Math.min(lvl, hf.sample(p[0], p[1]));
-  lvl -= 0.35;
+  // water level: slightly below the lowest (local) bank sample
+  const levelAt = waterLevelFn(a, hf);
   // carve terrain beneath the water so the bed is visible through it
   const xs = a.poly.map((p) => p[0]), zs = a.poly.map((p) => p[1]);
   const c0 = Math.max(0, Math.floor((Math.min(...xs) - hf.ox) / hf.cell)), c1 = Math.min(hf.cols - 1, Math.ceil((Math.max(...xs) - hf.ox) / hf.cell));
@@ -115,11 +148,11 @@ function waterMesh(a: RecipeArea, hf: Heightfield): THREE.Mesh | null {
         const t = Math.max(0, Math.min(1, ((x - p[0]) * dx + (z - p[1]) * dz) / l2));
         d = Math.min(d, Math.hypot(x - p[0] - dx * t, z - p[1] - dz * t));
       }
-      hf.h[r * hf.cols + c] = Math.min(hf.h[r * hf.cols + c], lvl - 0.3 - Math.min(2.5, d * 0.25));
+      hf.h[r * hf.cols + c] = Math.min(hf.h[r * hf.cols + c], levelAt(x, z) - 0.3 - Math.min(2.5, d * 0.25));
     }
   }
   const pos: number[] = [], uv: number[] = [];
-  for (const p of sub.pts) { pos.push(p[0], lvl, p[1]); uv.push(p[0], p[1]); }
+  for (const p of sub.pts) { pos.push(p[0], levelAt(p[0], p[1]), p[1]); uv.push(p[0], p[1]); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
