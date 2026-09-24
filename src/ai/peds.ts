@@ -240,6 +240,7 @@ export class PedSystem {
   private release(p: Ped) {
     if (p.bench >= 0) this.benches[p.bench].used = false;
     this.detach(p);
+    p.ch.clearPhysics();
     p.alive = false;
     this.group.remove(p.ch.root);
     const i = this.peds.indexOf(p);
@@ -719,6 +720,7 @@ export class PedSystem {
     const away = headingOf(dx / l, dz / l);
     const facingAway = Math.abs(angleDiff(p.h, away)) < Math.PI / 2;
     p.ch.setFallen(true, !facingAway);
+    if(Math.hypot(p.x-this.g.player.position.x,p.z-this.g.player.position.z)<65)p.ch.impact(this.g,dx,dz,impulse);
     p.state = 'fallen';
     p.timer = 3 + this.rnd() * 2.5;
     p.icon.set(null);
@@ -1086,7 +1088,8 @@ export class PedSystem {
       }
       case 'fallen': {
         // knockback slide during the first half-second
-        if (p.legT < p.legLen) {
+        if (p.ch.ragdoll) { p.x=p.ch.ragdoll.position.x;p.z=p.ch.ragdoll.position.z; }
+        else if (p.legT < p.legLen) {
           p.legT += Math.max(0.5, p.legLen * 2.5) * dt;
           const t = Math.min(1, p.legT / p.legLen);
           const e = 1 - (1 - t) * (1 - t);
@@ -1207,7 +1210,7 @@ export class PedSystem {
         const oldX=p.x,oldZ=p.z;
         this.updatePed(p, step, P);
         // Sweep nearby walkers/impact slides against real walls and props. Shop fades own their doorway transition.
-        if(d2<45*45 && !/enter|exit/.test(p.state)){
+        if(d2<45*45 && !p.ch.ragdoll && !/enter|exit/.test(p.state)){
           const dx=p.x-oldX,dz=p.z-oldZ;
           if(dx*dx+dz*dz>0.00001){
             const R=g.rapier;

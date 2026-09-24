@@ -358,10 +358,10 @@ class ImpostorAtlas {
   private scene = new THREE.Scene();
   private mats = new Map<string, THREE.Material>();
   private cleared = false;
-  constructor(n: number, private tile = 256) {
+  constructor(n: number, private tile = 256, samples = 4) {
     this.cols = Math.ceil(Math.sqrt(Math.max(1, n)));
     const size = this.cols * tile;
-    this.rt = new THREE.WebGLRenderTarget(size, size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, samples: 4 });
+    this.rt = new THREE.WebGLRenderTarget(size, size, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, samples });
     this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
     const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(0.3, 1, 0.8); this.scene.add(dl);
   }
@@ -492,7 +492,7 @@ export class TreeSystem {
   private atlas: ImpostorAtlas | null = null;
   private renderer: THREE.WebGLRenderer | undefined;
 
-  constructor() { this.group.name = 'trees'; }
+  constructor(private atlasTile = 256) { this.group.name = 'trees'; }
 
   /** Release district-owned instance buffers and atlas; cached species geometry remains shared. */
   dispose() {
@@ -500,6 +500,7 @@ export class TreeSystem {
     this.group.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh) m.dispose(); });
     if (this.far) { this.far.geometry.dispose(); (this.far.material as THREE.Material).dispose(); }
     this.shadowImpostors?.geometry.dispose();
+    this.far?.customDepthMaterial?.dispose();
     this.atlas?.releaseMaterials(); this.atlas?.rt.dispose();
     this.group.clear(); this.pending.length = 0; this.plan.length = 0; this.insts.length = 0;
   }
@@ -696,7 +697,7 @@ export class TreeSystem {
 
   private buildImpostors(renderer: THREE.WebGLRenderer | undefined) {
     let atlas: THREE.Texture | null = null, cols = 1;
-    if (renderer) { this.atlas = new ImpostorAtlas(this.plan.length); atlas = this.atlas.rt.texture; cols = this.atlas.cols; }
+    if (renderer) { this.atlas = new ImpostorAtlas(this.plan.length, this.atlasTile, this.atlasTile < 256 ? 0 : 4); atlas = this.atlas.rt.texture; cols = this.atlas.cols; }
     const quad = new THREE.PlaneGeometry(1, 1);
     quad.translate(0, 0.5, 0);
     const q2 = quad.clone(); q2.rotateY(Math.PI / 2);

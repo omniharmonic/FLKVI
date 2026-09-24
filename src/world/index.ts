@@ -12,13 +12,14 @@ import { RoadNetwork } from './roads';
 import { buildAreas, waterUniforms } from './areas';
 import { ChunkBatcher, Grid, pointInPoly, yieldFrame } from './util';
 import { surfaceMaterial, ensureSurfaces } from './materials';
-import { markingWearTexture } from './textures';
+import { roadMaterials } from './road-materials';
 import { PropSystem } from './props';
 import { buildRoadDecals } from './decals';
 import { TreeSystem } from './trees';
 import { buildUnderstory, paintPlantingBeds } from './understory';
 import { buildTerrainCollider, buildBuildingColliders, buildPropColliders, buildMeshColliders, buildWallColliders, makeLos } from './physics';
 import { Nav } from './nav';
+import { GroundCover } from './ground-cover';
 import { WorldStreaming } from './streaming';
 import { resolveLandmarks, buildLandmarks, type LandmarksResult } from './landmarks';
 import { buildRetainingWalls, type WallBox } from './retaining';
@@ -47,8 +48,8 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // ---- ground data
   P('Shaping terrain', 0.16);
   await yieldFrame();
-  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving', 'stone']);
-  const hf = makeFineHeightfield(recipe.terrain);
+  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving', 'stone', 'sandstone']);
+  const hf = makeFineHeightfield(recipe.terrain, recipe.bounds);
   const h0 = hf.h.slice();
   const roads = new RoadNetwork(recipe);
   roads.analyze();
@@ -93,25 +94,11 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   } catch (e) { console.warn('[world] foundations failed', e); }
 
   const mats: Record<string, THREE.Material> = {
-    asphalt: surfaceMaterial('asphalt', { tint: new THREE.Color(2.1, 2.08, 2.05), roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 26, antiTile: true, tintVar: new THREE.Color(1.25, 1.24, 1.22), tintAmt: 0.5 } }),
-    lot: surfaceMaterial('asphalt', { tint: new THREE.Color(2.3, 2.28, 2.25), roughness: 1, polygonOffset: -1, patch: { macro: 0.14, macroScale: 15, antiTile: true } }),
-    sidewalk: surfaceMaterial('concrete', { tint: new THREE.Color(1.75, 1.7, 1.62), roughness: 1, patch: { joints: 1.52, macro: 0.07, macroScale: 12, antiTile: true } }),
-    curb: surfaceMaterial('concrete', { tint: new THREE.Color(1.85, 1.82, 1.76), roughness: 1, patch: { macro: 0.06 } }),
-    footway: surfaceMaterial('concrete', { tint: new THREE.Color(1.7, 1.66, 1.6), polygonOffset: -1, patch: { joints: 1.52, macro: 0.1, antiTile: true } }),
-    gravel: surfaceMaterial('gravel', { polygonOffset: -1, patch: { macro: 0.12 } }),
-    paving: surfaceMaterial('paving', { polygonOffset: -2, patch: { macro: 0.1, antiTile: true } }),
-    bridgeRail: new THREE.MeshStandardMaterial({ color: 0x5a5f63, metalness: 0.6, roughness: 0.5, side: THREE.DoubleSide }),
+    ...roadMaterials(),
     retainWall: surfaceMaterial('concrete', { tint: new THREE.Color(1.5, 1.47, 1.4), roughness: 1, patch: { macro: 0.14, macroScale: 5, antiTile: true, tintVar: new THREE.Color(0.78, 0.77, 0.72), tintAmt: 0.5 } }),
     plinthConc: surfaceMaterial('concrete', { tint: new THREE.Color(1.55, 1.52, 1.45), roughness: 1, patch: { macro: 0.1, macroScale: 4, antiTile: true } }),
     plinthStone: surfaceMaterial('stone', { tint: new THREE.Color(0.86, 0.84, 0.8), roughness: 1, patch: { macro: 0.12, macroScale: 6 } }),
   };
-  const wear = markingWearTexture().clone();
-  wear.repeat.set(1 / 4, 1 / 4); wear.needsUpdate = true;
-  mats.marking = new THREE.MeshStandardMaterial({
-    map: wear, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.62,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-  });
-  mats.marking.name = 'marking';
 
   const roadGroup = new THREE.Group(); roadGroup.name = 'roads';
   const roadMeshes = B.emit(roadGroup, mats, { receiveShadow: true, castShadow: { curb: true, bridgeRail: true, retainWall: true, plinthConc: true, plinthStone: true }, renderOrder: { marking: 1 } });
@@ -129,7 +116,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   const terrainMeshes = buildTerrainMeshes(hf, tmat);
   for (const m of terrainMeshes) { m.updateMatrix(); terrainGroup.add(m); }
   if (recipe.farTerrain) {
-    try { terrainGroup.add(buildFarTerrain(recipe.farTerrain, hf)); } catch (e) { console.warn('[world] far terrain failed', e); }
+    try { terrainGroup.add(buildFarTerrain(recipe.farTerrain, hf, recipe)); } catch (e) { console.warn('[world] far terrain failed', e); }
   }
   root.add(terrainGroup);
 
@@ -322,6 +309,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     },
   });
   g.addSystem(new WorldStreaming(g, hf));
+  g.addSystem(new GroundCover(g));
   P('done', 1);
   console.info('[world] stage ms: ' + times.join(' | '));
   console.info(`[world] built in ${(performance.now() - t0).toFixed(0)} ms: ${roads.chains.length} road chains, ${roads.junctions.size} junctions, ${treeList.length} trees, ${props.lamps.length} lamps`);

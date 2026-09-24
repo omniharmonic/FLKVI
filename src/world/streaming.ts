@@ -2,6 +2,7 @@
 import type { Game, System } from '../core/game';
 import type { Recipe } from '../core/types';
 import { makeProjection } from '../core/geo';
+import { bundledDistrict } from '../compiler/expansion';
 import { loadDistrict } from '../compiler/district-cache';
 import { buildDistrict, type District } from './district';
 import { contains, distanceTo, districtIndex, districtBounds, rebaseRecipe, type Bounds } from './stream-coordinates';
@@ -16,6 +17,7 @@ export class WorldStreaming implements System {
   readonly core: Bounds;
   status=''; loading:string|null=null;
   private failures=new Map<string,{until:number;attempts:number}>();
+  private nextBuildAt=0;
   private tick=0;private toastAt=-100;private barriers: ReturnType<Game['physics']['createRigidBody']>;
   private buildingIds: Set<string>;
   constructor(private g:Game,private initial:Heightfield){
@@ -57,7 +59,8 @@ export class WorldStreaming implements System {
       const ahead=distanceTo(bounds,p.x+v.x*6,p.z+v.z*6);
       options.push({i:a,j:b,score:d+ahead*0.7});
     }
-    if(!this.loading&&options.length){options.sort((a,b)=>a.score-b.score);void this.request(options[0].i,options[0].j);}
+    if(!this.loading&&options.length){options.sort((a,b)=>a.score-b.score);const next=options[0];
+      if(performance.now()>=this.nextBuildAt||distanceTo(districtBounds(this.core,next.i,next.j),p.x,p.z)<160)void this.request(next.i,next.j);}
   }
   /** Injectable source supports deterministic seam/disposal tests without live map servers. */
   async request(i:number,j:number,source?:Recipe){
@@ -66,7 +69,8 @@ export class WorldStreaming implements System {
     try{
       const bounds=districtBounds(this.core,i,j),cx=(bounds.minX+bounds.maxX)/2,cz=(bounds.minZ+bounds.maxZ)/2;
       const ll=makeProjection(this.g.recipe.origin.lat,this.g.recipe.origin.lon).toLatLon(cx,cz);
-      const raw=source??await loadDistrict({...ll,name:this.g.recipe.name,half:Math.max(bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ)/2+24,farHalf:0,cell:4,lean:true},s=>{this.status=s;});
+      this.status='Loading nearby streets';
+      const raw=source??await bundledDistrict(this.g.recipe,bounds)??await loadDistrict({...ll,name:this.g.recipe.name,half:Math.max(bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ)/2+24,farHalf:0,cell:4,lean:true},s=>{this.status=s;});
       const recipe=rebaseRecipe(raw,this.g.recipe,bounds);
       recipe.buildings=recipe.buildings.filter(b=>!this.buildingIds.has(b.id));
       // Initial recipe's margin already owns some props/buildings outside the terrain square.
@@ -84,12 +88,12 @@ export class WorldStreaming implements System {
       // Bound retry metadata during long trips.
       if(this.failures.size>24)this.failures.delete(this.failures.keys().next().value!);
       this.status='Waiting for map data';console.warn('[streaming] district failed',key,e);
-    }finally{this.loading=null;}
+    }finally{this.loading=null;this.nextBuildAt=performance.now()+2000;}
   }
   private evict(){
     const p=this.g.player.position;
     const entries=[...this.districts.values()].sort((a,b)=>distanceTo(b.bounds,p.x,p.z)-distanceTo(a.bounds,p.x,p.z));
-    while(this.districts.size>MAX_RESIDENT&&entries.length){
+    while(this.districts.size>(this.g.quality==='low'?2:3)&&entries.length){
       const d=entries.shift()!;if(distanceTo(d.bounds,p.x,p.z)<60)continue;
       // Never remove collision beneath an occupied vehicle.
       if(this.g.player.vehicleId){const v=this.g.vehicles.get(this.g.player.vehicleId);if(v&&contains(d.bounds,v.position.x,v.position.z))continue;}

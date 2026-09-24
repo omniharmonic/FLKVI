@@ -599,3 +599,4 @@ kbd { font: 600 11px/1 var(--mono); padding: 5px 8px; border-radius: 6px; backgr
 .flk-vi { color: #f4ba82; font-family: Georgia,serif; }
 @media (max-width:900px) { .flk-keyart { object-position: 67% center; } .flk-intro { max-width: 310px; } .flk-title-bottom { font-size:8px; } }
 @media (max-height:600px) { .flk-title h1.flk-wordmark { font-size:100px; margin:12px 0; } .flk-intro { margin-bottom:16px; } .flk-title-bottom { bottom:14px; } }
+.hud-stream { position:absolute; bottom:24px; left:50%; transform:translateX(-50%); padding:9px 15px; border-radius:6px; background:rgba(17,22,25,.88); color:#f4e5cd; font-size:12px; letter-spacing:.03em; pointer-events:none; }

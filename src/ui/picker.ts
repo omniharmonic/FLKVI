@@ -266,7 +266,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       h('div', { class: 'flk-title-copy' },
         h('div', { class: 'flk-eyebrow' }, 'AN OPEN WORLD. A COUNTRY UNDER WATCH.'),
         h('h1', { class: 'flk-wordmark', 'aria-label': 'FLK VI', html: 'FLK <span>VI</span>' }),
-        h('p', { class: 'flk-tagline' }, 'Every road is a way out.'),
+        h('p', { class: 'flk-tagline' }, 'Take the city back, one camera at a time.'),
         h('p', { class: 'flk-intro' }, 'Real places. Open roads. Take down the surveillance grid and disappear into the country.'),
         h('button', { class: 'flk-start', type: 'button' }, 'CHOOSE YOUR STARTING POINT', h('span', { 'aria-hidden': 'true' }, '↗')),
         h('div', { class: 'flk-keyhint' }, 'ENTER TO START · KEYBOARD + MOUSE'),

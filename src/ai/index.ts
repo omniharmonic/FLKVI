@@ -68,7 +68,7 @@ export async function setupAI(g: Game): Promise<void> {
       if(!losClear(g,[p[0],y+1.1,p[1]],[o.x,o.y+1.1,o.z]))continue;officer=o;nearest=d;
     }
     if(peds.onMelee(p,dir,nearest))return;
-    if(officer){officer.stunned=3+officer.ch.duration('getup');officer.recovering=false;officer.ch.setFallen(true);
+    if(officer){officer.stunned=3+officer.ch.duration('getup');officer.recovering=false;officer.ch.setFallen(true);officer.ch.impact(g,dir[0],dir[1],2.5);
       g.events.emit('meleeHit',{p:[officer.x,officer.y+1,officer.z]});g.events.emit('crime',{kind:'assault',p:[officer.x,officer.z],severity:3});}
   });
   g.events.on('districtsChanged' , ({recipes}) => {

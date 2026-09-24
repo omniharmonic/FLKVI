@@ -1,3 +1,4 @@
+import { biomeFor } from './biome.ts';
 // OWNER: compiler agent. World Compiler orchestrator — pure (no DOM / Node APIs); IO is injected so it runs in browser, worker and Node.
 import type { Recipe, Vec2, RecipeCamera, Terrain } from '../core/types.ts';
 import { makeProjection, hashString } from '../core/geo.ts';
@@ -113,7 +114,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
   const data = indexOsm(osmJson);
   progress('Inferring buildings', 0.35);
   // density from raw buildings first (roads use it for sidewalks/parking)
-  const ctx0: Ctx = { lat: opt.lat, lon: opt.lon, name: opt.name, proj, bounds, region, climate, palette: paletteFor(opt.lat, opt.lon, region), heightAt, density: () => 0, urban: () => 0, seed };
+  const ctx0: Ctx = { lat: opt.lat, lon: opt.lon, name: opt.name, proj, bounds, region, climate, palette: paletteFor(opt.lat, opt.lon, region, datum), heightAt, density: () => 0, urban: () => 0, seed };
   const raw = collectRawBuildings(data, ctx0);
   const cover = raw.filter((r) => !r.part).map((r) => ({ c: r.c, area: r.area }));
   const dBounds = { minX: -half - qm, minZ: -half - qm, maxX: half + qm, maxZ: half + qm };
@@ -167,7 +168,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
     name: opt.name,
     origin: { lat: opt.lat, lon: opt.lon },
     bounds,
-    region, climate, tier: 'A',
+    region, climate, biome: biomeFor(opt.lat,opt.lon,datum,climate), tier: 'A',
     terrain,
     roads,
     graph: gr.graph,

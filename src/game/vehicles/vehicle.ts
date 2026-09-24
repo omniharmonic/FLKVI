@@ -179,7 +179,7 @@ export class Vehicle implements VehicleHandle {
     const main = R.ColliderDesc.roundCuboid(hx - 0.06, hy - 0.06, hz - 0.06, 0.06)
       .setTranslation(m.colCenter.x, m.colCenter.y, m.colCenter.z)
       .setMassProperties(t.mass, { x: 0, y: 0.42 - m.colCenter.y + 0.0, z: 0 }, { x: Ix, y: Iy * 1.1, z: Iz }, { x: 0, y: 0, z: 0, w: 1 })
-      .setFriction(0.4).setRestitution(0.1)
+      .setFriction(0.4).setRestitution(0.03)
       .setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS);
     const c1 = this.g.physics.createCollider(main, this.body);
     const cab = R.ColliderDesc.roundCuboid(Math.max(0.1, m.cabHalf.x - 0.05), Math.max(0.05, m.cabHalf.y - 0.05), Math.max(0.1, m.cabHalf.z - 0.05), 0.05)

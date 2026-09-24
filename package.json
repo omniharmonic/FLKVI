@@ -26,7 +26,9 @@
     "test:browser": "bash tools/check-game.sh",
     "test:world": "bash tools/check-world.sh",
     "test:deep": "node --experimental-strip-types tools/deep-regressions.ts",
-    "test:integration": "bash tools/check-deep.sh"
+    "test:integration": "bash tools/check-deep.sh",
+    "test:collisions": "bash tools/check-collisions.sh",
+    "test:streaming": "bash tools/check-streaming.sh"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",

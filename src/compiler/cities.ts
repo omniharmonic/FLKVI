@@ -6,6 +6,9 @@ export interface BakedCity {
 }
 
 export const BAKED_CITIES: BakedCity[] = [
+  { id: 'frisco-co', name: 'Frisco, CO — High Country', lat: 39.5744, lon: -106.0975, blurb: 'An alpine main street, spruce forests and mountain roads above 9,000 feet.' },
+  { id: 'russell-ks', name: 'Russell, KS — Great Plains', lat: 38.8953, lon: -98.8593, blurb: 'Brick storefronts, grain country and open prairie roads beneath an enormous sky.' },
+  { id: 'lakewood-co', name: 'Lakewood, CO — Suburban Streets', lat: 39.7049, lon: -105.0814, blurb: 'Quiet residential blocks, broad lawns and boulevards at the edge of the Front Range.' },
   { id: 'denver-lodo', name: 'Denver — Lower Downtown', lat: 39.7526, lon: -104.9995, blurb: 'Warehouse blocks, Union Station streets and broad avenues beneath the Rockies.' },
   { id: 'santa-fe', name: 'Santa Fe — Plaza', lat: 35.687, lon: -105.9378, blurb: 'Adobe courtyards, narrow old-town streets and dry foothill light.' },
   { id: 'moab', name: 'Moab, UT — Main Street', lat: 38.5733, lon: -109.5506, blurb: 'A desert small town: low storefronts, open roads and red-rock country.' },

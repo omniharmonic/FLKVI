@@ -12,6 +12,8 @@ export interface System {
   name: string;
   /** Fixed 60 Hz step (physics-coupled logic). */
   fixedUpdate?(dt: number, g: Game): void;
+  /** Contact reactions after each solver step; runs at the same fixed frequency as physics. */
+  afterPhysics?(dt: number, g: Game): void;
   /** Per-frame update (visuals, AI decisions, UI). */
   update?(dt: number, g: Game): void;
   /** Run after physics step and before render (sync meshes to bodies, camera). */
@@ -75,8 +77,14 @@ export class Game {
   start() {
     this.clock.start();
     const loop = () => {
+      try { this.frame(); }
+      catch(error) {
+        this.paused=true;this.input.reset();this.input.enabled=false;
+        console.error('[game] stopped after runtime failure',error);
+        dispatchEvent(new CustomEvent('flk-runtime-error',{detail:error instanceof Error?error.message:String(error)}));
+        return; // Stop the exception loop so the recovery controls remain responsive.
+      }
       requestAnimationFrame(loop);
-      this.frame();
     };
     requestAnimationFrame(loop);
   }
@@ -95,6 +103,7 @@ export class Game {
       while (this.acc >= Game.FIXED_DT && steps < 4) {
         for (const s of this.systems) s.fixedUpdate?.(Game.FIXED_DT, this);
         if (this.physics) { this.physics.timestep = Game.FIXED_DT; this.physics.step(); }
+        for (const s of this.systems) s.afterPhysics?.(Game.FIXED_DT, this);
         this.input.endFixedStep();
         this.acc -= Game.FIXED_DT;
         steps++;
@@ -121,6 +130,7 @@ export class Game {
         for (const s of this.systems) if (s.fixedUpdate) { const t = now(); s.fixedUpdate(Game.FIXED_DT, this); add('fixed:' + s.name, t); }
         let t = now();
         if (this.physics) { this.physics.timestep = Game.FIXED_DT; this.physics.step(); }
+        for (const s of this.systems) s.afterPhysics?.(Game.FIXED_DT, this);
         this.input.endFixedStep();
         add('physics', t);
         this.acc -= Game.FIXED_DT;

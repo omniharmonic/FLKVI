@@ -2,6 +2,7 @@
 import type { Recipe, Vec2 } from '../core/types.ts';
 import { makeProjection } from '../core/geo.ts';
 import { terrainSampler } from '../compiler/terrain.ts';
+import { clipPolylineRect } from '../compiler/geom.ts';
 export type Bounds = Recipe['bounds'];
 export const DISTRICT_SIZE = 400;
 export function contains(b: Bounds, x: number, z: number, inset = 0) {
@@ -24,6 +25,10 @@ export function rebaseRecipe(source: Recipe, root: Recipe, bounds: Bounds): Reci
   const move = (p: Vec2): Vec2 => { const ll = a.toLatLon(...p); return b.toLocal(ll.lat, ll.lon); };
   const dy = (source.elevation ?? 0) - (root.elevation ?? 0);
   const inside = (p: Vec2) => contains(bounds, ...p);
+  // Retain a junction margin, but don't build an entire multi-kilometre source for one district.
+  // Whole OSM ways keep their identities and elevation profiles for route stitching.
+  const margin=32, box={minX:bounds.minX-margin,minZ:bounds.minZ-margin,maxX:bounds.maxX+margin,maxZ:bounds.maxZ+margin};
+  const intersects=(pts:Vec2[])=>pts.some(p=>contains(box,...p))||clipPolylineRect(pts,box.minX,box.minZ,box.maxX,box.maxZ).length>0;
   const srcH = terrainSampler(source.terrain);
   const cellSize = 4, cols = Math.ceil((bounds.maxX - bounds.minX) / cellSize) + 1, rows = Math.ceil((bounds.maxZ - bounds.minZ) / cellSize) + 1;
   const heights: number[] = [];
@@ -34,7 +39,7 @@ export function rebaseRecipe(source: Recipe, root: Recipe, bounds: Bounds): Reci
   return {
     ...source, origin: root.origin, elevation: root.elevation, bounds, farTerrain: undefined,
     terrain: { cols, rows, cellSize, originX: bounds.minX, originZ: bounds.minZ, heights },
-    roads: source.roads.map(r => ({ ...r, pts: r.pts.map(move), ys: r.ys.map(y => y + dy) })),
+    roads: source.roads.map(r => ({ ...r, pts: r.pts.map(move), ys: r.ys.map(y => y + dy) })).filter(r=>intersects(r.pts)),
     graph: { nodes: source.graph.nodes.map(n => ({ ...n, p: move(n.p), y: n.y + dy })), edges: source.graph.edges.map(e => ({ ...e })) },
     buildings: source.buildings.map(v => ({ ...v, baseY: v.baseY + dy, footprint: v.footprint.map(move), holes: v.holes?.map(r => r.map(move)) }))
       .filter(v => inside([v.footprint.reduce((s,p)=>s+p[0],0)/v.footprint.length, v.footprint.reduce((s,p)=>s+p[1],0)/v.footprint.length])),

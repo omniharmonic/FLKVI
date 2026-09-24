@@ -37,6 +37,7 @@ export class HUD {
   private flag: HTMLElement;
   private street: HTMLElement;
   private clock: HTMLElement;
+  private streamStatus=h('div',{class:'hud-stream',role:'status','aria-live':'polite'});
   private compassStrip: HTMLElement;
   private compassTgt: HTMLElement;
   private vignette: HTMLElement;
@@ -109,7 +110,7 @@ export class HUD {
       this.vignette, compass, this.modeEl,
       h('div', { class: 'hud-tl' }, h('div', { class: 'hud-street' }, this.street, this.clock), miniWrap),
       h('div', { class: 'hud-tr' }, this.heatWrap, h('div', { class: 'hud-heatbar' }, this.heatBar), this.heatMeta, this.arrest, this.score, this.charges),
-      this.toasts, this.prompt, this.speed, this.hints.el, this.arrestWarn,
+      this.toasts, this.prompt, this.speed, this.streamStatus, this.hints.el, this.arrestWarn,
     );
     this.bindEvents();
     this.renderMode();
@@ -176,6 +177,10 @@ export class HUD {
 
   update(dt: number) {
     const g = this.g; const t = performance.now() / 1000;
+    const stream=g.world.streaming;
+    const message=stream?.loading?'Loading nearby streets…':stream?.status?'Nearby streets unavailable — retrying…':'';
+    if(this.streamStatus.textContent!==message)this.streamStatus.textContent=message;
+    this.streamStatus.hidden=!message;
     // heat
     const level = Math.round(safe(() => g.heat.level, 0));
     const spotted = safe(() => g.heat.spotted, false);

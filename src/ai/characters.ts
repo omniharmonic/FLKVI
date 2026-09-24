@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import * as Lib from '../assets/library';
+import { Ragdoll } from './ragdoll';
+import type { Game } from '../core/game';
 import { personalize, preparePeople, warmthFor } from '../assets/characters';
 
 export type Role = 'idle' | 'walk' | 'run' | 'phone' | 'sit' | 'wave' | 'talk' | 'film' | 'hit' | 'sprint' | 'jump' | 'foldArms' | 'jog' | 'fall' | 'getup';
@@ -280,6 +282,18 @@ export class Character {
   fallT = 0;
   fallTarget = 0;
   fallDir = 1;
+  ragdoll: Ragdoll | null = null;
+  private recovery: { bone: THREE.Object3D; pos: THREE.Vector3; rot: THREE.Quaternion }[] = [];
+  private recoveryTime = 0;
+
+  impact(g: Game, dx: number, dz: number, speed: number) {
+    this.ragdoll?.dispose();
+    this.ragdoll = Ragdoll.create(g, this.pivot, dx, dz, speed);
+    if (this.phone) this.phone.visible = false;
+    this.role = 'fall';
+  }
+  clearPhysics() { this.ragdoll?.dispose(); this.ragdoll=null; this.recovery=[]; this.recoveryTime=0; }
+
   constructor(model: THREE.Object3D, clips: Record<string, THREE.AnimationClip>, public kind: CharKind, phoneParent: THREE.Object3D | null) {
     this.root.add(this.pivot);
     this.pivot.add(model);
@@ -335,7 +349,14 @@ export class Character {
 
   /** Advance animation; `dt` may be accumulated for low-rate LOD updates. */
   update(dt: number) {
+    if (this.ragdoll) { this.ragdoll.sync(); return; }
     this.mixer.update(dt);
+    if (this.recoveryTime > 0) {
+      this.recoveryTime = Math.max(0, this.recoveryTime-dt);
+      const t = 1-this.recoveryTime/.4;
+      for(const b of this.recovery){b.bone.position.lerpVectors(b.pos,b.bone.position,t);b.bone.quaternion.slerpQuaternions(b.rot,b.bone.quaternion,t);}
+      if(!this.recoveryTime)this.recovery=[];
+    }
     // ragdoll-lite: tilt around the feet
     if (this.fallT !== this.fallTarget) {
       const sp = this.fallTarget > this.fallT ? 3.2 : 1.2;
@@ -347,6 +368,11 @@ export class Character {
   }
 
   setFallen(on: boolean, backwards = true) {
+    if(!on && this.ragdoll){
+      this.ragdoll.sync();
+      this.recovery=this.ragdoll.parts.map(p=>({bone:p.bone,pos:p.bone.position.clone(),rot:p.bone.quaternion.clone()}));
+      this.ragdoll.dispose();this.ragdoll=null;this.recoveryTime=.4;
+    }
     if(this.actions.has('death') && this.actions.has('getUp')){
       this.fallTarget=0;this.fallT=0;this.pivot.rotation.x=0;this.pivot.position.y=0;
       this.play(on?'fall':'getup',on?0.08:0.16);

@@ -7,9 +7,17 @@ export function clipGeometry(geo: THREE.BufferGeometry, b: Bounds): THREE.Buffer
   const pi = offsets[attrs.findIndex(([n])=>n==='position')];
   const out = attrs.map(()=>[] as number[]), indices: number[] = [];
   const vertex = (n: number) => attrs.flatMap(([,a])=>Array.from({length:a.itemSize},(_,k)=>a.array[n*a.itemSize+k]));
-  const count = geo.index?.count ?? geo.attributes.position.count;
+  geo.computeBoundingBox();
+  const bb=geo.boundingBox!;
+  if(bb.min.x>=b.minX&&bb.max.x<=b.maxX&&bb.min.z>=b.minZ&&bb.max.z<=b.maxZ)return geo;
+  if(bb.max.x<b.minX||bb.min.x>b.maxX||bb.max.z<b.minZ||bb.min.z>b.maxZ)return new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute([],3));
+  const position=geo.attributes.position;
+  const count = geo.index?.count ?? position.count;
   for (let t=0; t<count; t+=3) {
-    let poly = [0,1,2].map(k=>vertex(geo.index ? geo.index.getX(t+k) : t+k));
+    const ids=[0,1,2].map(k=>geo.index?geo.index.getX(t+k):t+k);
+    const xs=ids.map(n=>position.getX(n)),zs=ids.map(n=>position.getZ(n));
+    if(Math.max(...xs)<b.minX||Math.min(...xs)>b.maxX||Math.max(...zs)<b.minZ||Math.min(...zs)>b.maxZ)continue;
+    let poly = ids.map(vertex);
     for (const [axis,edge,sign] of [[pi,b.minX,1],[pi,b.maxX,-1],[pi+2,b.minZ,1],[pi+2,b.maxZ,-1]]) {
       const next: number[][]=[];
       for(let i=0;i<poly.length;i++) {

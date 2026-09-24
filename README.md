@@ -1,9 +1,11 @@
 # FLK VI
 
-**Every road is a way out.**
+[Latest stability, streaming and physics release notes](docs/flk-vi-stability.md).
+
+**Take the city back, one camera at a time.**
 
 FLK VI is an independent browser open-world game set in real US places. Pick a spot on the map and the game
-builds a photoreal 3D version of it from open data: real streets, real building footprints, real
+builds a 3D version of it from open data: real streets, real building footprints, real
 terrain, plus an inferred network of surveillance cameras. Your job is to take the cameras down
 (spray them, bag them, or cut the poles) and build the longest streak you can before the police
 catch up with you.
@@ -51,7 +53,7 @@ takedown, up to 3×). Free-roam mode lets you explore without a run.
 
 ## Cities
 
-Thirteen featured places have pre-baked starting areas:
+Sixteen featured places have pre-baked starting areas and bundled first-ring expansion maps. The newest are Frisco, CO (alpine), Russell, KS (plains), and Lakewood, CO (suburban):
 
 Boulder (Pearl Street) · San Francisco (Mission) · New York (Greenwich Village) · New Orleans
 (French Quarter) · Chicago (The Loop) · Phoenix (Downtown) · Seattle (Capitol Hill) · Austin (South
@@ -183,5 +185,5 @@ in [public/assets/LICENSES.json](public/assets/LICENSES.json); run `npm run chec
 coverage. Everything else (buildings, signage, surveillance hardware, most audio) is generated
 procedurally in code.
 
-**Fiction:** Groundtruth is a game. It is set in real places but depicts no real brands, agencies or
+**Fiction:** FLK VI is a game. It is set in real places but depicts no real brands, agencies or
 insignia, and camera placements are invented. Don't do this in real life.

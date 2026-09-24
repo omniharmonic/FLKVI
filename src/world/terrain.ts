@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import type { Recipe, Terrain, RecipeArea } from '../core/types';
 import { surface, NOISE_GLSL } from './materials';
+import { recipeBiome, snowline } from '../compiler/biome';
 import { streamedTerrainBounds } from './stream-uniforms';
 
 export class Heightfield {
@@ -65,15 +66,18 @@ export class Heightfield {
 }
 
 /** Resample the recipe terrain to a finer grid (≤ target cell, capped vertex count). */
-export function makeFineHeightfield(t: Terrain): Heightfield {
+export function makeFineHeightfield(t: Terrain, bounds?: Recipe['bounds']): Heightfield {
   const src = Heightfield.fromTerrain(t);
-  const w = (t.cols - 1) * t.cellSize, d = (t.rows - 1) * t.cellSize;
+  const ox=bounds?.minX??t.originX,oz=bounds?.minZ??t.originZ;
+  const w=bounds?bounds.maxX-ox:(t.cols-1)*t.cellSize,d=bounds?bounds.maxZ-oz:(t.rows-1)*t.cellSize;
   let cell = Math.min(t.cellSize, 2.5);
   while ((w / cell + 1) * (d / cell + 1) > 700_000) cell *= 1.25;
-  if (cell >= t.cellSize * 0.99) return src;
+  if (!bounds && cell >= t.cellSize * 0.99) return src;
+  // Square recipe bounds fit exactly: the source DEM margin is sampling data, not another roadless district.
+  if(bounds)cell=w/Math.ceil(w/cell);
   const cols = Math.floor(w / cell) + 1, rows = Math.floor(d / cell) + 1;
-  const hf = new Heightfield(cols, rows, t.originX, t.originZ, cell);
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) hf.h[r * cols + c] = src.bilinear(t.originX + c * cell, t.originZ + r * cell);
+  const hf = new Heightfield(cols, rows, ox, oz, cell);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) hf.h[r * cols + c] = src.bilinear(ox + c * cell, oz + r * cell);
   return hf;
 }
 
@@ -182,9 +186,10 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
 
 export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLandMask>) {
   const grass = surface('grass'), dirt = surface('dirt'), dry = surface('grass-dry', 'grass'), conc = surface('concrete');
-  const arid = recipe.climate === 'arid';
+  const biome = recipeBiome(recipe);
+  const arid = recipe.climate === 'arid' && biome !== 'alpine';
   // vegetation: Sonoran-desert cities landscape yards with decomposed granite / gravel instead of lawn
-  const xeri = recipe.region === 'southwest';
+  const xeri = biome === 'desert';
   const grav = surface('gravel');
   const mat = new THREE.MeshStandardMaterial({ map: grass.map ?? null, normalMap: grass.normalMap ?? null, roughness: 0.95, metalness: 0 });
   mat.name = 'terrain';
@@ -265,11 +270,16 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
           cc *= 0.9 + 0.2 * gt_fbm(wuv * 0.2);
           base = mix(base, cc, smoothstep(0.35, 0.65, hard));
         }
+        ${biome === 'alpine' ? `
+          float snow = smoothstep(${(snowline(recipe.origin.lat)-(recipe.elevation??0)-100).toFixed(1)}, ${(snowline(recipe.origin.lat)-(recipe.elevation??0)+160).toFixed(1)}, vGtW.y+gt_fbm(wuv*.025)*130.0);
+          snow *= smoothstep(.3,.8,normalize(vGtN).y)*(1.0-hard);
+          base=mix(base,vec3(.83,.88,.91)*(0.94+0.06*gt_noise(wuv*3.0)),snow);
+        ` : ''}
         diffuseColor.rgb *= base;
       `)
       .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1.0 - 0.85 * hard);'));
   };
-  mat.customProgramCacheKey = () => 'gt-terrain-' + arid + (xeri ? '-xeri' : '');
+  mat.customProgramCacheKey = () => 'flk-terrain-' + biome + ':' + recipe.elevation + ':' + recipe.origin.lat;
   return mat;
 }
 
@@ -415,7 +425,7 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
 }
 
 /** Distant backdrop terrain with a hole where the near terrain is. */
-export function buildFarTerrain(far: Terrain, near: Heightfield): THREE.Mesh {
+export function buildFarTerrain(far: Terrain, near: Heightfield, recipe?: Recipe): THREE.Mesh {
   const hf = Heightfield.fromTerrain(far);
   const pos: number[] = [], col: number[] = [], nrm: number[] = [], uv: number[] = [];
   const idx: number[] = [];
@@ -423,6 +433,10 @@ export function buildFarTerrain(far: Terrain, near: Heightfield): THREE.Mesh {
   const inset = far.cellSize;
   const inNear = (x: number, z: number) => x > near.ox + inset && x < near.maxX - inset && z > near.oz + inset && z < near.maxZ - inset;
   const cRock = new THREE.Color('#8a7a6c'), cDry = new THREE.Color('#9c9366'), cForest = new THREE.Color('#3d4a2e'), cGrass = new THREE.Color('#77804a');
+  const biome=recipe?recipeBiome(recipe):'temperate';
+  if(biome==='desert'){cRock.set('#b37555');cDry.set('#aa8b66');cGrass.set('#8b855c');}
+  if(biome==='alpine'){cRock.set('#92938c');cDry.set('#747b62');cForest.set('#354837');}
+  const snowColor=new THREE.Color('#dce5e9');
   const tmp = new THREE.Color();
   const baseY = near.sample((near.ox + near.maxX) / 2, (near.oz + near.maxZ) / 2);
   for (let r = 0; r < hf.rows; r++) for (let c = 0; c < hf.cols; c++) {
@@ -438,6 +452,7 @@ export function buildFarTerrain(far: Terrain, near: Heightfield): THREE.Mesh {
     const forestAmt = Math.max(0, Math.min(1, (rel - 150) / 250)) * (1 - Math.max(0, Math.min(1, (rel - 900) / 300)));
     tmp.lerp(cForest, forestAmt * 0.85 * (0.6 + 0.4 * Math.sin(x * 0.01) * Math.cos(z * 0.013)));
     tmp.lerp(cRock, Math.max(0, Math.min(1, (slope - 0.18) * 3.5)));
+    if(biome==='alpine'&&recipe){const snow=Math.max(0,Math.min(1,(y+(recipe.elevation??0)-snowline(recipe.origin.lat)+90+Math.sin(x*.014)*70)/180));tmp.lerp(snowColor,snow*Math.max(0,Math.min(1,(n.y-.2)*1.6)));}
     col.push(tmp.r, tmp.g, tmp.b);
     uv.push(x / 12, z / 12);
   }

@@ -20,6 +20,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:deep
+      - run: npm run test:ai
       - run: npm run build:fast
         env:
           BASE: /groundtruth/

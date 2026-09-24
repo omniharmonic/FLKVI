@@ -29,7 +29,7 @@ export function openPause(g: Game, onResume: () => void, extra?: { photo?: () =>
       ...(extra?.photo ? [item('photo', 'Photo mode', () => extra.photo!())] : []),
       item('controls', 'Controls', () => show('controls')),
       item('credits', 'Credits', () => show('credits')),
-      item('quit', 'Quit to map', () => { location.href = location.pathname; }),
+      item('quit', 'Quit to map', () => { location.replace(location.pathname); }),
     ),
     content,
   );

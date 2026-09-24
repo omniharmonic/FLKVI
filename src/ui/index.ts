@@ -163,7 +163,7 @@ export function setupHUD(g: Game): void {
       state.results = showResults(g, r, {
         runAgain: () => restart('takedown'),
         freeRoam: () => restart('freeroam'),
-        newLocation: () => { location.href = location.pathname; },
+        newLocation: () => { location.replace(location.pathname); },
       });
       setTimeout(() => (state.results?.querySelector('.gt-btn.primary') as HTMLElement | null)?.focus(), 50);
     }, delay);

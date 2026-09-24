@@ -1,3 +1,5 @@
+import { budgetPixelRatio } from './budget';
+import { installRenderRecovery } from '../ui/render-recovery';
 // OWNER: render agent. Renderer, post-processing, sky, sun, time of day, fog, weather, quality tiers.
 //
 // Public helpers for other modules:
@@ -514,6 +516,11 @@ function readStoredQuality(): Quality | null {
   return null;
 }
 
+function pixelRatio(g:Game) {
+  return budgetPixelRatio(g.container.clientWidth||innerWidth,g.container.clientHeight||innerHeight,
+    tierConfig(g.quality).pixelRatio*resolutionScale(),g.quality);
+}
+
 let devMode = import.meta.env.DEV && new URLSearchParams(location.search).has('renderdev'); // dev-only: keeps dev harness chunks out of production builds
 
 export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Promise<void> {
@@ -543,7 +550,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   const stored = readStoredQuality();
   if (stored) g.quality = stored;
   const cfg = tierConfig(g.quality);
-  renderer.setPixelRatio(cfg.pixelRatio * resolutionScale());
+  renderer.setPixelRatio(pixelRatio(g));
 
   const size = () => ({ w: g.container.clientWidth || innerWidth, h: g.container.clientHeight || innerHeight });
   const { w, h } = size();
@@ -560,6 +567,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
 
   const onResize = () => {
     const s = size();
+    renderer.setPixelRatio(pixelRatio(g));
     renderer.setSize(s.w, s.h, false);
     post.composer.setSize(s.w, s.h);
     g.camera.aspect = s.w / s.h;
@@ -570,7 +578,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
     const scale = resolutionScale();
     if (scale === lastResolutionScale) return;
     lastResolutionScale = scale;
-    renderer.setPixelRatio(tierConfig(g.quality).pixelRatio * scale);
+    renderer.setPixelRatio(pixelRatio(g));
     onResize();
   });
   addEventListener('resize', onResize);
@@ -595,7 +603,9 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
 
   // the composer issues many internal renders; accumulate info per frame so draw calls are measurable
   renderer.info.autoReset = false;
+  const contextLost = installRenderRecovery(g);
   g.renderFrame = (dt) => {
+    if(contextLost())return;
     renderer.info.reset();
     post.composer.render(dt);
   };
@@ -648,7 +658,7 @@ function applyQuality(g: Game, q: Quality) {
   if (!st) return;
   const cfg = tierConfig(q);
   const { post, sky } = st;
-  g.renderer.setPixelRatio(cfg.pixelRatio * resolutionScale());
+  g.renderer.setPixelRatio(pixelRatio(g));
   const w = g.container.clientWidth || innerWidth;
   const h = g.container.clientHeight || innerHeight;
   g.renderer.setSize(w, h, false);

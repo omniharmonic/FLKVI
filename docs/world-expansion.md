@@ -1,3 +1,5 @@
+> Historical first expansion pass. See [the FLK VI stability release](flk-vi-stability.md) for current ragdolls, bundled map coverage, boundary fixes and limits.
+
 # World expansion and simulation upgrade
 
 September 24, 2026. Implemented locally; publication is separate.

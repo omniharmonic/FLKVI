@@ -10,6 +10,10 @@
  g.paused=true;g.sky.cyclePaused=true;g.removeSystem('ai');
  document.querySelector('.gt-clickplay')?.remove();
  const checks=[];const check=(name,pass,detail='')=>checks.push({name,pass:!!pass,detail});
+ const {MeshBuilder}=await import('/src/world/util.ts');
+ const large=new MeshBuilder();large.pos=Array(150000).fill(1);large.nrm=Array(150000).fill(0);large.uv=Array(100000).fill(0);
+ const merged=new MeshBuilder();merged.append(large);
+ check('Large mesh batches avoid browser argument-count failures',merged.pos.length===150000&&merged.nrm.length===150000);
  check('Routing distinguishes OSM identities from graph indices',nav.route(123,456).join(',')==='123,456');
  const originalRender=g.renderFrame,originalDelta=g.clock.getDelta;
  g.renderFrame=()=>{};g.clock.getDelta=()=>1/60;g.prof=null;g.input.enabled=true;p.controlsEnabled=true;
@@ -17,6 +21,7 @@
  const key=(code,on=true)=>dispatchEvent(new KeyboardEvent(on?'keydown':'keyup',{code}));
  const tap=code=>{key(code);key(code,false);};
  const s=g.world.streaming,core=s.core,edge=core.maxX;
+ check('Initial terrain boundary matches the road coverage boundary',Math.abs(core.maxX-g.recipe.bounds.maxX)<.001&&Math.abs(core.minX-g.recipe.bounds.minX)<.001);
  const blank=(i,j)=>{
    const b=districtBounds(core,i,j),cols=(b.maxX-b.minX)/4+1,rows=(b.maxZ-b.minZ)/4+1;
    return {...g.recipe,name:'Regression district',bounds:b,farTerrain:undefined,
@@ -58,9 +63,23 @@
  for(const [q,dz]of [[a,-0.85],[b,-1.2]]){q.x=p.position.x;q.z=p.position.z+dz;q.y=p.position.y;q.state='idle';q.ch.root.position.set(q.x,q.y,q.z);}
  p.camera.yaw=0;tap('KeyG');step(16);
  check('Punch hits nearest civilian only',a.state==='fallen'&&b.state!=='fallen',{a:a.state,b:b.state});
- check('Falling uses the authored animation',a.ch.role==='fall');
+ check('Impact enters the fall state',a.ch.role==='fall');
+ const rag=a.ch.ragdoll;
+ check('Nearby punch creates an articulated ragdoll',rag&&rag.parts.length===11);
+ const start=rag?.parts[0].body.translation();step(90);
+ check('Ragdoll responds to gravity and impact',rag&&Math.hypot(rag.position.x-start.x,rag.position.z-start.z)>.2&&rag.position.y<start.y);
+ check('Ragdoll remains finite and above solid ground',rag&&rag.parts.every(q=>{const v=q.body.translation();return Number.isFinite(v.x+v.y+v.z)&&v.y>p.position.y-.35&&v.y<p.position.y+3;}));
+ const handles=rag?.parts.map(q=>q.body);
  a.ch.setFallen(false);check('Recovery uses the authored get-up animation',a.ch.role==='getup');
+ check('Recovery releases all ragdoll bodies',handles?.every(b=>!b.isValid())&&!a.ch.ragdoll);
  g.ai.peds.release(a);g.ai.peds.release(b);step(40);
+ const bodyCount=g.physics.bodies.len(), crowd=[];
+ for(let i=0;i<5;i++){const c=g.ai.peds.acquire();c.ch.root.position.set(p.position.x+i,p.position.y,p.position.z+4);c.ch.setFallen(true);c.ch.impact(g,0,1,3);crowd.push(c);}
+ check('Ragdoll budget bounds simultaneous simulation',crowd.filter(c=>c.ch.ragdoll).length<=4);
+ crowd.forEach(c=>g.ai.peds.release(c));check('Pooled pedestrians release their ragdoll bodies',g.physics.bodies.len()===bodyCount);
+ const cover=g.systems.find(s=>s.name==='ground-cover');
+ check('Regional ground cover streams near the player',cover?.group.children.some(c=>c.children.some(m=>m.isInstancedMesh&&m.count>0)));
+ check('Ground cover residency remains bounded',cover?.group.children.length<=25);
  const behind=g.ai.peds.acquire();behind.x=p.position.x;behind.z=p.position.z-1;behind.y=p.position.y;behind.state='idle';
  const blocker=g.physics.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(p.position.x,p.position.y+1,p.position.z-0.5));
  g.physics.createCollider(R.ColliderDesc.cuboid(2,1,0.1),blocker);g.physics.step();tap('KeyG');step(16);
@@ -79,6 +98,9 @@
  check('Impact deforms actual body vertices',vertices.some((n,i)=>Math.abs(n-after[i])>0.00001));
  check('Damage does not modify another car mesh',q.visual.bodyMesh.geometry===shared&&q.health===100&&v.visual.bodyMesh.geometry!==shared);
  check('Damage affects alignment and condition',v.health===55&&Math.abs(v.alignment)>0);
+ check('Heavy impact cracks only the damaged vehicle glass',v.visual.bodyMesh.material[1]!==q.visual.bodyMesh.material[1]&&v.visual.bodyMesh.material[1].roughness>.03);
+ g.camera.position.copy(v.position).add(new THREE.Vector3(4,3,6));g.camera.lookAt(v.position);originalRender(0);
+ check('Damaged vehicle shaders render',g.renderer.info.render.calls>0);
  check('Damage records a paint scuff',v.visual.bodyMesh.material[0].carUniforms.uDamage.value.some(d=>d.w>0));
  g.sky.wet=1;v.fixedUpdate(1/60);check('Wet weather lowers tire grip',v.gripFactor<0.8);
  g.sky.wet=0;v.fixedUpdate(1/60);check('Dry grip returns',v.gripFactor===1);

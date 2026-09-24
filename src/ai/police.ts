@@ -338,6 +338,7 @@ export class PoliceSystem {
   }
 
   private removeOfficer(o: Officer) {
+    o.ch.clearPhysics();
     this.group.remove(o.ch.root);
     o.ch.root.remove(o.icon.sprite);
     const f = flashlights.get(o.ch);
@@ -926,7 +927,16 @@ export class PoliceSystem {
 
   private updateOfficer(o: Officer, dt: number, P: PlayerInfo, tgt: Vec3 | null) {
     const g = this.g;
+    if(o.stunned<=0 && P.inVehicle && P.vehicle && Math.abs(P.vehicle.speed)>3){
+      const dx=o.x-P.x,dz=o.z-P.z,fx=Math.sin(P.vehicle.heading),fz=-Math.cos(P.vehicle.heading);
+      if(Math.abs(dx*fx+dz*fz)<2.7&&Math.abs(dx*-fz+dz*fx)<1.1&&Math.abs(o.y-P.y)<1.5){
+        o.stunned=4+(o.ch.duration('getup')||1.1);o.recovering=false;o.ch.setFallen(true);
+        o.ch.impact(g,fx*Math.sign(P.vehicle.speed),fz*Math.sign(P.vehicle.speed),Math.abs(P.vehicle.speed)*.4);
+        g.events.emit('crime',{kind:'assault',p:[o.x,o.z],severity:3});
+      }
+    }
     if(o.stunned>0){
+      if(o.ch.ragdoll){o.x=o.ch.ragdoll.position.x;o.z=o.ch.ragdoll.position.z;o.y=groundY(g,o.x,o.z);o.ch.root.position.set(o.x,o.y,o.z);}
       o.stunned=Math.max(0,o.stunned-dt);o.v=0;o.vaultT=0;flashlightFor(o.ch).visible=false;
       if(o.stunned<o.ch.duration('getup') && !o.recovering){o.recovering=true;o.ch.setFallen(false);}
       return;

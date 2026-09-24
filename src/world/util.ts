@@ -32,8 +32,8 @@ export class MeshBuilder {
   }
   append(o: MeshBuilder) {
     const base = this.count;
-    this.pos.push(...o.pos); this.nrm.push(...o.nrm); this.uv.push(...o.uv);
-    if (this.col) { if (o.col) this.col.push(...o.col); else for (let i = 0; i < o.count; i++) this.col.push(1, 1, 1); }
+    for(const n of o.pos)this.pos.push(n);for(const n of o.nrm)this.nrm.push(n);for(const n of o.uv)this.uv.push(n);
+    if (this.col) { if (o.col) { for(const n of o.col)this.col.push(n); } else for (let i = 0; i < o.count; i++) this.col.push(1, 1, 1); }
     for (const i of o.idx) this.idx.push(i + base);
   }
   build(): THREE.BufferGeometry {

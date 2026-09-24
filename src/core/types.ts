@@ -167,6 +167,8 @@ export interface Terrain {
 }
 
 export interface Recipe {
+  /** Optional finer landscape classification; old baked recipes infer it from location/elevation. */
+  biome?: import('../compiler/biome').Biome;
   version: 1;
   name: string;
   origin: { lat: number; lon: number };

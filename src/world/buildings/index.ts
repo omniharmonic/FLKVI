@@ -31,6 +31,8 @@ export interface BuildingsResult {
 export interface BuildStats { buildings: number; chunks: number; meshes: number; trisLod0: number; trisLod1: number; trisCommon: number; windows: number; ms: number; texMs: number; genMs: number }
 
 export interface BuildOptions {
+  /** Shorter work slices while neighboring districts load during play. */
+  yieldMs?: number;
   chunkSize?: number;
   /** distance (m) at which chunks switch from detailed to simplified facades */
   lodDistance?: number;
@@ -141,7 +143,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
           console.warn('[buildings] failed', b.id, err);
         }
         done++;
-        if (performance.now() - lastYield > 30) {
+        if (performance.now() - lastYield > (opts.yieldMs ?? 30)) {
           onProgress('Raising buildings', done / Math.max(1, total));
           await yieldUI();
           lastYield = performance.now();

@@ -114,7 +114,18 @@ export function localeFor(lat: number, lon: number, region: Region): Locale {
   return null;
 }
 
-export function paletteFor(lat: number, lon: number, region: Region): TreePalette {
+export function paletteFor(lat: number, lon: number, region: Region, elevation = 0): TreePalette {
+  if (elevation > 2350 && lat > 34) return {
+    id: 'alpine',
+    street: [S('aspen',[7,13],.45,3),S('blue-spruce',[8,16],.35,2)],
+    park: [S('aspen',[9,17],.45,2),S('blue-spruce',[10,22],.35,3),S('ponderosa-pine',[12,24],.4,2)],
+    forest: [S('blue-spruce',[12,25],.35,4),S('ponderosa-pine',[14,28],.35,3),S('aspen',[10,18],.4,2)],
+  };
+  if (region === 'mountain-west' && lon < -107 && lat < 40.5) return {
+    id: 'high-desert',street: PALETTES['front-range'].street,
+    park: [S('cottonwood',[9,17],.7,3),S('ashe-juniper',[3,7],.7,2)],
+    forest: [S('ashe-juniper',[3,7],.75,4),S('ponderosa-pine',[6,12],.45,1)],
+  };
   const loc = localeFor(lat, lon, region);
   if (loc === 'miami') return PALETTES.tropical;
   if (loc === 'lowcountry') return PALETTES.gulf;

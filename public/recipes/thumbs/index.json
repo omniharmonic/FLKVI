@@ -63,5 +63,20 @@
   "region": "southwest",
   "cams": 35,
   "bldgs": 1045
+ },
+ "frisco-co": {
+  "region": "mountain-west",
+  "cams": 15,
+  "bldgs": 796
+ },
+ "lakewood-co": {
+  "region": "mountain-west",
+  "cams": 23,
+  "bldgs": 333
+ },
+ "russell-ks": {
+  "region": "midwest",
+  "cams": 13,
+  "bldgs": 586
  }
 }

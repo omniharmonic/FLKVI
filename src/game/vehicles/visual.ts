@@ -81,12 +81,41 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   root.add(beam);
   let isFar = false;
   let damageIndex = 0;
+  let damagedGlass: THREE.MeshPhysicalMaterial | null = null;
+  const glassDamage = {value:0};
+  const glassImpact = {value:new THREE.Vector2()};
   const phase = (seed % 7) * 0.13;
   const I = lampMat.lampI, On = lampMat.lampOn;
   return {
     root, chassis, bodyMesh, wheels,
     get far() { return isFar; },
-    markDamage(p, severity) { bodyMat.carUniforms.uDamage.value[damageIndex++ % 4].set(p.x,p.y,p.z,Math.min(1,severity*4)); },
+    markDamage(p, severity) {
+      bodyMat.carUniforms.uDamage.value[damageIndex++ % 4].set(p.x,p.y,p.z,Math.min(1,severity*4));
+      if(severity<.12)return;
+      glassDamage.value=Math.min(1,glassDamage.value+severity*1.3);
+      glassImpact.value.set(p.x*2+p.z,1.8);
+      if(!damagedGlass){
+        damagedGlass=mats.glass.clone();
+        const baseCompile=mats.glass.onBeforeCompile;
+        damagedGlass.onBeforeCompile=(sh,renderer)=>{
+          baseCompile.call(damagedGlass!,sh,renderer);
+          sh.uniforms.uGlassDamage=glassDamage;sh.uniforms.uGlassImpact=glassImpact;
+          sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 vCrack;')
+            .replace('#include <begin_vertex>','#include <begin_vertex>\nvCrack=vec2(position.x*2.0+position.z,position.y*2.0);');
+          sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec2 vCrack;uniform float uGlassDamage;uniform vec2 uGlassImpact;')
+            .replace('#include <color_fragment>',`#include <color_fragment>
+              vec2 cp=vCrack-uGlassImpact;float cr=length(cp);float ca=atan(cp.y,cp.x);
+              float rays=1.0-smoothstep(.015,.05,abs(sin(ca*11.0+sin(cr*19.0)*.24)));
+              float rings=1.0-smoothstep(.016,.055,abs(sin(cr*20.0+sin(ca*7.0)*.7)));
+              float crack=max(rays,rings*.65)*(1.0-smoothstep(.4,uGlassDamage*4.0+.6,cr))*uGlassDamage;
+              diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.55,.66,.68),crack*.85);
+              diffuseColor.a=max(diffuseColor.a,crack*.8);`);
+        };
+        damagedGlass.customProgramCacheKey=()=> 'flk-cracked-auto-glass-v1';
+        (bodyMesh.material as THREE.Material[])[1]=damagedGlass;
+      }
+      damagedGlass.roughness=.03+glassDamage.value*.25;
+    },
     setFar(f: boolean) {
       if (f === isFar) return;
       isFar = f;
@@ -127,7 +156,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       setBodyPaint(bodyMat, col);
       (farBody.material as THREE.Material[])[0] = paintFor(model, c);
     },
-    dispose() { if(bodyMesh.userData.dentable)bodyMesh.geometry.dispose(); bodyMat.dispose(); lampMat.dispose(); },
+    dispose() { if(bodyMesh.userData.dentable)bodyMesh.geometry.dispose(); bodyMat.dispose(); lampMat.dispose(); damagedGlass?.dispose(); },
   };
 }
 

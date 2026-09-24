@@ -62,6 +62,7 @@ export class VehicleSystem implements VehiclesAPI, System {
   private headlights: THREE.SpotLight[] = [];
   private sirenLights: THREE.PointLight[] = [];
   private impactCooldown = new Map<string, number>();
+  private damagedAt = new Map<string, number>();
 
   constructor(private g: Game) {
     this.group.name = 'vehicles';
@@ -141,6 +142,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.vehicles.delete(id);
     this.lastVel.delete(id);
     this.impactCooldown.delete(id);
+    this.damagedAt.delete(id);
   }
 
   nearest(p: Vec2, radius: number): VehicleHandle | undefined {
@@ -219,6 +221,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.vehicles.delete(v.id);
     this.lastVel.delete(v.id);
     this.impactCooldown.delete(v.id);
+    this.damagedAt.delete(v.id);
   }
 
   // ------------------------------------------------------------------ loop
@@ -248,21 +251,54 @@ export class VehicleSystem implements VehiclesAPI, System {
 
   fixedUpdate(dt: number) {
     const playerVid = this.g.player?.vehicleId;
+    this.prepareContacts();
     for (const v of this.vehicles.values()) {
-      if (v.physicsMode === 'dynamic' && v.body.isSleeping() && v.driver === 'none') continue;
+      if (v.physicsMode === 'dynamic' && v.body.isSleeping() && v.driver === 'none') { this.recordVelocity(v); continue; }
       v.fixedUpdate(dt);
-      if (v.physicsMode === 'dynamic' && v.id !== playerVid) this.sanitize(v, dt);
-      if (v.physicsMode === 'dynamic') this.detectImpact(v, dt);
+      if (v.physicsMode === 'dynamic' && v.id !== playerVid) this.sanitize(v);
+      if (v.physicsMode === 'dynamic') this.recordVelocity(v);
       if (v.id === playerVid || (v.physicsMode === 'dynamic' && v.driver !== 'none')) this.knockables.check(v, dt);
       if (v.id === playerVid) { this.scrape(v, dt); if (v.stuckT > 0.5) this.unpin(v); }
     }
   }
 
+  // Promote traffic BEFORE contact. Kinematic bodies otherwise behave like infinite-mass walls.
+  private prepareContacts() {
+    for(const v of this.vehicles.values()) {
+      if(v.physicsMode!=='dynamic'||v.body.isSleeping())continue;
+      const a=v.body.translation(),av=v.body.linvel();
+      if(Math.hypot(av.x,av.z)<2)continue;
+      for(const o of this.vehicles.values()) {
+        if(o.physicsMode!=='kinematic')continue;
+        const b=o.body.translation();
+        if(Math.abs(a.y-b.y)>2||Math.hypot(a.x-b.x,a.z-b.z)>22)continue;
+        const sin=Math.sin(o.heading),cos=Math.cos(o.heading);
+        const vx=av.x-sin*o.speed,vz=av.z+cos*o.speed;
+        const dx=a.x-b.x,dz=a.z-b.z;
+        const t=clamp(-(dx*vx+dz*vz)/Math.max(.01,vx*vx+vz*vz),0,.22);
+        const x=dx+vx*t,z=dz+vz*t,angle=v.heading-o.heading;
+        const hx=o.model.W+Math.abs(Math.cos(angle))*v.model.W+Math.abs(Math.sin(angle))*v.model.L/2+.15;
+        const hz=o.model.L/2+Math.abs(Math.sin(angle))*v.model.W+Math.abs(Math.cos(angle))*v.model.L/2+.15;
+        if(Math.abs(x*cos+z*sin)<hx&&Math.abs(x*sin-z*cos)<hz){o.makeDynamic();o.crashed=true;}
+      }
+    }
+  }
+
+  private recordVelocity(v:Vehicle) {
+    let prev=this.lastVel.get(v.id);
+    if(!prev){prev=new THREE.Vector3();this.lastVel.set(v.id,prev);}
+    const lv=v.body.linvel();prev.set(lv.x,lv.y,lv.z);
+  }
+
+  afterPhysics(dt:number) {
+    for(const v of this.vehicles.values())if(v.physicsMode==='dynamic')this.detectImpact(v,dt);
+  }
+
   /**
    * Physics-explosion guard for cars nobody is driving (woken parked cars, crashed AI): clamp absurd
-   * velocities / spin, and put back on the ground any car stranded > 3 m above it (trees, roofs, air).
+   * velocities / spin. Legitimate rolls, roof landings and airborne crashes retain their physics.
    */
-  private sanitize(v: Vehicle, dt: number) {
+  private sanitize(v: Vehicle) {
     const lv = v.body.linvel(), av = v.body.angvel();
     const h = Math.hypot(lv.x, lv.z);
     if (Math.abs(lv.y) > 30 || h > 60) {
@@ -271,26 +307,24 @@ export class VehicleSystem implements VehiclesAPI, System {
     }
     const w = Math.hypot(av.x, av.y, av.z);
     if (w > 12) { const k = 12 / w; v.body.setAngvel({ x: av.x * k, y: av.y * k, z: av.z * k }, true); }
-    if (v.driver === 'player') return;
-    const t = v.body.translation();
-    if (t.y - groundY(this.g, t.x, t.z) > 3) v.strandedT += dt; else v.strandedT = 0;
-    if (v.strandedT > 1.5) { v.strandedT = 0; v.flipUpright(); }
+
   }
 
   /** Solver contact point between a vehicle hull and anything else (world space), or null. */
   private contactPoint(v: Vehicle, filter?: (c: RAPIER_NS.Collider) => boolean): THREE.Vector3 | null {
     const w = this.g.physics;
-    let out: THREE.Vector3 | null = null;
+    let out: THREE.Vector3 | null = null, strongest = 0;
     for (const c of v.colliders) {
       w.contactPairsWith(c, (o) => {
-        if (out || (filter && !filter(o))) return;
+        if (filter && !filter(o)) return;
         w.contactPair(c, o, (man) => {
-          if (out || man.numSolverContacts() === 0) return;
-          const p = man.solverContactPoint(0);
-          if (p) out = new THREE.Vector3(p.x, p.y, p.z);
+          if (man.numSolverContacts() === 0) return;
+          let impulse=0;for(let i=0;i<man.numContacts();i++)impulse+=man.contactImpulse(i);
+          if(impulse<=strongest)return;
+          const p=man.solverContactPoint(0);
+          if(p){strongest=impulse;out=new THREE.Vector3(p.x,p.y,p.z);}
         });
       });
-      if (out) break;
     }
     return out;
   }
@@ -326,22 +360,23 @@ export class VehicleSystem implements VehiclesAPI, System {
     let prev = this.lastVel.get(v.id);
     if (!prev) { prev = new THREE.Vector3(lv.x, lv.y, lv.z); this.lastVel.set(v.id, prev); return; }
     const dv = new THREE.Vector3(lv.x - prev.x, lv.y - prev.y, lv.z - prev.z);
-    prev.set(lv.x, lv.y, lv.z);
     // Ignore mostly-vertical changes (landing on suspension).
     const horiz = Math.hypot(dv.x, dv.z) + Math.max(0, Math.abs(dv.y) - 3) * 0.5;
     const cd = (this.impactCooldown.get(v.id) ?? 0) - dt;
     this.impactCooldown.set(v.id, cd);
     if (horiz < 2.2 || cd > 0) return;
+    const contact=this.contactPoint(v);
+    if(!contact)return; // acceleration, braking and suspension impulses are not crashes
     this.impactCooldown.set(v.id, 0.25);
-    this.onImpact(v, dv, horiz);
+    this.onImpact(v, dv, horiz, contact);
   }
 
-  private onImpact(v: Vehicle, dv: THREE.Vector3, mag: number) {
+  private onImpact(v: Vehicle, dv: THREE.Vector3, mag: number, contact:THREE.Vector3) {
     const g = this.g;
     v.lastImpact = mag;
     v.lastImpactDir.copy(dv).normalize();
     const dmg = (mag - 2) * 3.2;
-    this.damage(v, dmg, dv, this.contactPoint(v) ?? undefined);
+    this.damage(v, dmg, dv, contact);
     playSound(g, 'crash', { at: v3(v.position), volume: clamp(mag / 12, 0.2, 1) });
     // Sparks where metal met something hard.
     if (mag > 4) {
@@ -358,16 +393,9 @@ export class VehicleSystem implements VehiclesAPI, System {
     g.physics.contactPairsWith(main, (c2) => { const o = this.colliderMap.get(c2.handle); if (o && o !== v) hitOthers.add(o); });
     g.physics.contactPairsWith(v.colliders[1], (c2) => { const o = this.colliderMap.get(c2.handle); if (o && o !== v) hitOthers.add(o); });
     for (const o of hitOthers) {
-      if (o.physicsMode === 'kinematic') {
-        if (mag > 3.5) {
-          o.makeDynamic();
-          o.crashed = true;
-          const push = v.prevVelocity.clone().multiplyScalar(v.tuning.mass / (v.tuning.mass + o.tuning.mass) * 0.8);
-          const lv = o.body.linvel();
-          o.body.setLinvel({ x: lv.x + push.x, y: lv.y + 0.5, z: lv.z + push.z }, true);
-        }
-      } else o.body.wakeUp();
-      this.damage(o, dmg * 0.8, dv.clone().negate());
+      if(o.physicsMode==='kinematic'){o.makeDynamic();o.crashed=true;}
+      else o.body.wakeUp();
+      // Each car receives damage from its own solved velocity change; never double-charge a pair.
       if (v.driver === 'player' && (o.driver === 'ai' || o.kind === 'police')) {
         g.events.emit('crime', { kind: 'vehicle-hit', p: [v.position.x, v.position.z], severity: mag > 8 ? 3 : 2 });
       }
@@ -377,10 +405,12 @@ export class VehicleSystem implements VehiclesAPI, System {
   damage(v: Vehicle, amount: number, dvWorld: THREE.Vector3, contact?: THREE.Vector3) {
     if (amount <= 0) return;
     v.health = Math.max(0, v.health - amount);
+    this.damagedAt.set(v.id,this.g.elapsed);
     // Dent: impact comes from the side opposite to the velocity change.
     const dir = dvWorld.clone().negate().normalize();
-    const local = dir.applyQuaternion(v.object.quaternion.clone().invert());
-    const at = contact ? v.object.worldToLocal(contact.clone()) : undefined;
+    const inverse = new THREE.Quaternion().copy(v.body.rotation()).invert();
+    const local = dir.applyQuaternion(inverse);
+    const at = contact ? contact.clone().sub(v.body.translation()).applyQuaternion(inverse) : undefined;
     dent(v, local, clamp(amount / 100, 0.025, 0.32), at);
     if (amount > 10) v.alignment = clamp(v.alignment + local.x * amount / 500, -0.2, 0.2);
     if (v.health < 35) v.hazards = true;
@@ -415,19 +445,16 @@ export class VehicleSystem implements VehiclesAPI, System {
         this.promote(s);
         promoted++;
       }
-      // A sleeping undriven car resting > 3 m up (tree canopy, roof ledge): wake it so sanitize() recovers it.
-      for (const v of this.vehicles.values()) {
-        if (v.physicsMode !== 'dynamic' || v.driver === 'player' || !v.body.isSleeping()) continue;
-        const t = v.body.translation();
-        if (t.y - groundY(g, t.x, t.z) > 3) v.body.wakeUp();
-      }
       // Demote far, untouched ones.
       for (const v of [...this.vehicles.values()]) {
         if (!v.parkedSlot || v.driver !== 'none' || g.player?.vehicleId === v.id) continue;
         const d = Math.hypot(v.position.x - focus.x, v.position.z - focus.z);
-        const upright = v.object.up.clone().applyQuaternion(v.object.quaternion).y > 0.8;
-        const grounded = v.position.y - groundY(g, v.position.x, v.position.z) < 1;
-        if (d > DEMOTE_RADIUS && Math.abs(v.speed) < 0.3 && upright && grounded && !v.destroyed) this.demote(v);
+        // Retire old, distant wrecks so they cannot exhaust the nearby parked-car physics pool.
+        if(d>180 && v.health<100 && g.elapsed-(this.damagedAt.get(v.id)??g.elapsed)>45){
+          const slot=this.parking.slots[v.parkedSlot.index];if(slot)slot.dead=true;
+          this.despawn(v.id);continue;
+        }
+        if (d > DEMOTE_RADIUS && this.demotable(v)) this.demote(v);
       }
     }
     this.parking.refresh(g.camera.position, false, g.camera);
