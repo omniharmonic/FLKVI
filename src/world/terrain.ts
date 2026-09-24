@@ -5,6 +5,11 @@ import { surface, NOISE_GLSL } from './materials';
 
 export class Heightfield {
   h: Float32Array;
+  /** Optional per-vertex horizontal offsets (dx, dz) for the rendered mesh: retaining walls snap the grid rows on
+   *  either side of a wall onto the wall line, turning the one-cell ramp into a true vertical step. */
+  off: Float32Array | null = null;
+  /** Vertices next to such a step: normals use the flatter one-sided difference (no smeared shading). */
+  cliff: Uint8Array | null = null;
   constructor(public cols: number, public rows: number, public ox: number, public oz: number, public cell: number, h?: Float32Array) {
     this.h = h ?? new Float32Array(cols * rows);
   }
@@ -35,9 +40,21 @@ export class Heightfield {
     return a * (1 - u) * (1 - v) + b * u * (1 - v) + d * (1 - u) * v + e * u * v;
   }
   normal(c: number, r: number, out: THREE.Vector3) {
+    if (this.cliff && c >= 0 && r >= 0 && c < this.cols && r < this.rows && this.cliff[r * this.cols + c]) {
+      const h = this.at(c, r);
+      const oneSided = (a: number, b: number) => (Math.abs(a - h) < Math.abs(b - h) ? h - a : b - h) / this.cell;
+      const dx = oneSided(this.at(c - 1, r), this.at(c + 1, r)), dz = oneSided(this.at(c, r - 1), this.at(c, r + 1));
+      return out.set(-dx, 1, -dz).normalize();
+    }
     const dx = (this.at(c + 1, r) - this.at(c - 1, r)) / (2 * this.cell);
     const dz = (this.at(c, r + 1) - this.at(c, r - 1)) / (2 * this.cell);
     return out.set(-dx, 1, -dz).normalize();
+  }
+  /** Horizontal mesh offset slot, created on demand. */
+  ensureOffsets() {
+    if (!this.off) this.off = new Float32Array(this.cols * this.rows * 2);
+    if (!this.cliff) this.cliff = new Uint8Array(this.cols * this.rows);
+    return this.off;
   }
   static fromTerrain(t: Terrain) {
     return new Heightfield(t.cols, t.rows, t.originX, t.originZ, t.cellSize, Float32Array.from(t.heights));
@@ -183,11 +200,11 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
     sh.uniforms.gravMap = { value: grav.map };
     sh.uniforms.gravScale = { value: 1 / grav.sizeM };
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGtW;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvGtW = (modelMatrix * vec4(transformed,1.0)).xyz;');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGtW;\nvarying vec3 vGtN;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvGtW = (modelMatrix * vec4(transformed,1.0)).xyz;\nvGtN = normalize(mat3(modelMatrix) * objectNormal);');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec3 vGtW; uniform sampler2D dirtMap; uniform sampler2D maskMap; uniform vec2 maskOrigin; uniform vec2 maskSize;
+        varying vec3 vGtW; varying vec3 vGtN; uniform sampler2D dirtMap; uniform sampler2D maskMap; uniform vec2 maskOrigin; uniform vec2 maskSize;
         uniform float grassScale; uniform float dirtScale; uniform sampler2D dryMap; uniform float dryScale; uniform sampler2D hardMap; uniform sampler2D concMap; uniform float concScale; uniform sampler2D gravMap; uniform float gravScale;
         ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
@@ -219,8 +236,24 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
           dg *= 0.9 + 0.2 * gt_fbm(wuv * 0.23 + 5.0);
           base = mix(base, dg, dgAmt * (0.85 + 0.15 * gt_noise(wuv * 0.5)));
         }` : ''}
-        float slope = 1.0 - abs(normalize(cross(dFdx(vGtW), dFdy(vGtW))).y);
-        base = mix(base, dirtC * vec3(0.95, 0.9, 0.85), smoothstep(0.25, 0.45, abs(slope)));
+        // steep ground: triplanar dirt / gravelly soil (planar XZ UVs smear into streaks on steep faces), driven by
+        // the interpolated vertex normal (the per-triangle facet normal made hard-edged triangular patches)
+        {
+          vec3 gn = normalize(vGtN);
+          float slope = 1.0 - gn.y;
+          float steep = smoothstep(0.2, 0.42, slope + 0.1 * (gt_noise(wuv * 0.21) - 0.5) + 0.06 * (gt_fbm(wuv * 0.9) - 0.5));
+          if (steep > 0.001) {
+            vec3 tw = pow(abs(gn), vec3(4.0)); tw /= (tw.x + tw.y + tw.z);
+            vec3 p = vGtW * dirtScale;
+            vec3 tpD = texture2D(dirtMap, p.zy).rgb * tw.x + texture2D(dirtMap, p.xz).rgb * tw.y + texture2D(dirtMap, p.xy).rgb * tw.z;
+            vec3 q = vGtW * gravScale * 0.6;
+            vec3 tpG = texture2D(gravMap, q.zy).rgb * tw.x + texture2D(gravMap, q.xz).rgb * tw.y + texture2D(gravMap, q.xy).rgb * tw.z;
+            vec3 soil = mix(tpD * vec3(0.95, 0.9, 0.85), tpG * vec3(0.92, 0.88, 0.82), smoothstep(0.4, 0.7, gt_fbm(vGtW.xz * 0.13 + vGtW.y * 0.2)) * 0.55);
+            soil *= 0.85 + 0.25 * gt_fbm(vec2(vGtW.x + vGtW.z, vGtW.y) * 0.35);
+            // grass clings to the top of a bank and thins out down its face
+            base = mix(base, soil, steep * (1.0 - 0.35 * lawn * (1.0 - smoothstep(0.35, 0.6, slope))));
+          }
+        }
         float hard = texture2D(hardMap, (wuv - maskOrigin) / maskSize).r;
         if (hard > 0.01) {
           vec3 cc = mix(texture2D(concMap, wuv * concScale).rgb, texture2D(concMap, wuv * concScale * 0.29 + 0.4).rgb, 0.35) * vec3(1.62, 1.58, 1.5);
@@ -264,7 +297,8 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
     const pos = new Float32Array(w * d * 3), nrm = new Float32Array(w * d * 3), uv = new Float32Array(w * d * 2);
     let k = 0;
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
-      const x = hf.ox + c * hf.cell, z = hf.oz + r * hf.cell;
+      let x = hf.ox + c * hf.cell, z = hf.oz + r * hf.cell;
+      if (hf.off) { const o = (r * hf.cols + c) * 2; x += hf.off[o]; z += hf.off[o + 1]; }
       pos[k * 3] = x; pos[k * 3 + 1] = hf.at(c, r); pos[k * 3 + 2] = z;
       hf.normal(c, r, n); nrm[k * 3] = n.x; nrm[k * 3 + 1] = n.y; nrm[k * 3 + 2] = n.z;
       uv[k * 2] = x; uv[k * 2 + 1] = z; k++;
@@ -278,13 +312,28 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
     for (let r = d - 2; r >= 1; r--) ring.push(r * w);
     ring.push(0);
     const nv = w * d, nSk = ring.length;
+    // skirt depth: at least the worst height error of the coarsest LOD along this chunk's border (steep ground
+    // opens cracks deeper than a fixed 1.5 m skirt between a full-res chunk and a quarter-res neighbour)
+    let skirt = SKIRT;
+    {
+      const step = 4;
+      const on = (v: number) => { const r = Math.floor(v / w), c = v % w; return (r % step === 0 || r === d - 1) && (c % step === 0 || c === w - 1); };
+      let last = 0;
+      for (let i = 1; i < ring.length; i++) {
+        if (!on(ring[i]) && i !== ring.length - 1) continue;
+        const ya = pos[ring[last] * 3 + 1], yb = pos[ring[i] * 3 + 1];
+        for (let j = last + 1; j < i; j++) skirt = Math.max(skirt, Math.abs(pos[ring[j] * 3 + 1] - (ya + ((yb - ya) * (j - last)) / (i - last))) + 0.5);
+        last = i;
+      }
+      skirt = Math.min(skirt, 12);
+    }
     const P = new Float32Array((nv + nSk) * 3), N = new Float32Array((nv + nSk) * 3), UV = new Float32Array((nv + nSk) * 2);
     P.set(pos); N.set(nrm); UV.set(uv);
     // (plain loop, not a closure: a closure here would capture pos/P/... into the scope context that the
     // raycast closure below keeps alive forever — ~25 MB of vertex arrays per city)
     for (let i = 0; i < nSk; i++) {
       const v = ring[i], j = nv + i;
-      P[j * 3] = pos[v * 3]; P[j * 3 + 1] = pos[v * 3 + 1] - SKIRT; P[j * 3 + 2] = pos[v * 3 + 2];
+      P[j * 3] = pos[v * 3]; P[j * 3 + 1] = pos[v * 3 + 1] - skirt; P[j * 3 + 2] = pos[v * 3 + 2];
       N[j * 3] = nrm[v * 3]; N[j * 3 + 1] = nrm[v * 3 + 1]; N[j * 3 + 2] = nrm[v * 3 + 2];
       UV[j * 2] = uv[v * 2]; UV[j * 2 + 1] = uv[v * 2 + 1];
     }
@@ -321,7 +370,7 @@ export function buildTerrainMeshes(hf: Heightfield, mat: THREE.Material, chunkCe
     g.setIndex(lods[0]);
     g.computeBoundingSphere(); g.computeBoundingBox();
     // bounds from the grid only (skirts hang below)
-    g.boundingBox!.min.y = Math.min(g.boundingBox!.min.y + SKIRT, g.boundingBox!.max.y);
+    g.boundingBox!.min.y = Math.min(g.boundingBox!.min.y + skirt, g.boundingBox!.max.y);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
     m.name = `terrain_${c0}_${r0}`;

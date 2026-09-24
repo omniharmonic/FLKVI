@@ -250,11 +250,14 @@ export class RoadNetwork {
     }
   }
 
-  /** Terrain flattening under carriageways + sidewalks + junctions. */
+  /** Terrain flattening under carriageways + sidewalks + junctions. Returns per-vertex flatten weight and the
+   *  owner that set it (chain idx, −2 junction, −1 none) for the retaining-wall pass. */
   flattenTerrain(hf: Heightfield) {
     const best = new Float32Array(hf.cols * hf.rows).fill(0);
     const target = new Float32Array(hf.cols * hf.rows);
+    const owner = new Int32Array(hf.cols * hf.rows).fill(-1);
     const BL = 5;
+    let cur = -1;
     const apply = (ax: number, az: number, bx: number, bz: number, ya: number, yb: number, hw: number, _prio = false, drop = 0.03) => {
       const x0 = Math.min(ax, bx) - hw - BL, x1 = Math.max(ax, bx) + hw + BL, z0 = Math.min(az, bz) - hw - BL, z1 = Math.max(az, bz) + hw + BL;
       const c0 = Math.max(0, Math.floor((x0 - hf.ox) / hf.cell)), c1 = Math.min(hf.cols - 1, Math.ceil((x1 - hf.ox) / hf.cell));
@@ -269,7 +272,7 @@ export class RoadNetwork {
         const k = r * hf.cols + cc;
         if (wgt > best[k] || wgt >= 0.999) {
           const y = ya + (yb - ya) * t - drop;
-          if (wgt >= 0.999 && best[k] >= 0.999) target[k] = Math.min(target[k], y); else target[k] = y;
+          if (wgt >= 0.999 && best[k] >= 0.999) { if (y < target[k]) { target[k] = y; owner[k] = cur; } } else { target[k] = y; owner[k] = cur; }
           best[k] = Math.max(best[k], wgt);
         }
       }
@@ -277,14 +280,17 @@ export class RoadNetwork {
     for (const c of this.chains) {
       if (c.bridge) continue;
       const hw = c.w + c.s + 0.6;
+      cur = c.idx;
       for (let i = 0; i + 1 < c.pts.length; i++) apply(c.pts[i][0], c.pts[i][1], c.pts[i + 1][0], c.pts[i + 1][1], c.ys[i], c.ys[i + 1], hw);
     }
     for (const J of this.junctions.values()) {
       if (J.arms.every((a) => a.chain.bridge)) continue;
       const rad = Math.max(...J.arms.map((a) => dist2(a.o, J.p) + a.trim + a.s)) + 1;
+      cur = -2;
       apply(J.p[0], J.p[1], J.p[0] + 0.01, J.p[1], J.y, J.y, rad, true, 0.06);
     }
     for (let k = 0; k < best.length; k++) if (best[k] > 0) hf.h[k] = hf.h[k] + (target[k] - hf.h[k]) * best[k];
+    return { best, owner };
   }
 
   // ---------------------------------------------------------------- geometry
