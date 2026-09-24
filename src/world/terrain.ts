@@ -58,6 +58,22 @@ export function makeFineHeightfield(t: Terrain): Heightfield {
 }
 
 /** Land-cover mask canvas: R lawn, G bare/dirt, B forest. 1 texel ≈ res m. */
+/** Blur a canvas in place with a single filter pass (optionally over an opaque background colour). */
+export function blurCanvas(c: HTMLCanvasElement, px: number, bg?: string) {
+  const t = document.createElement('canvas'); t.width = c.width; t.height = c.height;
+  const tx = t.getContext('2d')!;
+  tx.filter = `blur(${px}px)`;
+  tx.drawImage(c, 0, 0);
+  const x = c.getContext('2d')!;
+  x.save();
+  x.filter = 'none';
+  x.globalCompositeOperation = 'source-over';
+  if (bg) { x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height); } else x.clearRect(0, 0, c.width, c.height);
+  x.drawImage(t, 0, 0);
+  x.restore();
+  t.width = t.height = 0; // free the scratch backing store now
+}
+
 export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
   const W = hf.maxX - hf.ox, D = hf.maxZ - hf.oz;
   const res = Math.max(1, Math.max(W, D) / 2048);
@@ -71,7 +87,9 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     commercial: 'rgb(40,40,0)',
   };
   const order: RecipeArea['kind'][] = ['residential', 'commercial', 'industrial', 'farmland', 'forest', 'park', 'grass', 'cemetery', 'pitch', 'playground', 'sand'];
-  ctx.filter = 'blur(1.5px)';
+  // load time: shapes are drawn sharp and the canvas is blurred ONCE at the end. A ctx.filter set while
+  // drawing runs a separate blur pass per fill (thousands of GPU passes; ~10 s of GPU stall on software GL).
+  if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) ctx.filter = 'blur(1.5px)';
   for (const kind of order) {
     const fill = col[kind];
     if (!fill) continue;
@@ -85,6 +103,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
       ctx.fill('evenodd');
     }
   }
+  if (!(typeof location !== 'undefined' && location.search.includes('legacyload'))) blurCanvas(c, 1.5, '#000');
   const tex = new THREE.CanvasTexture(c);
   tex.flipY = false; // canvas row 0 = min z (sampled with v = (z - oz) / size)
   tex.colorSpace = THREE.NoColorSpace;
@@ -94,7 +113,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
   const hx = hc.getContext('2d')!;
   hx.fillStyle = '#000'; hx.fillRect(0, 0, cw, ch);
   hx.fillStyle = '#fff'; hx.strokeStyle = '#fff'; hx.lineJoin = 'round';
-  hx.filter = 'blur(1px)';
+  if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) hx.filter = 'blur(1px)';
   for (const b of recipe.buildings) {
     if (b.use === 'residential-single' || b.use === 'agricultural' || !b.footprint?.length) continue;
     const apron = b.use === 'residential-multi' ? 2.5 : 6;
@@ -135,6 +154,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     a.poly.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
     hx.closePath(); hx.fill();
   }
+  if (!(typeof location !== 'undefined' && location.search.includes('legacyload'))) blurCanvas(hc, 1, '#000');
   const hard = new THREE.CanvasTexture(hc);
   hard.flipY = false;
   hard.colorSpace = THREE.NoColorSpace;

@@ -245,7 +245,7 @@ const mcQueue: (() => void)[] = [];
 let mc: MessageChannel | null = null;
 export const yieldFrame = (): Promise<void> => {
   const now = performance.now();
-  if (typeof MessageChannel === 'undefined' || now - lastPaintYield > 120) {
+  if ((typeof location !== 'undefined' && location.search.includes('legacyload')) || typeof MessageChannel === 'undefined' || now - lastPaintYield > 120) {
     lastPaintYield = now;
     return new Promise<void>((r) => setTimeout(r, 0));
   }

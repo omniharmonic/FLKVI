@@ -262,10 +262,12 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     // ---------- title overlay ----------
     let titleUp = true;
     const now = new Date();
+    // local date + local time (toISOString is UTC, which showed tomorrow's date in the evening)
+    const stamp = (d: Date) => `CAM 04 · GRID 7<br>${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${d.toTimeString().slice(0, 8)}`;
     const title = h('div', { class: 'gt-title' },
       h('div', { class: 'scan' }),
       h('div', { class: 'rec' }, 'REC'),
-      h('div', { class: 'tc', html: `CAM 04 · GRID 7<br>${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 8)}` }),
+      h('div', { class: 'tc', html: stamp(now) }),
       h('div', { class: 'kicker' }, 'AN OPEN-WORLD HEIST AGAINST THE GRID'),
       h('h1', { html: 'GROUNDTRUTH<span class="dot">.</span>' }),
       h('div', { class: 'tag' }, 'Take down the surveillance grid. Don’t get caught.'),
@@ -286,7 +288,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     });
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { if (titleUp) startBackdrop(); }, 300)));
     const tc = title.querySelector('.tc') as HTMLElement;
-    const tcTimer = setInterval(() => { const d = new Date(); tc.innerHTML = `CAM 04 · GRID 7<br>${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)}`; }, 1000);
+    const tcTimer = setInterval(() => { const d = new Date(); tc.innerHTML = stamp(d); }, 1000);
     // slow cinematic drift
     let drift = true;
     const driftLoop = () => { if (!drift) return; map.panBy([0.35, 0.05], { animate: false }); requestAnimationFrame(driftLoop); };

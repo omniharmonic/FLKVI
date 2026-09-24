@@ -380,6 +380,15 @@ class ImpostorAtlas {
     }
     return c;
   }
+  private legacyGroup(V: Variant) {
+    const plain = (m: THREE.Material | null, alphaTest: number, k: string) => { if (!m) return null; const c = m.clone(); c.onBeforeCompile = () => {}; c.customProgramCacheKey = () => 'bake-' + k; c.alphaTest = alphaTest; return c; };
+    const grp = new THREE.Group();
+    const mats = [plain(V.barkMat, V.uniform ? 0.4 : 0, 'b'), plain(V.leafMat, 0.4, 'l'), plain(V.extraMat, 0.4, 'x')];
+    grp.add(new THREE.Mesh(V.bark, mats[0]!));
+    if (V.leaves && mats[1]) grp.add(new THREE.Mesh(V.leaves, mats[1]));
+    if (V.extra && mats[2]) grp.add(new THREE.Mesh(V.extra, mats[2]));
+    return grp;
+  }
   private groupFor(V: Variant) {
     const grp = new THREE.Group();
     const mats = [this.plain(V.barkMat, 'b'), this.plain(V.leafMat, 'l'), this.plain(V.extraMat, 'x')];
@@ -430,7 +439,8 @@ class ImpostorAtlas {
     const w = V.ratio;
     const cam = new THREE.OrthographicCamera(-w / 2, w / 2, 1, 0, -10, 10);
     cam.position.set(0, 0, 2); cam.lookAt(0, 0, 0);
-    const grp = this.groupFor(V);
+    const legacy = (typeof location !== 'undefined' && location.search.includes('legacyload'));
+    const grp = legacy ? this.legacyGroup(V) : this.groupFor(V);
     this.scene.add(grp);
     rt.viewport.set(cx * tile, cy * tile, tile, tile);
     rt.scissor.set(cx * tile, cy * tile, tile, tile);
@@ -439,6 +449,7 @@ class ImpostorAtlas {
     renderer.setClearColor(0x000000, 0);
     renderer.render(this.scene, cam);
     this.scene.remove(grp);
+    if (legacy) grp.traverse((o) => ((o as THREE.Mesh).material as THREE.Material | undefined)?.dispose?.());
     renderer.setScissorTest(prevScissor);
     renderer.setRenderTarget(prevRT);
     renderer.setClearColor(prevClear, prevAlpha);
@@ -495,7 +506,6 @@ export class TreeSystem {
   constructor() { this.group.name = 'trees'; }
 
   async build(trees: RecipeTree[], renderer: THREE.WebGLRenderer | undefined, onProgress?: (f: number) => void) {
-    if (location.search.includes('nobake')) renderer = undefined; // TEMP experiment
     this.trees = trees;
     this.renderer = renderer;
     // profiles used (rare profiles fold into their fallback to keep draw calls bounded)
@@ -565,6 +575,7 @@ export class TreeSystem {
     const warm = renderer && this.atlas ? this.atlas.warm(renderer) : null;
     // near-spawn variants now (behind the loading screen), the rest after the game starts
     const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
+    if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) this.focus = null;
     const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;
     this.pending = order.filter((i) => !eager.includes(i));
     let done = 0, t0 = performance.now();
