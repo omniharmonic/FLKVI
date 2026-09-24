@@ -117,7 +117,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     if (s.kind === 'deck') return s.y;
     return Math.max(t, s.y);
   };
-  const nav = new Nav(recipe.graph, roads);
+  const nav = new Nav(recipe.graph, roads, inBuilding);
   const staticMeshes: THREE.Object3D[] = [...terrainMeshes];
   let buildings: BuildingsResult | null = null;
   const props = new PropSystem(recipe, roads, groundAt, inBuilding);
@@ -164,6 +164,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
 
   // ---- trees (+ shrubs from props)
   P('Planting trees', 0.45);
+  await yieldFrame(); // load time: split the props / understory / trees work into separate tasks
   // Street trees: keep the carriageway and the sidewalk walking path clear (snap onto the curb-side
   // tree lawn), and keep a clear zone around the player spawn.
   const sp = recipe.spawn.p;
@@ -194,6 +195,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     const h = 0.9 + ((p.variant * 0.37) % 1) * 0.9;
     treeList.push({ p: p.p, y: groundAt(p.p[0], p.p[1]), species: 'shrub', height: h, crown: h * 1.4, seed: (p.p[0] * 131 + p.p[1] * 71) | 0 });
   }
+  await yieldFrame();
   try {
     const under = buildUnderstory({ recipe, groundAt, inBuilding, roads }, treeList);
     paintPlantingBeds(mask, under);
@@ -203,6 +205,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   trees.spanishMoss = recipe.origin.lon > -95.5 && recipe.origin.lat > 27.5 && recipe.origin.lat < 34 && recipe.climate === 'humid';
   // load time: only species growing near the spawn are generated behind the loading screen; the rest
   // stream in after the game starts (trees.update), so meshes are configured as they are created
+  await yieldFrame();
   trees.focus = [sp[0], sp[1]];
   let treeProxyFailed = false;
   trees.onMesh = (m, ring) => {

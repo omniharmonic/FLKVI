@@ -24,6 +24,9 @@ export interface LookPreset {
   cityGlow: number;
   /** Chance of starting in rain. */
   rainChance: number;
+  /** Daytime bloom threshold multiplier: >1 keeps a bright hazy sun aureole from blooming into a
+   *  full-frame veil (only the sun disk / speculars bloom). Night bloom is unaffected. */
+  bloomDay: number;
 }
 
 const base: LookPreset = {
@@ -31,12 +34,14 @@ const base: LookPreset = {
   mie: 1.2, mieG: 0.8, haze: 1 / 16000, heightFog: 1 / 9000, heightFalloff: 1 / 90,
   wb: [1.02, 1, 0.96], saturation: 1.06, contrast: 1.06,
   shadowTint: [0.985, 1.0, 1.02], highlightTint: [1.03, 1.0, 0.96],
-  clouds: 0.35, cityGlow: 1, rainChance: 0.15,
+  clouds: 0.35, cityGlow: 1, rainChance: 0.15, bloomDay: 1,
 };
 
 export const LOOKS: Record<string, LookPreset> = {
   desert: {
-    ...base, name: 'desert', mie: 2.2, mieG: 0.76, haze: 1 / 8000, heightFog: 1 / 16000, heightFalloff: 1 / 160,
+    // look-dev had doubled the aerosol load (mie 2.2): facing the low sun the whole frame washed out.
+    // Lighter aerosols keep a glowing sun aureole and hazy distance without the veil.
+    ...base, name: 'desert', mie: 1.5, mieG: 0.76, haze: 1 / 9000, heightFog: 1 / 16000, heightFalloff: 1 / 160, bloomDay: 3,
     wb: [1.05, 1.0, 0.92], saturation: 0.97, contrast: 1.07,
     shadowTint: [1.0, 0.98, 0.99], highlightTint: [1.05, 1.0, 0.92], clouds: 0.12, cityGlow: 1.1, rainChance: 0.03,
   },

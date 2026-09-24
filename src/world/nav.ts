@@ -8,7 +8,7 @@ export class Nav {
   private adj: { to: number; cost: number }[][] = [];
   private idToIdx = new Map<number, number>();
   private maxSpeed = 1;
-  constructor(private graph: RoadGraph, private roads: RoadNetwork) {
+  constructor(private graph: RoadGraph, private roads: RoadNetwork, private inside?: (x: number, z: number) => boolean) {
     graph.nodes.forEach((n, i) => { this.grid.add(n.p[0], n.p[1], i); this.idToIdx.set(n.id, i); });
     this.adj = graph.nodes.map(() => []);
     for (const e of graph.edges) {
@@ -70,8 +70,15 @@ export class Nav {
     const r2 = radius * radius;
     this.roads.walkGrid.query(near[0], near[1], radius, (i) => { const p = pts[i]; if ((p[0] - near[0]) ** 2 + (p[1] - near[1]) ** 2 <= r2) cand.push(i); });
     if (!cand.length) return null;
-    const p = pts[cand[Math.floor(rnd() * cand.length) % cand.length]];
-    // jitter ±0.6 m
-    return [p[0] + (rnd() - 0.5) * 1.2, p[1] + (rnd() - 0.5) * 1.2];
+    // Sidewalk strips are a fixed width off the road centerline, so where OSM footprints reach the curb
+    // (~8% of SF's samples) a point can land inside a building: peds walked into walls, and a respawn there
+    // put the camera inside the building (floating window-trim "beams" seen from within). Reject those.
+    for (let tries = 0; tries < 12; tries++) {
+      const p = pts[cand[Math.floor(rnd() * cand.length) % cand.length]];
+      // jitter ±0.6 m
+      const q: Vec2 = [p[0] + (rnd() - 0.5) * 1.2, p[1] + (rnd() - 0.5) * 1.2];
+      if (!this.inside || (!this.inside(q[0], q[1]) && !this.inside(p[0], p[1]))) return q;
+    }
+    return null;
   }
 }

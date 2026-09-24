@@ -765,7 +765,9 @@ function storefrontSign(c: BCtx, f: Frame, a: number, z: number, top: number, fl
     mb.quad(f.pt(sx, sy, d), f.pt(sx + sw, sy, d), f.pt(sx + sw, sy + sh, d), f.pt(sx, sy + sh, d), [u0, v0, u1, v0, u1, v1, u0, v1]);
     // gooseneck lamps
     const lm = surf(B, 0, 'metal', DARK);
-    for (const lx of [sx + sw * 0.2, sx + sw * 0.8]) {
+    // at the board's ends: heads at 20%/80% hung 0.36 m in front of the lettering and, seen from above,
+    // hid the top of one letter ("CLOTH.NG")
+    for (const lx of [sx + 0.08, sx + sw - 0.08]) {
       lm.box(f, lx - 0.02, lx + 0.02, sy + sh + 0.05, sy + sh + 0.1, 0, 0.35, 63);
       lm.box(f, lx - 0.07, lx + 0.07, sy + sh - 0.02, sy + sh + 0.08, 0.3, 0.42, 63);
       downLens(c, f, lx, sy + sh - 0.025, 0.36, 0.05);

@@ -368,7 +368,7 @@ class RenderSky implements SkyAPI {
       L.wb[2] * (1 + 0.04 * n) * (1 - 0.1 * golden),
     );
     // subtle by day (only the sun glint / speculars bloom), rich halos around lamps and signs at night
-    p.bloom.luminanceMaterial.threshold = p.bloomBaseThreshold / this.exposure * (1 - 0.35 * n);
+    p.bloom.luminanceMaterial.threshold = p.bloomBaseThreshold / this.exposure * (1 - 0.35 * n) * THREE.MathUtils.lerp(L.bloomDay ?? 1, 1, n);
     p.bloom.intensity = 0.35 + 0.75 * n + 0.15 * golden + 0.2 * overcast;
     const gu = (k: string) => p.grade.u(k).value;
     p.grade.u('saturation').value = L.saturation * (1 - 0.18 * overcast) * (1 - 0.12 * n) + 0.05 * golden;

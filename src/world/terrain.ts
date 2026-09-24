@@ -89,7 +89,6 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
   const order: RecipeArea['kind'][] = ['residential', 'commercial', 'industrial', 'farmland', 'forest', 'park', 'grass', 'cemetery', 'pitch', 'playground', 'sand'];
   // load time: shapes are drawn sharp and the canvas is blurred ONCE at the end. A ctx.filter set while
   // drawing runs a separate blur pass per fill (thousands of GPU passes; ~10 s of GPU stall on software GL).
-  if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) ctx.filter = 'blur(1.5px)';
   for (const kind of order) {
     const fill = col[kind];
     if (!fill) continue;
@@ -103,7 +102,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
       ctx.fill('evenodd');
     }
   }
-  if (!(typeof location !== 'undefined' && location.search.includes('legacyload'))) blurCanvas(c, 1.5, '#000');
+  blurCanvas(c, 1.5, '#000');
   const tex = new THREE.CanvasTexture(c);
   tex.flipY = false; // canvas row 0 = min z (sampled with v = (z - oz) / size)
   tex.colorSpace = THREE.NoColorSpace;
@@ -113,7 +112,6 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
   const hx = hc.getContext('2d')!;
   hx.fillStyle = '#000'; hx.fillRect(0, 0, cw, ch);
   hx.fillStyle = '#fff'; hx.strokeStyle = '#fff'; hx.lineJoin = 'round';
-  if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) hx.filter = 'blur(1px)';
   for (const b of recipe.buildings) {
     if (b.use === 'residential-single' || b.use === 'agricultural' || !b.footprint?.length) continue;
     const apron = b.use === 'residential-multi' ? 2.5 : 6;
@@ -154,7 +152,7 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
     a.poly.forEach((p, i) => { const x = (p[0] - hf.ox) / res, y = (p[1] - hf.oz) / res; if (i) hx.lineTo(x, y); else hx.moveTo(x, y); });
     hx.closePath(); hx.fill();
   }
-  if (!(typeof location !== 'undefined' && location.search.includes('legacyload'))) blurCanvas(hc, 1, '#000');
+  blurCanvas(hc, 1, '#000');
   const hard = new THREE.CanvasTexture(hc);
   hard.flipY = false;
   hard.colorSpace = THREE.NoColorSpace;

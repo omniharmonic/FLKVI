@@ -160,22 +160,6 @@ export function paintPlantingBeds(mask: { tex: THREE.Texture; hard: THREE.Textur
   const ctx = c.getContext('2d')!, hx = hc.getContext('2d')!;
   // load time: beds are drawn sharp into scratch layers, then composited with ONE blur pass each
   // (a ctx.filter active while drawing runs a blur pass per circle: thousands of GPU passes)
-  if ((typeof location !== 'undefined' && location.search.includes('legacyload'))) {
-    ctx.save(); hx.save();
-    ctx.filter = 'blur(1px)'; hx.filter = 'blur(1px)';
-    ctx.globalCompositeOperation = 'lighten';
-    ctx.fillStyle = 'rgb(0,235,0)'; hx.fillStyle = '#000';
-    for (const t of plants) {
-      if (t.species === 'saguaro' || t.species === 'ocotillo') continue;
-      const r = Math.max(0.45, Math.min(1.5, t.height * 0.55 + 0.3)) / res;
-      const x = (t.p[0] - mask.origin.x) / res, y = (t.p[1] - mask.origin.y) / res;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-      hx.beginPath(); hx.arc(x, y, r * 1.1, 0, Math.PI * 2); hx.fill();
-    }
-    ctx.restore(); hx.restore();
-    mask.tex.needsUpdate = true; mask.hard.needsUpdate = true;
-    return;
-  }
   const layer = () => { const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; return t; };
   const bed = layer(), apron = layer();
   const bx = bed.getContext('2d')!, ax = apron.getContext('2d')!;
