@@ -21,6 +21,8 @@ export const foundationBottom = new WeakMap<RecipeBuilding, number>();
 export interface Prism { ring: Vec2[]; y0: number; y1: number }
 
 const OLD_ERAS = new Set(['pre-1900', '1900-1939']);
+/** Tallest plinth allowed under a building (m). */
+const MAX_PLINTH = 6;
 
 export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNetwork, lm: ResolvedLandmarks, B: ChunkBatcher) {
   // water surfaces (same level rule as areas.ts): moored boats / piers mapped as buildings float on them, and a
@@ -37,6 +39,14 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
     }
     return null;
   };
+  /** Water level of a water area within 40 m of the footprint (moored hulls just outside the clipped outline). */
+  const nearWater = (ring: Vec2[]) => {
+    for (const p of ring) for (const [dx, dz] of [[0, 0], [20, 0], [-20, 0], [0, 20], [0, -20], [40, 0], [-40, 0], [0, 40], [0, -40]]) {
+      const wl = waterAt(p[0] + dx, p[1] + dz);
+      if (wl !== null) return wl;
+    }
+    return null;
+  };
   const ground = (x: number, z: number) => {
     let t = hf.sample(x, z);
     const wl = waterAt(x, z);
@@ -48,7 +58,7 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
   const wBest = new Float32Array(hf.cols * hf.rows);
   const wTarget = new Float32Array(hf.cols * hf.rows);
   const prisms: Prism[] = [];
-  let moved = 0, plinths = 0, maxLift = 0, worst = '';
+  let moved = 0, plinths = 0, maxLift = 0, worst = '', dropped = 0, clamped = 0;
 
   /** Ground samples just outside each edge (+ which ones front a street). */
   const survey = (ring: Vec2[]) => {
@@ -179,11 +189,26 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
     if (!b.footprint || b.footprint.length < 3 || lm.skip.has(b.id)) continue;
     if ((b.minHeight ?? 0) > 0.5) { upper.push(b); continue; }
     const cx = b.footprint.reduce((s, p) => s + p[0], 0) / b.footprint.length, cz = b.footprint.reduce((s, p) => s + p[1], 0) / b.footprint.length;
-    const wl = waterAt(cx, cz);
+    const wl = waterAt(cx, cz) ?? (b.boat ? nearWater(b.footprint) : null);
     if (wl !== null) { b.baseY = Math.round((wl + 0.25) * 100) / 100; moved++; continue; }
     const r = chooseBase(b.footprint);
     if (!r) continue;
-    const { base, gMin } = r;
+    let { base } = r;
+    const { gMin } = r;
+    // vessels mapped as buildings never stand on a plinth: sit them on the lowest ground under the hull
+    if (b.boat) { b.baseY = Math.round(gMin * 100) / 100; moved++; continue; }
+    // cap: past MAX_PLINTH the "foundation" would be a tower (a hull or pier outside the clipped water outline, a
+    // DEM artefact). Sink the building into the slope if at least half of it stays above its frontage, else drop it.
+    if (base - gMin > MAX_PLINTH) {
+      const sink = base - gMin - MAX_PLINTH;
+      if (sink > b.height * 0.5) {
+        lm.skip.add(b.id); dropped++;
+        const xs = b.footprint.map((p) => p[0]), zs = b.footprint.map((p) => p[1]);
+        hostGrid.addBox(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs), b);
+        continue;
+      }
+      base -= sink; clamped++;
+    }
     if (Math.abs(base - b.baseY) > 0.05) moved++;
     b.baseY = Math.round(base * 100) / 100;
     grade(b.footprint, b.baseY);
@@ -198,6 +223,7 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
     const cx = b.footprint.reduce((s, p) => s + p[0], 0) / b.footprint.length, cz = b.footprint.reduce((s, p) => s + p[1], 0) / b.footprint.length;
     let host: RecipeBuilding | null = null;
     hostGrid.query(cx, cz, 0, (h) => { if (!host && pointInPoly(cx, cz, h.footprint)) host = h; });
+    if (host && lm.skip.has((host as RecipeBuilding).id)) { lm.skip.add(b.id); continue; }
     if (host) b.baseY = (host as RecipeBuilding).baseY;
     else { const r = chooseBase(b.footprint); if (r) b.baseY = Math.round(r.base * 100) / 100; }
   }
@@ -220,5 +246,5 @@ export function settleFoundations(recipe: Recipe, hf: Heightfield, roads: RoadNe
   }
 
   for (let k = 0; k < wBest.length; k++) if (wBest[k] > 0) hf.h[k] += (wTarget[k] - hf.h[k]) * wBest[k];
-  return { moved, plinths, maxLift, worst, prisms };
+  return { moved, plinths, maxLift, worst, prisms, dropped, clamped };
 }

@@ -17,7 +17,7 @@ import type { Car } from './trafficsim';
 import { samplePoly } from './roadnet';
 import type { PedSystem } from './peds';
 import { CharacterFactory, Character } from './characters';
-import { Helicopter } from './helicopter';
+import { Helicopter, prewarmHelicopter } from './helicopter';
 import { Icon } from './icons';
 import { BEAM_GEO, POOL_GEO, makeBeamMaterial, makePoolMaterial } from './beams';
 import { canSee, headingOf, angleDiff, playerTarget } from './perception';
@@ -308,6 +308,19 @@ export class PoliceSystem {
     this.traffic?.removeCar(u.car);
     const i = this.units.indexOf(u);
     if (i >= 0) this.units.splice(i, 1);
+  }
+
+  /** Load-time warm-up (engine.ts): hidden helicopter + two pooled officers (flashlight, icon) so the first heat
+   *  escalation neither builds characters nor links shader programs mid-game. */
+  prewarm(holder: THREE.Object3D) {
+    prewarmHelicopter(holder);
+    for (let i = 0; i < 2; i++) {
+      const ch = this.factory.create('officer', Math.floor(this.rnd() * 1e6));
+      flashlightFor(ch);
+      holder.add(ch.root);
+      this.officerPool.push(ch);
+    }
+    holder.add(new Icon().sprite);
   }
 
   private makeOfficer(unit: Unit | null, x: number, z: number, h: number): Officer {

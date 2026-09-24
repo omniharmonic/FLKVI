@@ -88,7 +88,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   try {
     const fd = settleFoundations(recipe, hf, roads, lm, B);
     prisms = fd.prisms;
-    console.info(`[world] foundations: ${fd.moved} re-seated, ${fd.plinths} plinths (max ${fd.maxLift.toFixed(1)} m at ${fd.worst})`);
+    console.info(`[world] foundations: ${fd.moved} re-seated, ${fd.plinths} plinths (max ${fd.maxLift.toFixed(1)} m at ${fd.worst}), ${fd.clamped} sunk, ${fd.dropped} dropped over-tall`);
   } catch (e) { console.warn('[world] foundations failed', e); }
 
   const mats: Record<string, THREE.Material> = {

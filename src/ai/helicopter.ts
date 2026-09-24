@@ -220,6 +220,12 @@ function buildModel(): HeliModel {
 const _v = new THREE.Vector3();
 const _t = new THREE.Vector3();
 
+/** Load-time shader warm-up: a hidden copy of the helicopter model + searchlight beam/pool for renderer.compile().
+ *  Keep it parked (never disposed): its materials hold the linked programs for the real helicopter. */
+export function prewarmHelicopter(holder: THREE.Object3D) {
+  holder.add(buildModel().group, new THREE.Mesh(BEAM_GEO, makeBeamMaterial('#dfe9ff', 0.16, 0.9)), new THREE.Mesh(POOL_GEO, makePoolMaterial('#e8f0ff', 0.55)));
+}
+
 export class Helicopter {
   group: THREE.Group;
   private m: HeliModel;

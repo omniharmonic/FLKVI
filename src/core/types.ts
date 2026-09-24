@@ -65,6 +65,8 @@ export interface RecipeBuilding {
   /** Business category for generic signage (no brands): 'DINER','PHARMACY',... */
   signage?: string;
   sensitive?: boolean;
+  /** A vessel mapped as a building (OSM building=ship/boat/houseboat, ship=*, boat=*): floats / sits, never gets a plinth. */
+  boat?: boolean;
 }
 
 export type RoadClass =

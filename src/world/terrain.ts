@@ -456,13 +456,33 @@ export function buildFarTerrain(far: Terrain, near: Heightfield): THREE.Mesh {
   const rock = surface('stone', 'rock');
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: rock.map ?? null, roughness: 1 });
   if (mat.map) { mat.map = mat.map.clone(); mat.map.repeat.set(1, 1); mat.map.needsUpdate = true; }
+  // Anti-tiling: a single 12 m rock tile repeated over kilometres read as a grid from the air. Blend two extra
+  // layers (different scale + rotation) by a low-frequency noise, add macro brightness/hue variation, and fade the
+  // texture out with view distance so far ranges resolve to smooth haze-coloured slopes.
   mat.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      float gtFarN(vec2 p) {
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453), b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+        float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453), d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }`).replace('#include <map_fragment>', `
       #ifdef USE_MAP
-        vec3 tx = texture2D(map, vMapUv).rgb;
-        diffuseColor.rgb *= mix(vec3(1.0), tx * 2.2, 0.55);
+        vec2 wp = vMapUv * 12.0; // world metres
+        float n1 = gtFarN(wp / 180.0), n2 = gtFarN(wp / 730.0 + 17.3), n3 = gtFarN(wp / 2600.0 - 5.1);
+        const mat2 R1 = mat2(0.799, 0.602, -0.602, 0.799), R2 = mat2(0.485, -0.875, 0.875, 0.485);
+        vec3 tA = texture2D(map, vMapUv).rgb;
+        vec3 tB = texture2D(map, R1 * vMapUv * 0.37 + vec2(0.31, 0.67)).rgb;
+        vec3 tC = texture2D(map, R2 * vMapUv * 0.093 + vec2(0.13, 0.41)).rgb;
+        vec3 tx = mix(mix(tA, tB, smoothstep(0.3, 0.7, n1)), tC, 0.25 + 0.5 * smoothstep(0.35, 0.75, n2));
+        float fadeTx = 1.0 - smoothstep(500.0, 3500.0, length(vViewPosition));
+        diffuseColor.rgb *= mix(vec3(1.0), tx * 2.2, 0.55 * fadeTx);
+        // macro variation: brightness patches + a dry/green hue drift at km scale
+        diffuseColor.rgb *= 0.8 + 0.4 * (0.55 * n2 + 0.45 * n1);
+        diffuseColor.rgb *= mix(vec3(1.05, 1.0, 0.9), vec3(0.9, 1.0, 1.04), n3);
       #endif`);
   };
+  mat.customProgramCacheKey = () => 'farTerrain2';
   mat.name = 'farTerrain';
   const m = new THREE.Mesh(g, mat);
   m.name = 'farTerrain';

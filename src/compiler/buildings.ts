@@ -437,6 +437,7 @@ export function buildBuildings(raw: RawBuilding[], pois: Poi[], zones: Zone[], r
     if (minHeight != null) b.minHeight = r2(minHeight);
     if (t.name) b.name = t.name;
     if (signage) b.signage = signage;
+    if (/^(ship|boat|houseboat|barge|ferry)$/.test(bType) || (t.ship && t.ship !== 'no') || (t.boat && t.boat !== 'no') || /^(ship|boat|houseboat)$/.test(t.historic ?? '') || /^(ship|boat)$/.test(t.building ?? '')) b.boat = true;
     if (sensitive) { b.sensitive = true; sensitivePts.push({ p: rb.c, ring }); }
     buildings.push(b);
   }

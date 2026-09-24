@@ -8,7 +8,7 @@ import { hashString } from '../../core/geo';
 import { CAR_MODEL_IDS, CIVILIAN_MODELS, getCarModel, type CarModelId } from './carModels';
 import { CAR_COLORS, updateSharedLightMaterials, mats } from './materials';
 import { Vehicle, DRIFT } from './vehicle';
-import { strobe } from './visual';
+import { strobe, createVehicleVisual } from './visual';
 import { ParkingSystem, type ParkedSlot } from './parked';
 import { CarShadows } from './shadows';
 import { FarTrafficBatch, WheelBatch } from './farBatch';
@@ -89,6 +89,18 @@ export class VehicleSystem implements VehiclesAPI, System {
       p.name = 'siren-light';
       this.group.add(p);
       this.sirenLights.push(p);
+    }
+  }
+
+  /** Load-time shader warm-up (engine.ts): hidden near + far visuals of every car model for
+   *  renderer.compile(). Kept parked, never disposed, so their per-car materials keep the programs linked. */
+  prewarm(holder: THREE.Object3D) {
+    // every model, in a solid and a metallic (flake normal map) paint: the shared body program has both variants
+    const list: [CarModelId, string][] = [['police', '#ffffff'], ['police-suv', '#ffffff'], [CIVILIAN_MODELS[0], '#f4f4f4'], ...CIVILIAN_MODELS.map((id) => [id, '#2a3f5f'] as [CarModelId, string])];
+    for (const [id, color] of list) {
+      const vis = createVehicleVisual(getCarModel(id), color, 1);
+      vis.setLights({ head: true, brake: true, reverse: false, siren: id.startsWith('police'), t: 0, beam: true });
+      holder.add(vis.root);
     }
   }
 
