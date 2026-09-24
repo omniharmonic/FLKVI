@@ -8,7 +8,7 @@ import { sfx } from '../audio/sfx';
 import { startMenuAmbience } from '../audio';
 import { showSettingsModal } from './settingsPanel';
 import { loadThumbs, fetchRecipe, REGION_LABEL, type CityMeta } from './thumbs';
-import { createTitleBackdrop, type TitleBackdrop } from './titlebg';
+import type { TitleBackdrop } from './titlebg';
 
 export interface FeaturedCity { id: string; name: string; lat: number; lon: number; blurb: string }
 
@@ -279,8 +279,10 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     let backdrop: TitleBackdrop | null = null;
     const bgId = cities[0]?.id ?? 'boulder';
     // start the (~3 MB) recipe fetch only once the title has painted, so it never delays first paint
-    const startBackdrop = () => fetchRecipe(bgId).then((r) => {
-      if (!r || !titleUp) return;
+    // three.js + the backdrop renderer load lazily (own chunk) in parallel with the recipe, after first paint
+    const startBackdrop = () => Promise.all([fetchRecipe(bgId), import('./titlebg').catch((e) => { console.warn('[title] backdrop module failed', e); return null; })]).then(([r, mod]) => {
+      if (!r || !mod || !titleUp) return;
+      const { createTitleBackdrop } = mod;
       try {
         backdrop = createTitleBackdrop(r, () => title.classList.add('has-bg'));
         if (backdrop) title.prepend(backdrop.el);

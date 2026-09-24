@@ -1,8 +1,7 @@
 // OWNER: UI agent. Title/spawn picker, loading screen, HUD, minimap, camera map, results, pause/settings.
 import type { Game } from '../core/game';
-import type { SpawnLocation } from '../core/location';
 import * as surveillance from '../surveillance';
-import { showSpawnPicker as pickerFlow, autostartLocation, chosen } from './picker';
+import { chosen } from './picker';
 import { HUD } from './hud';
 import { CameraMap } from './cammap';
 import { openPause } from './pause';
@@ -11,7 +10,6 @@ import { runStats } from './runstats';
 import { h, uiRoot } from './dom';
 import { setDuck } from '../audio/engine';
 import { stopMenuAmbience } from '../audio';
-import { unsupportedReason, showUnsupported } from './guard';
 import { playArrival as runArrival } from './intro';
 import { createPhotoMode, type PhotoMode } from './photo';
 import { setupResScale, setupFpsOverlay } from './perf';
@@ -20,11 +18,7 @@ import { trackTakedownShots } from './sharecard';
 export { showLoading } from './loading';
 export { settings } from './settings';
 
-export async function showSpawnPicker(): Promise<SpawnLocation> {
-  const bad = unsupportedReason();
-  if (bad) { showUnsupported(bad); return new Promise<SpawnLocation>(() => {}); }
-  return autostartLocation() ?? pickerFlow();
-}
+export { showSpawnPicker } from './boot';
 
 /** Hooks set by setupHUD for the arrival fly-in. */
 let arrival: { begin(): void; end(): void; gesture(): void } | null = null;

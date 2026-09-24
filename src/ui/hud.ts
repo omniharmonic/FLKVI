@@ -46,7 +46,7 @@ export class HUD {
   private takedownActive = false;
   private slowT = 0;
   private mult = 1;
-  private pendingTakedown: { mode: 'cut' | 'disable'; timer: number } | null = null;
+  private pendingTakedown: { mode: 'cut' | 'disable'; upgrade: boolean; timer: number } | null = null;
   readonly hints: Hints;
   private arrestWarn: HTMLElement;
   private beatT = 0;
@@ -126,13 +126,14 @@ export class HUD {
     ev.on('takedownStart', ({ mode }) => { this.takedownActive = true; this.ring.classList.add('on'); this.ring.classList.toggle('cut', mode === 'cut'); this.setRing(0, mode); });
     ev.on('takedownProgress', ({ t, mode }) => { this.takedownActive = true; this.ring.classList.add('on'); this.setRing(t, mode); });
     ev.on('takedownCancel', () => { this.takedownActive = false; this.ring.classList.remove('on'); });
-    ev.on('takedown', ({ mode }) => {
+    ev.on('takedown', ({ mode, upgrade }) => {
       this.takedownActive = false; this.ring.classList.remove('on');
-      this.pendingTakedown = { mode, timer: window.setTimeout(() => { this.popTakedown(mode, null); this.pendingTakedown = null; }, 350) };
+      const up = !!upgrade;
+      this.pendingTakedown = { mode, upgrade: up, timer: window.setTimeout(() => { this.popTakedown(mode, null, up); this.pendingTakedown = null; }, 350) };
     });
     ev.on('score', (s) => {
       this.mult = s.multiplier ?? this.mult;
-      if (this.pendingTakedown) { clearTimeout(this.pendingTakedown.timer); this.popTakedown(this.pendingTakedown.mode, s.points); this.pendingTakedown = null; }
+      if (this.pendingTakedown) { clearTimeout(this.pendingTakedown.timer); this.popTakedown(this.pendingTakedown.mode, s.points, this.pendingTakedown.upgrade); this.pendingTakedown = null; }
     });
     ev.on('banked', ({ amount, total }) => {
       if (performance.now() - this.lastPopAt < 900) return; // the takedown pop already says CLEAN · BANKED
@@ -145,11 +146,11 @@ export class HUD {
     ev.on('playerEnterVehicle', ({ stolen }) => { if (stolen) this.toast('Vehicle stolen. Expect a report.', 'warn', 2500); });
   }
 
-  private popTakedown(mode: 'cut' | 'disable', points: number | null) {
+  private popTakedown(mode: 'cut' | 'disable', points: number | null, upgrade = false) {
     const banked = points != null && safe(() => this.g.surveillance.hot, 0) === 0;
     this.lastPopAt = performance.now();
     const n = h('div', { class: `hud-takedown ${mode}` },
-      h('div', { class: 't' }, mode === 'cut' ? 'CAMERA DOWN' : 'CAMERA DISABLED'),
+      h('div', { class: 't' }, upgrade ? 'UPGRADED TO CUT' : mode === 'cut' ? 'CAMERA DOWN' : 'CAMERA DISABLED'),
       points != null ? h('div', { class: `p ${banked ? 'banked' : ''}` }, `+${fmt(points)}`) : null,
       points != null && this.mult > 1.01 ? h('div', { class: 'x' }, `STREAK ×${this.mult.toFixed(1)}`) : null,
       h('div', { class: 's' }, banked ? 'CLEAN · BANKED' : 'HOT · LOSE THE HEAT TO BANK'));

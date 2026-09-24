@@ -13,7 +13,7 @@ export interface GameEvents {
   takedownStart: { cameraId: string; mode: 'cut' | 'disable' };
   takedownProgress: { cameraId: string; mode: 'cut' | 'disable'; t: number };
   takedownCancel: { cameraId: string };
-  takedown: { cameraId: string; mode: 'cut' | 'disable'; type: CameraType; seen: boolean; coverage: number; p: Vec2; /** points awarded (surveillance) */ points?: number; /** true when the target was a surveillance drone (type is reported as 'ptz') */ drone?: boolean };
+  takedown: { cameraId: string; mode: 'cut' | 'disable'; type: CameraType; seen: boolean; coverage: number; p: Vec2; /** points awarded (surveillance) */ points?: number; /** true when the target was a surveillance drone (type is reported as 'ptz') */ drone?: boolean; /** a cut on a camera that was already disabled: no new streak, points = the difference (runstats moves it from disables to cuts) */ upgrade?: boolean };
   cameraRepaired: { cameraId: string };
   cameraInstalled: { cameraId: string };
   heatChanged: { heat: number; prev: number };

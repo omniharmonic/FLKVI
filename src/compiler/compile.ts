@@ -23,6 +23,8 @@ export interface CompileOptions {
   cell?: number;
   /** Lean Overpass query (only tag values the compiler reads) + tighter server limits. Live compiles use this. */
   lean?: boolean;
+  /** Low-pass the near DEM (m): opening radius + Gaussian σ, for cities whose z15 source is a noisy surface model. */
+  terrainDenoise?: { sigma: number; open?: number };
 }
 export interface CompileIO {
   /** Run an Overpass QL query, returning parsed JSON. */
@@ -75,7 +77,7 @@ export async function compileRecipe(opt: CompileOptions, io: CompileIO, progress
     const z = 15;
     for (let attempt = 0; ; attempt++) {
       try {
-        const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2);
+        const t = await buildHeightfield(proj, -half - tm, -half - tm, half + tm, half + tm, cell, z, io.tiles, 2, opt.terrainDenoise);
         progress('Fetching terrain', 0.2);
         return t;
       } catch (e) {
@@ -224,23 +226,9 @@ export function packTerrain(t: Terrain, scale: number): any {
   void heights;
   return { ...rest, heights: [], q: { scale, d } };
 }
-export function unpackTerrain(t: any): Terrain {
-  if (!t || !t.q) return t;
-  const { scale, d } = t.q as { scale: number; d: number[] };
-  const h: number[] = new Array(d.length);
-  let acc = 0;
-  for (let i = 0; i < d.length; i++) { acc += d[i]; h[i] = Math.round(acc * scale * 1000) / 1000; }
-  const { q, ...rest } = t;
-  void q;
-  return { ...rest, heights: h };
-}
+export { unpackTerrain, unpackRecipe } from './unpack.ts';
 export function packRecipe(r: Recipe): any {
   const out: any = { ...r, terrain: packTerrain(r.terrain, 0.01) };
   if (r.farTerrain) out.farTerrain = packTerrain(r.farTerrain, 0.1);
   return out;
-}
-export function unpackRecipe(j: any): Recipe {
-  j.terrain = unpackTerrain(j.terrain);
-  if (j.farTerrain) j.farTerrain = unpackTerrain(j.farTerrain);
-  return j as Recipe;
 }

@@ -3,9 +3,8 @@
 // (falls back to the main thread if workers are unavailable).
 import type { Recipe } from '../core/types';
 import type { SpawnLocation, Progress } from '../core/location';
-import { compileRecipe, unpackRecipe, type CompileOptions } from './compile.ts';
-import { fetchOverpass } from './osm.ts';
-import { browserTileLoader } from './terrain.ts';
+import type { CompileOptions } from './compile.ts';
+import { unpackRecipe } from './unpack.ts';
 import { BAKED_CITIES } from './cities.ts';
 
 export { BAKED_CITIES } from './cities.ts';
@@ -107,7 +106,9 @@ export function compileLive(opts: CompileOptions, onProgress: Progress): Promise
   }).then((r) => r);
 }
 
-function compileMain(opts: CompileOptions, onProgress: Progress): Promise<Recipe> {
+// The compiler itself is only loaded for main-thread live compiles (the worker bundles its own copy).
+async function compileMain(opts: CompileOptions, onProgress: Progress): Promise<Recipe> {
+  const [{ compileRecipe }, { fetchOverpass }, { browserTileLoader }] = await Promise.all([import('./compile.ts'), import('./osm.ts'), import('./terrain.ts')]);
   let lastF = 0;
   return compileRecipe(opts, {
     overpass: (q, onBytes) => fetchOverpass(q, { onBytes, onStatus: (s) => onProgress(s, lastF), timeoutMs: 90_000, hedgeMs: 15_000 }),

@@ -86,6 +86,9 @@ class RenderSky implements SkyAPI {
   private envRain = -1;
   private hemi: THREE.HemisphereLight;
   readonly rainFx = new Rain();
+  /** Far backdrop terrain material (world builds it after render setup; looked up lazily). */
+  private farMat: THREE.MeshStandardMaterial | null = null;
+  private farLookup = 0;
 
   private fogColor = new THREE.Color(0.5, 0.6, 0.7);
   private fogSun = new THREE.Color();
@@ -242,6 +245,7 @@ class RenderSky implements SkyAPI {
     // --- night factor
     this.nightFactor = smoothstep(4, -8, elDeg);
     (g.world as any)?.setNightFactor?.(Math.min(1, this.nightFactor + overcast * 0.25));
+    this.tintFarTerrain(this.nightFactor);
 
     // --- sun / moon light
     const T = transmittance(this.lut.altitude, sunDir.y, this.look.mie, _c);
@@ -340,6 +344,28 @@ class RenderSky implements SkyAPI {
     // --- rain particles follow the camera
     const amb = _c.copy(this.fogColor).multiplyScalar(this.exposure).addScalar(0.02 * this.nightFactor);
     this.rainFx.update(dt, g.camera.position, this.rain, amb);
+  }
+
+  /**
+   * The far backdrop (mountains km away) is lit only by the moon + sky fill; with night exposure pushed ~3.5x
+   * its warm tan albedo came out as bright olive hills brighter than the sky glow. Real night views read
+   * those ranges as deep blue silhouettes (scotopic shift + skyglow behind them), so multiply its albedo
+   * toward a dim slate blue by nightFactor. No shader change (material.color is a free uniform); day and
+   * golden hour (nightFactor 0) are untouched.
+   */
+  private tintFarTerrain(n: number) {
+    if (!this.farMat || !this.farMat.userData.gtFarInScene) {
+      if (--this.farLookup > 0) return;
+      this.farLookup = 60;
+      const m = this.g.scene.getObjectByName('farTerrain') as THREE.Mesh | undefined;
+      const mat = m?.material as THREE.MeshStandardMaterial | undefined;
+      if (!mat || !(mat as any).isMeshStandardMaterial) return;
+      this.farMat = mat;
+      mat.userData.gtFarInScene = true;
+      m!.addEventListener('removed', () => { mat.userData.gtFarInScene = false; });
+    }
+    const k = smoothstep(0, 1, n);
+    this.farMat.color.setRGB(1 + (0.2 - 1) * k, 1 + (0.25 - 1) * k, 1 + (0.46 - 1) * k);
   }
 
   private baseHeight() {
@@ -446,7 +472,7 @@ function readStoredQuality(): Quality | null {
   return null;
 }
 
-let devMode = new URLSearchParams(location.search).has('renderdev');
+let devMode = import.meta.env.DEV && new URLSearchParams(location.search).has('renderdev'); // dev-only: keeps dev harness chunks out of production builds
 
 export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Promise<void> {
   // In ?renderdev mode the normal boot path parks here so only the dev scene renders.
@@ -584,7 +610,7 @@ export function isRaining(g: Game) { return (STATE.get(g)?.sky.rainTarget ?? 0) 
 export function setupShadowMaterial<T extends THREE.Material>(m: T): T { return m; }
 
 // Dev test scene: /?renderdev
-if (devMode) {
+if (import.meta.env.DEV && devMode) {
   if (new URLSearchParams(location.search).get('renderdev') === 'world') import('./dev/worldTest').then((m) => m.startWorldTest());
   else import('./dev/devScene').then((m) => m.startDevScene());
 }

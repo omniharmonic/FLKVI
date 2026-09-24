@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { rng } from '../../core/geo';
 
-export interface ProcTex { alb: HTMLCanvasElement; nrm: HTMLCanvasElement; sizeM: number; base: THREE.Color; roughness: number; metalness: number }
+export interface ProcTex { alb: HTMLCanvasElement; nrm: HTMLCanvasElement; sizeM: number; base: THREE.Color; roughness: number; metalness: number; /** CPU pixel copies (RGBA, row 0 = top) so consumers never read the canvases back */ albData?: Uint8ClampedArray; nrmData?: Uint8ClampedArray }
 export const TEX_RES = 512;
 
 const RES = 512;
@@ -86,7 +86,7 @@ function finish(L: Layer, sizeM: number, normalStrength: number, roughness: numb
   x1.putImageData(d1, 0, 0); x2.putImageData(d2, 0, 0);
   const n = RES * RES;
   const base = new THREE.Color().setRGB(sr / n, sg / n, sb / n, THREE.SRGBColorSpace);
-  return { alb: c1, nrm: c2, sizeM, base, roughness, metalness };
+  return { alb: c1, nrm: c2, sizeM, base, roughness, metalness, albData: d1.data, nrmData: d2.data };
 }
 
 type RGB = [number, number, number];

@@ -1,7 +1,7 @@
 // Featured-city previews: prebuilt top-down map thumbnails (tools/thumbs.ts → public/recipes/thumbs/<id>.png) plus
 // a small index.json of facts (region, camera and building counts). Recipes are never fetched for thumbnails.
 import type { Recipe, Region } from '../core/types';
-import { unpackRecipe } from '../compiler/compile';
+import { unpackRecipe } from '../compiler/unpack';
 
 export interface CityMeta { img: string; region: Region | string; cams: number; bldgs: number }
 const THUMBS = `${import.meta.env.BASE_URL}recipes/thumbs/`;

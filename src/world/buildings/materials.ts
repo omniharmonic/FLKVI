@@ -63,7 +63,7 @@ const GHOST_TEXTS = [
 /** Ghost-sign atlas: 4 rows (4:1 cells) of weathered painted lettering; alpha = paint coverage. */
 function ghostCanvas(R: number): HTMLCanvasElement {
   const c = document.createElement('canvas'); c.width = c.height = R;
-  const x = c.getContext('2d')!;
+  const x = c.getContext('2d', { willReadFrequently: true })!;
   const H = R / 4;
   GHOST_TEXTS.forEach(([t, fg, bg], i) => {
     const y = i * H;
@@ -94,7 +94,7 @@ function ghostCanvas(R: number): HTMLCanvasElement {
 /** Address-plaque atlas: 4x4 cells of house numbers on enamel / brass / black plates. */
 function plaqueCanvas(R: number): HTMLCanvasElement {
   const c = document.createElement('canvas'); c.width = c.height = R;
-  const x = c.getContext('2d')!;
+  const x = c.getContext('2d', { willReadFrequently: true })!;
   const S = R / 4;
   const styles = [['#1e2430', '#f2efe6'], ['#b08d4a', '#2a2116'], ['#f1eee6', '#1a1a1a'], ['#2a2a2a', '#d9c690']];
   for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
@@ -110,7 +110,7 @@ function plaqueCanvas(R: number): HTMLCanvasElement {
 }
 function flatNormal(R: number): HTMLCanvasElement {
   const c = document.createElement('canvas'); c.width = c.height = R;
-  const x = c.getContext('2d')!; x.fillStyle = 'rgb(128,128,255)'; x.fillRect(0, 0, R, R);
+  const x = c.getContext('2d', { willReadFrequently: true })!; x.fillStyle = 'rgb(128,128,255)'; x.fillRect(0, 0, R, R);
   return c;
 }
 
@@ -124,20 +124,22 @@ function drawToCanvas(img: unknown, res: number): HTMLCanvasElement | null {
   const im = img as (CanvasImageSource & { width?: number }) | undefined;
   if (!im || ((im as { width?: number }).width ?? 0) < 64) return null;
   try {
+    // CPU-backed (willReadFrequently): the pixels are read right back, and a GPU-accelerated 2D canvas would
+    // stall the main thread on a synchronous GPU readback for every layer (~1 s total at load)
     const c = document.createElement('canvas'); c.width = c.height = res;
-    c.getContext('2d')!.drawImage(im, 0, 0, res, res);
+    c.getContext('2d', { willReadFrequently: true })!.drawImage(im, 0, 0, res, res);
     return c;
   } catch { return null; }
 }
 
-function averageOf(c: HTMLCanvasElement): THREE.Color {
-  const x = document.createElement('canvas'); x.width = x.height = 8;
-  const g = x.getContext('2d')!; g.drawImage(c, 0, 0, 8, 8);
-  const d = g.getImageData(0, 0, 8, 8).data;
-  let r = 0, gg = 0, b = 0;
-  for (let i = 0; i < 64; i++) { r += d[i * 4]; gg += d[i * 4 + 1]; b += d[i * 4 + 2]; }
-  return new THREE.Color().setRGB(r / 64 / 255, gg / 64 / 255, b / 64 / 255, THREE.SRGBColorSpace);
+/** Mean sRGB color of RGBA pixels (strided sample; CPU only). */
+function averageOf(d: Uint8ClampedArray): THREE.Color {
+  let r = 0, gg = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4 * 7) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+  n = Math.max(1, n);
+  return new THREE.Color().setRGB(r / n / 255, gg / n / 255, b / n / 255, THREE.SRGBColorSpace);
 }
+const pixels = (c: HTMLCanvasElement, R: number) => c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, R, R).data;
 
 /** Wait (bounded) for the library texture sets used by the building layers to finish loading. */
 export async function prepareBuildingTextures(timeoutMs = 10000): Promise<void> {
@@ -156,6 +158,7 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
   const scale: number[] = [], rough: number[] = [], metal: number[] = [], grime: number[] = [], nstr: number[] = [];
   LAYER_IDS.forEach((id, li) => {
     let a: HTMLCanvasElement | null = null, n: HTMLCanvasElement | null = null;
+    let da: Uint8ClampedArray | null = null, dn: Uint8ClampedArray | null = null;
     let sizeM = 2, rgh = 0.85, mtl = 0;
     let lib = null;
     try { lib = NO_LIB.has(id) ? null : textureSet(id as TextureId); } catch { lib = null; }
@@ -167,19 +170,21 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
         sizeM = SIZE_FIX[id] ?? (lib.sizeM || 2);
         const pp = procParams(id);
         rgh = pp.roughness; mtl = pp.metalness;
-        if (!n) n = procTexture(id).nrm;
+        if (!n) { const pt = procTexture(id); n = pt.nrm; dn = pt.nrmData ?? null; }
       }
     }
     if (id === 'ghost' || id === 'plaque') {
-      a = id === 'ghost' ? ghostCanvas(R) : plaqueCanvas(R); n = flatNormal(R); sizeM = 1; rgh = id === 'ghost' ? 0.9 : 0.45; mtl = 0;
+      a = id === 'ghost' ? ghostCanvas(R) : plaqueCanvas(R); n = flatNormal(R); da = dn = null; sizeM = 1; rgh = id === 'ghost' ? 0.9 : 0.45; mtl = 0;
     }
     if (!a) {
       const pt = procTexture(id);
       a = pt.alb; n = pt.nrm; sizeM = pt.sizeM; rgh = pt.roughness; mtl = pt.metalness;
+      da = pt.albData ?? null; dn = pt.nrmData ?? null;
     }
-    const base = averageOf(a);
-    const da = a.getContext('2d')!.getImageData(0, 0, R, R).data;
-    const dn = n!.getContext('2d')!.getImageData(0, 0, R, R).data;
+    // procedural layers hand over their CPU pixel arrays; library/atlas canvases are CPU-backed → no GPU readback
+    if (!da) da = pixels(a, R);
+    if (!dn) dn = pixels(n!, R);
+    const base = averageOf(da);
     // canvas row 0 = top = v 1 → flip rows into the data texture
     const off = li * R * R * 4;
     for (let y = 0; y < R; y++) {

@@ -15,7 +15,8 @@ import { audioCtx, getBuses, onUnlock, setDuck } from './engine';
 import { bufferNow, getBuffer, overrideBuffer, renderAll, SOUND_NAMES } from './synth';
 import { sfx, type SoundHandle } from './sfx';
 import { Music } from './music';
-import { soundUrl } from '../assets/library';
+// manifest only (not assets/library, which pulls GLTF/HDR loaders into the title-screen bundle)
+import { SOUNDS } from '../assets/manifest';
 
 export { sfx, setDuck };
 
@@ -206,5 +207,11 @@ export async function setupAudio(g: Game): Promise<void> {
   requestAnimationFrame(pauseWatch);
 }
 
+/** Same as assets/library soundUrl(name) (random variant). */
+function soundUrl(id: string): string | null {
+  const list = SOUNDS[id];
+  if (!list || !list.length) return null;
+  return `${import.meta.env.BASE_URL}assets/${list[Math.floor(Math.random() * list.length)]}`;
+}
 function safeUrl(name: string): string | null { try { return soundUrl(name); } catch { return null; } }
 function safeNum(fn: () => number, d: number): number { try { const v = fn(); return typeof v === 'number' && isFinite(v) ? v : d; } catch { return d; } }

@@ -1,6 +1,5 @@
 // Settings rows shared by the pause menu (in game) and the title-screen settings modal (no Game yet).
 import type { Game } from '../core/game';
-import * as render from '../render';
 import { h, btn } from './dom';
 import { settings, saveSettings, type Settings } from './settings';
 import { sfx } from '../audio/sfx';
@@ -37,7 +36,7 @@ export function settingsRows(g: Game | null): HTMLElement[] {
   rows.push(head('Graphics'));
   rows.push(opts<Q>('Quality', ['low', 'medium', 'high'], (g?.quality ?? settings.quality) as Q, (q) => {
     saveSettings({ quality: q });
-    if (g) { g.quality = q; try { (render as any).setQuality?.(g, q); } catch (e) { console.warn(e); } }
+    if (g) { g.quality = q; import('../render').then((render) => (render as any).setQuality?.(g, q)).catch((e) => console.warn(e)); }
     else { try { localStorage.setItem('gt.quality', q); } catch { /* */ } }
   }));
   rows.push(slider('Resolution scale', 0.5, 1, 0.05, settings.resScale ?? 1, pct, (v) => saveSettings({ resScale: v })));

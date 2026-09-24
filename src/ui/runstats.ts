@@ -12,7 +12,10 @@ export function runStats(g: Game): RunStats {
     s = st;
     stats.set(g, s);
     g.events.on('runStart', () => { st.cuts = 0; st.disables = 0; st.startedAt = g.elapsed ?? 0; st.endedAt = null; st.bestStreak = 0; });
-    g.events.on('takedown', ({ mode }) => { if (mode === 'cut') st.cuts++; else st.disables++; });
+    g.events.on('takedown', ({ mode, upgrade }) => {
+      // an upgrade (cut on a still-disabled camera) moves that post from 'disabled' to 'cut' rather than adding one
+      if (mode === 'cut') { st.cuts++; if (upgrade) st.disables = Math.max(0, st.disables - 1); } else st.disables++;
+    });
     g.events.on('score', ({ streak }) => { st.bestStreak = Math.max(st.bestStreak, streak); });
     g.events.on('runEnd', () => { st.endedAt = g.elapsed ?? 0; });
   }

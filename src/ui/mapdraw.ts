@@ -54,11 +54,25 @@ function build(r: Recipe): MapLayers {
   const casG = new Map<number, { width: number; path: Path2D }>();
   const paths = new Path2D();
   // segment grid for street names
-  const CELL = 40; const grid = new Map<string, { a: Vec2; b: Vec2; name: string }[]>();
+  const CELL = 40; const grid = new Map<string, { a: Vec2; b: Vec2; name: string; half: number; ped: boolean }[]>();
+  const addNamed = (rd: Recipe['roads'][number], ped: boolean) => {
+    if (!rd.name) return;
+    const half = Math.max(1, (rd.width || (ped ? 3 : 6)) / 2 + (ped ? rd.sidewalk || 0 : 0));
+    for (let i = 0; i < rd.pts.length - 1; i++) {
+      const a = rd.pts[i], b = rd.pts[i + 1];
+      const x0 = Math.floor(Math.min(a[0], b[0]) / CELL), x1 = Math.floor(Math.max(a[0], b[0]) / CELL);
+      const z0 = Math.floor(Math.min(a[1], b[1]) / CELL), z1 = Math.floor(Math.max(a[1], b[1]) / CELL);
+      if ((x1 - x0 + 1) * (z1 - z0 + 1) > 400) continue;
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+        const k = `${x},${z}`; let l = grid.get(k); if (!l) grid.set(k, (l = []));
+        l.push({ a, b, name: rd.name, half, ped });
+      }
+    }
+  };
   for (const rd of r.roads ?? []) {
     if (!rd.pts?.length || rd.tunnel) continue;
     const poly = new Path2D(); poly.moveTo(rd.pts[0][0], rd.pts[0][1]); for (let i = 1; i < rd.pts.length; i++) poly.lineTo(rd.pts[i][0], rd.pts[i][1]);
-    if (PATHY.includes(rd.cls)) { paths.addPath(poly); continue; }
+    if (PATHY.includes(rd.cls)) { paths.addPath(poly); addNamed(rd, true); continue; }
     const w = Math.max(3, Math.round(rd.width || 6));
     const color = MAJOR.includes(rd.cls) ? '#3d3a36' : rd.cls === 'service' ? '#23282f' : '#2c323b';
     const key = `${w}|${color}`;
@@ -67,16 +81,7 @@ function build(r: Recipe): MapLayers {
     const cw = Math.round(w + 2 * (rd.sidewalk || 0) + 1);
     let cg = casG.get(cw); if (!cg) casG.set(cw, (cg = { width: cw, path: new Path2D() }));
     cg.path.addPath(poly);
-    if (rd.name) for (let i = 0; i < rd.pts.length - 1; i++) {
-      const a = rd.pts[i], b = rd.pts[i + 1];
-      const x0 = Math.floor(Math.min(a[0], b[0]) / CELL), x1 = Math.floor(Math.max(a[0], b[0]) / CELL);
-      const z0 = Math.floor(Math.min(a[1], b[1]) / CELL), z1 = Math.floor(Math.max(a[1], b[1]) / CELL);
-      if ((x1 - x0 + 1) * (z1 - z0 + 1) > 400) continue;
-      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
-        const k = `${x},${z}`; let l = grid.get(k); if (!l) grid.set(k, (l = []));
-        l.push({ a, b, name: rd.name });
-      }
-    }
+    addNamed(rd, false);
   }
   const nodePos = new Map<number, Vec2>();
   for (const n of r.graph?.nodes ?? []) nodePos.set(n.id, n.p);
@@ -88,13 +93,20 @@ function build(r: Recipe): MapLayers {
     nodePos,
     streetName(x, z) {
       const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
-      let best: string | null = null, bd = 28;
+      // 1) on a road's carriageway → that road; 2) standing on a named pedestrian way (mall, plaza street, footway)
+      // → that; 3) otherwise the nearest named road centerline within 28 m.
+      let onRoad: string | null = null, onRoadE = 0;
+      let onPed: string | null = null, onPedD = Infinity;
+      let near: string | null = null, nearD = 28;
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
         for (const s of grid.get(`${cx + dx},${cz + dz}`) ?? []) {
-          const d = distSeg(x, z, s.a, s.b); if (d < bd) { bd = d; best = s.name; }
+          const d = distSeg(x, z, s.a, s.b); const e = d - s.half;
+          if (s.ped) { if (e <= 1.5 && d < onPedD) { onPedD = d; onPed = s.name; } continue; }
+          if (e <= 0 && e < onRoadE) { onRoadE = e; onRoad = s.name; }
+          if (d < nearD) { nearD = d; near = s.name; }
         }
       }
-      return best;
+      return onRoad ?? onPed ?? near;
     },
   };
 }

@@ -359,6 +359,7 @@ export class Surveillance implements SurveillanceAPI {
     let coverage = 0;
     let points: number;
     let at: THREE.Vector3;
+    let upgrade = false;
     const mult = streakMult(this.streak);
     if (a.target.kind === 'drone') {
       const d = a.target.drone;
@@ -371,9 +372,16 @@ export class Surveillance implements SurveillanceAPI {
       type = c.type;
       coverage = c.coverage;
       at = c.work.clone();
-      const base = a.mode === 'cut' ? TUNE.baseCut : TUNE.baseDisable;
-      const rehit = a.mode === 'disable' && c.hits > 0 ? TUNE.rehitMult : 1;
-      points = Math.round(base * TUNE.typeMult[type] * (1 + TUNE.coveragePer * coverage) * mult * rehit);
+      // Upgrade: cutting a camera that is still disabled from an earlier takedown in this run adds no streak and only
+      // pays the difference over the disable already awarded (same multipliers). Re-hitting a camera that was repaired
+      // back to active pays the reduced re-hit rate for either mode.
+      upgrade = a.mode === 'cut' && (c.status === 'disabled' || c.status === 'repairing');
+      const priorHits = upgrade ? c.hits - 1 : c.hits;
+      const rehit = priorHits > 0 ? TUNE.rehitMult : 1;
+      const k = TUNE.typeMult[type] * (1 + TUNE.coveragePer * coverage) * mult * rehit;
+      points = upgrade
+        ? Math.max(0, Math.round(TUNE.baseCut * k) - Math.round(TUNE.baseDisable * k))
+        : Math.round((a.mode === 'cut' ? TUNE.baseCut : TUNE.baseDisable) * k);
       c.lastTakedownAt = t;
       if (a.mode === 'cut') {
         this.net.clearOverlay(c);
@@ -391,10 +399,11 @@ export class Surveillance implements SurveillanceAPI {
       this.net.recomputeCoverage();
       if (this.selectedTarget === c.rc.id && a.mode === 'cut') this.selectedTarget = null;
     }
-    this.streak++;
+    if (!upgrade) this.streak++;
     this.score += points;
     g.events.emit('takedown', {
       cameraId: a.id, mode: a.mode, type, seen: a.seen, coverage, p: [at.x, at.z], points, drone: a.target.kind === 'drone' || undefined,
+      upgrade: upgrade || undefined,
     });
     // unseen with zero heat: bank right away (clean work feels good)
     if (!a.seen && this.heatLevel() === 0) {

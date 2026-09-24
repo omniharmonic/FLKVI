@@ -40,10 +40,10 @@ async function overpassCached(q: string) {
   return j;
 }
 
-async function bake(id: string, lat: number, lon: number, name: string, half?: number) {
+async function bake(id: string, lat: number, lon: number, name: string, half?: number, terrainDenoise?: { sigma: number; open?: number }) {
   console.log(`\n=== ${id}: ${name} (${lat}, ${lon})`);
   let last = '';
-  const r = await compileRecipe({ lat, lon, name, half }, { overpass: overpassCached, tiles: nodeTile, log: (m) => console.log('  ', m) }, (s) => { if (s !== last) { console.log('  ·', s); last = s; } });
+  const r = await compileRecipe({ lat, lon, name, half, terrainDenoise }, { overpass: overpassCached, tiles: nodeTile, log: (m) => console.log('  ', m) }, (s) => { if (s !== last) { console.log('  ·', s); last = s; } });
   const out = join(root, 'public', 'recipes', `${id}.json`);
   mkdirSync(dirname(out), { recursive: true });
   const json = JSON.stringify(packRecipe(r));
@@ -60,7 +60,7 @@ if (flag('--lat')) {
   for (const id of ids) {
     const c = BAKED_CITIES.find((x) => x.id === id);
     if (!c) { console.error(`unknown city ${id}`); continue; }
-    try { await bake(c.id, c.lat, c.lon, c.name); }
+    try { await bake(c.id, c.lat, c.lon, c.name, undefined, c.terrainDenoise); }
     catch (e) { console.error(`  FAILED ${id}:`, e); process.exitCode = 1; }
   }
 }
