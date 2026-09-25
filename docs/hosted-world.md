@@ -104,5 +104,52 @@ hitch. Reusing interior vertices reduced the same district mesh stage from 111 m
 to 18 ms locally. The follow-up retains clipped coverage, normals, texture
 coordinates and shared indices, with regression checks for each.
 
-Final production performance measurements accompany the release verification. The test machine uses Chromium with Apple M4
-ANGLE/Metal at 1440 × 900; this is not a guarantee for every browser or GPU.
+### Production measurements — September 25, 2026
+
+Verified runtime commit `6140eeb6b024dbcf0af2e4df6607638b95e2543b` on
+[the public site](https://omniharmonic.github.io/FLKVI/), with matching built/live
+entry hashes and successful deployment CI. Each travel run loaded seven districts
+with active AI, clear/rain changes, eviction and return travel, with Overpass
+blocked. These are individual approximately one-minute runs on Chromium with
+Apple M4 ANGLE/Metal at 1440 × 900, high quality; not a cross-device benchmark.
+
+| Boulder travel metric | Original live baseline | Final hosted build |
+| --- | ---: | ---: |
+| Median frame | 16.7 ms | 16.7 ms |
+| 95th-percentile frame | 16.7 ms | 16.7 ms |
+| 99th-percentile frame | 16.8 ms | 16.8 ms |
+| Worst frame | 216.7 ms | 66.7 ms |
+| Frames over 100 ms | 2 | 0 |
+| Peak sampled main-thread JS heap | 584 MiB | 618 MiB |
+| Cold ready checkpoint, including 3 seconds settling | 9.76 s | 10.05 s |
+| Runtime / shader errors | 0 / 0 | 0 / 0 |
+
+The clear gain is reduced streaming hitches and reliable map loading. Cold boot
+and sampled JS heap did not improve in this comparison; heap samples also vary
+with garbage-collection timing and exclude GPU/worker memory. No reduction in
+steady-state frame time is claimed. The final warm reload reached its checkpoint
+in 6.61 seconds, loaded only the manifest, and reused 17 map files from CacheStorage.
+
+The separate Chicago run completed all seven transitions with no runtime/shader
+errors: median 16.7 ms, p95 16.8 ms, p99 33.4 ms. It had one first-visit rendering
+hitch of 383.3 ms. Dense-city first-use rendering still needs optimization. Both
+runs retained at most three rendered districts and twenty decoded worker chunks.
+
+Final public-build driving checks passed both sixteen-check variants: the main
+road and previously blocked service alley crossed under keyboard throttle without
+falling or taking damage. Tests also verified eviction and rebuilding on return.
+The public picker remained deployable with reverse geocoding blocked; a dropped
+pin loaded labeled generated scenery. Deliberate hosted-data outages recovered
+through the featured-city backup or generated-world path and allowed further
+travel. Alpine, desert, urban and the new St Thomas window loaded with grounded
+players and runnable shaders.
+
+Deployment CI passed compiler/AI/stability suites, every hosted data package,
+worker request/cache/watchdog recovery, offline importer regressions, geometry
+clipping checks and asset-license validation. Local real-browser verification
+passed 34 gameplay/collision checks, 48 integrated gameplay checks, full-world
+rendering/takedown checks and both sixteen-check streaming variants.
+
+Remaining scope: real data covers seventeen local windows, not entire cities or
+a country; other areas use fictional generated scenery. Testing does not establish
+GTA IV visual/physics parity or performance across all browsers and hardware.
