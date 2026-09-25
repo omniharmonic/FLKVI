@@ -230,13 +230,29 @@ export class RoadNetwork {
     const find = (k: string): string => { let r = k; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(k, r); return r; };
     for (const k of this.junctions.keys()) parent.set(k, k);
     const maxW = (J: Junction) => Math.max(...J.arms.map((a) => a.w));
+    // Curved approaches can need more room than their carriageway width. If the
+    // natural corner footprints overlap, separate junctions put a curb across
+    // the connecting street. Measure before computeTrims caps each end to 48%.
+    const reaches = new Map<Chain, [number, number]>();
+    for (const J of this.junctions.values()) {
+      const arms = [...J.arms].sort((a,b)=>a.ang-b.ang);
+      for(let i=0;i<arms.length;i++) {
+        const a=arms[i],b=arms[(i+1)%arms.length],corner=this.corner(J,a,b);
+        if(corner.straight)continue;
+        for(const [arm,reach] of [[a,Math.max(corner.tA+corner.r,corner.toA)],[b,Math.max(corner.tB+corner.r,corner.toB)]] as const) {
+          const ends=reaches.get(arm.chain)??[.3,.3];
+          const end=arm.atStart?0:1;ends[end]=Math.max(ends[end],Math.min(40,reach));reaches.set(arm.chain,ends);
+        }
+      }
+    }
     for (const c of this.chains) {
       const [k0, k1] = c.ends;
       if (!k0 || !k1 || k0 === k1) continue;
       const J0 = this.junctions.get(k0)!, J1 = this.junctions.get(k1)!;
       if (J0.arms.length < 3 && J1.arms.length < 3) continue;
       const thr = 2 * Math.max(maxW(J0), maxW(J1)) + 4;
-      if (c.len < thr) { c.internal = true; parent.set(find(k0), find(k1)); }
+      const reach=reaches.get(c)??[0,0];
+      if (c.len < thr || !c.bridge && c.len < reach[0]+reach[1]+.5) { c.internal = true; parent.set(find(k0), find(k1)); }
     }
     const groups = new Map<string, Junction[]>();
     for (const [k, J] of this.junctions) { const r = find(k); (groups.get(r) ?? groups.set(r, []).get(r)!).push(J); }

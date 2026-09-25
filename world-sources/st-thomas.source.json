@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "importer": "FLK VI offline regional OSM",
+  "createdAt": "2026-09-25T16:45:01.465Z",
+  "source": {
+    "file": "flk-virgin-islands.osm.pbf",
+    "sha256": "9278718d1cd8ddcbd068de78ff10ddc95e33adb6ce9cd70cf633c51b35735ac1",
+    "url": "https://download.geofabrik.de/north-america/us/us-virgin-islands-latest.osm.pbf"
+  },
+  "window": {
+    "lat": 18.341,
+    "lon": -64.932,
+    "half": 1120,
+    "cell": 4,
+    "farHalf": 0,
+    "bbox": [
+      -64.94373136391941,
+      18.329796966890665,
+      -64.92026863608059,
+      18.352203033109337
+    ]
+  },
+  "counts": {
+    "nodes": 23027,
+    "ways": 3568,
+    "relations": 5
+  },
+  "missingReferences": {
+    "nodes": 0,
+    "ways": 0,
+    "relations": 0,
+    "relationMembers": 0
+  },
+  "terrain": "cached/network Terrarium",
+  "attribution": [
+    "Map data \u00a9 OpenStreetMap contributors (ODbL 1.0)",
+    "https://www.openstreetmap.org/copyright"
+  ],
+  "indexReused": false
+}

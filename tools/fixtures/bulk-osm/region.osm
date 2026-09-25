@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="FLK VI regression fixture (synthetic coordinates)">
+  <bounds minlat="39.99" minlon="-105.01" maxlat="40.01" maxlon="-104.99"/>
+  <node id="1" lat="40" lon="-105.005"/>
+  <node id="2" lat="40" lon="-105"><tag k="highway" v="traffic_signals"/></node>
+  <node id="3" lat="40" lon="-104.995"/>
+  <node id="4" lat="40.005" lon="-105"/>
+  <node id="5" lat="39.995" lon="-105"/>
+  <node id="10" lat="40.0003" lon="-104.9997"/>
+  <node id="11" lat="40.0003" lon="-104.9992"/>
+  <node id="12" lat="40.0007" lon="-104.9992"/>
+  <node id="13" lat="40.0007" lon="-104.9997"/>
+  <node id="14" lat="40.0004" lon="-104.9996"/>
+  <node id="15" lat="40.0004" lon="-104.9994"/>
+  <node id="16" lat="40.0006" lon="-104.9994"/>
+  <node id="17" lat="40.0006" lon="-104.9996"/>
+  <node id="20" lat="39.9998" lon="-105.0003"><tag k="natural" v="tree"/></node>
+  <node id="30" lat="40.0001" lon="-105.005"/>
+  <node id="31" lat="40.0001" lon="-104.995"/>
+  <node id="99" lat="41" lon="-106"/>
+  <node id="100" lat="41.1" lon="-106"/>
+  <way id="1001"><nd ref="1"/><nd ref="2"/><nd ref="3"/><tag k="highway" v="secondary"/><tag k="name" v="A &amp; B Street"/></way>
+  <way id="1002"><nd ref="4"/><nd ref="2"/><nd ref="5"/><tag k="highway" v="secondary"/></way>
+  <way id="1003"><nd ref="30"/><nd ref="31"/><tag k="highway" v="footway"/></way>
+  <way id="2001"><nd ref="10"/><nd ref="11"/><nd ref="12"/></way>
+  <way id="2002"><nd ref="12"/><nd ref="13"/><nd ref="10"/></way>
+  <way id="2003"><nd ref="14"/><nd ref="15"/><nd ref="16"/><nd ref="17"/><nd ref="14"/></way>
+  <way id="9999"><nd ref="99"/><nd ref="100"/><tag k="highway" v="residential"/></way>
+  <relation id="3001"><member type="way" ref="2001" role="outer"/><member type="way" ref="2002" role="outer"/><member type="way" ref="2003" role="inner"/><tag k="type" v="multipolygon"/><tag k="building" v="yes"/><tag k="building:levels" v="3"/></relation>
+  <!-- A feature ring enclosing the whole clip, made of four outside edges. -->
+  <node id="40" lat="39.998" lon="-105.002"/>
+  <node id="41" lat="39.998" lon="-104.998"/>
+  <node id="42" lat="40.002" lon="-104.998"/>
+  <node id="43" lat="40.002" lon="-105.002"/>
+  <way id="4001"><nd ref="40"/><nd ref="41"/></way>
+  <way id="4002"><nd ref="41"/><nd ref="42"/></way>
+  <way id="4003"><nd ref="42"/><nd ref="43"/></way>
+  <way id="4004"><nd ref="43"/><nd ref="40"/></way>
+  <relation id="4000"><member type="way" ref="4001" role="outer"/><member type="way" ref="4002" role="outer"/><member type="way" ref="4003" role="outer"/><member type="way" ref="4004" role="outer"/><tag k="type" v="multipolygon"/><tag k="landuse" v="grass"/></relation>
+  <!-- This incomplete global grouping is not a compiler feature. -->
+  <relation id="9000"><member type="way" ref="1003" role="outer"/><member type="way" ref="900000" role="outer"/><tag k="type" v="multipolygon"/><tag k="place" v="archipelago"/></relation>
+</osm>

@@ -159,6 +159,20 @@
     check('Intersection sidewalks have no collapsed texture coordinates', checked > 20 && collapsed === 0, `${collapsed}/${checked}`);
     junctionMeshes.forEach(m => m.geometry.dispose()); material.dispose();
 
+    // Neighboring intersection corners must share pavement before their natural
+    // fillets overlap, while normally spaced intersections remain separate.
+    const pairedJunctions = distance => {
+      const road = (id,pts,width) => ({id,pts,width,cls:'residential',ys:pts.map(()=>0),sidewalk:2,lanes:2});
+      const network = new RoadNetwork({...g.recipe,graph:{nodes:[],edges:[]},roads:[
+        road('through',[[-100,0],[0,0],[distance,0],[100,0]],12),
+        road('cross-a',[[0,-80],[0,0],[0,80]],10),
+        road('cross-b',[[distance,-80],[distance,0],[distance,80]],10),
+      ]});
+      network.analyze();return network;
+    };
+    check('Overlapping intersection corners combine without a curb across the street',pairedJunctions(18).junctions.size===1);
+    check('Separated intersections retain their individual sidewalks',pairedJunctions(40).junctions.size===2);
+
     const factory = new CharacterFactory(() => 0.5); await factory.loadAssets();
     for (const kind of ['civilian', 'officer']) {
       const character = factory.create(kind, 1);

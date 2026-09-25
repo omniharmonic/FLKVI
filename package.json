@@ -2,7 +2,7 @@
   "name": "groundtruth",
   "private": true,
   "version": "0.1.0",
-  "description": "Browser open-world game: take down surveillance cameras in photoreal 3D versions of real US places, compiled at runtime from OpenStreetMap and open terrain data.",
+  "description": "FLK VI: browser open-world game with hosted geographic chunks, offline OSM compilation and streamed districts.",
   "license": "MIT",
   "author": "Benjamin Life",
   "homepage": "https://omniharmonic.github.io/FLKVI/",
@@ -31,7 +31,12 @@
     "test:streaming": "bash tools/check-streaming.sh",
     "test:stability": "node --experimental-strip-types tools/streaming-continuation-regressions.ts && node --experimental-strip-types tools/compiler-identity-regressions.ts && node --experimental-strip-types tools/render-budget-regressions.ts",
     "test:streaming:extended": "bash tools/check-streaming-overhaul.sh",
-    "test:soak": "bash tools/check-world-soak.sh"
+    "test:soak": "bash tools/check-world-soak.sh",
+    "world:bake": "node --experimental-strip-types tools/bake-world.ts",
+    "test:world-data": "node --experimental-strip-types tools/world-data-regressions.ts && node --experimental-strip-types tools/generated-start-regressions.ts",
+    "test:world-store": "node --experimental-strip-types tools/world-store-regressions.ts && node --experimental-strip-types tools/world-store-regressions.ts cache && node --experimental-strip-types tools/world-store-regressions.ts hung && node tools/world-store-request-regressions.mjs",
+    "test:world-import": "node --experimental-strip-types tools/bulk-import-regressions.ts",
+    "test:world-loading": "bash tools/check-world-loading.sh"
   },
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",

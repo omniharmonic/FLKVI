@@ -24,6 +24,9 @@ jobs:
       - run: npm run test:deep
       - run: npm run test:ai
       - run: npm run test:stability
+      - run: npm run test:world-data
+      - run: npm run test:world-store
+      - run: npm run test:world-import
       - run: npm run check:licenses
       - run: npm run build:fast
         env:

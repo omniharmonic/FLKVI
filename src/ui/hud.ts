@@ -7,6 +7,7 @@ import { layersFor } from './mapdraw';
 import { playerPos, viewYaw, selectedCam, updateRoute } from './nav';
 import { Hints } from './hints';
 import { sfx } from '../audio/sfx';
+import { isGeneratedWorld } from '../compiler/generated-start.ts';
 
 const STAR = '<svg viewBox="0 0 24 24"><path d="M12 2.2l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.1l-5.9 3.2 1.3-6.6-4.9-4.6 6.6-.8z"/></svg>';
 
@@ -108,7 +109,8 @@ export class HUD {
 
     this.el = h('div', { class: 'gt-hud' },
       this.vignette, compass, this.modeEl,
-      h('div', { class: 'hud-tl' }, h('div', { class: 'hud-street' }, this.street, this.clock), miniWrap),
+      h('div', { class: 'hud-tl' }, h('div', { class: 'hud-street' }, this.street, this.clock), miniWrap,
+        g.recipe && isGeneratedWorld(g.recipe) ? h('div', { class: 'hud-provenance', style: 'font:600 9px/1.5 var(--mono);letter-spacing:.08em;color:#f1deb2;text-shadow:0 1px 4px #000' }, 'GENERATED WORLD · FICTIONAL GEOGRAPHY') : null),
       h('div', { class: 'hud-tr' }, this.heatWrap, h('div', { class: 'hud-heatbar' }, this.heatBar), this.heatMeta, this.arrest, this.score, this.charges),
       this.toasts, this.prompt, this.speed, this.streamStatus, this.hints.el, this.arrestWarn,
     );

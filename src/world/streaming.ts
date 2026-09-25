@@ -1,17 +1,15 @@
 // Runtime district streaming for static hosting: one network/build job, bounded residency, retry/backoff.
 import type { Game, System } from '../core/game';
 import type { Recipe } from '../core/types';
-import { makeProjection } from '../core/geo';
-import { bundledDistrict } from '../compiler/expansion';
+import { loadHostedDistrict, prefetchHostedDistrict } from '../compiler/world-store';
 import { continuationDistrict, isContinuation } from '../compiler/continuation';
-import { loadDistrict } from '../compiler/district-cache';
 import { buildDistrict, type District } from './district';
 import { contains, distanceTo, districtIndex, districtBounds, rebaseRecipe, type Bounds } from './stream-coordinates';
 import type { PropSystem } from './props';
 import type { Heightfield } from './terrain';
 import { groups, GROUP_STATIC } from './physics';
 
-const MAX_RESIDENT = 5, PREFETCH = 380;
+const MAX_RESIDENT = 5;
 import { streamedTerrainBounds } from './stream-uniforms';
 export class WorldStreaming implements System {
   name='world-streaming';order=48;
@@ -51,17 +49,25 @@ export class WorldStreaming implements System {
     if(!this.g.player || new URLSearchParams(location.search).has('nostream'))return;
     this.tick-=dt;if(this.tick>0)return;this.tick=0.5;
     const p=this.g.player.position, v=this.g.player.velocity;
+    const speed=Math.hypot(v.x,v.z),prefetch=Math.min(780,Math.max(240,180+speed*10));
+    // Fetch/decode further ahead at driving speed, without retaining additional render/physics districts.
+    if(speed>2){
+      for(const seconds of [8,16]){
+        const a=districtIndex(p.x+v.x*seconds,this.core.minX,this.core.maxX),b=districtIndex(p.z+v.z*seconds,this.core.minZ,this.core.maxZ);
+        if(!this.ready(a,b))prefetchHostedDistrict(this.g.recipe,districtBounds(this.core,a,b));
+      }
+    }
     const i=districtIndex(p.x,this.core.minX,this.core.maxX),j=districtIndex(p.z,this.core.minZ,this.core.maxZ);
     const options:{i:number;j:number;score:number}[]=[];
     for(let a=i-1;a<=i+1;a++)for(let b=j-1;b<=j+1;b++){
       if(this.ready(a,b))continue;
       const bounds=districtBounds(this.core,a,b),d=distanceTo(bounds,p.x,p.z);
-      if(d>PREFETCH)continue;
+      if(d>prefetch)continue;
       const key=`${a},${b}`,retry=this.failures.get(key);
       if(d<35&&this.g.elapsed-this.toastAt>8){this.toastAt=this.g.elapsed;this.g.events.emit('toast',{text:retry?'Map data unavailable. Retrying shortly.':'Loading the next district…',kind:'info',ms:3500});}
       if(retry&&retry.until>this.g.elapsed)continue;
       // Prefer the direction of travel; still load adjacent corner tiles before crossing them.
-      const ahead=distanceTo(bounds,p.x+v.x*6,p.z+v.z*6);
+      const ahead=distanceTo(bounds,p.x+v.x*10,p.z+v.z*10);
       options.push({i:a,j:b,score:d+ahead*0.7});
     }
     if(!this.loading&&options.length){options.sort((a,b)=>a.score-b.score);const next=options[0];
@@ -78,17 +84,13 @@ export class WorldStreaming implements System {
     const key=`${i},${j}`;if(this.ready(i,j))return;
     this.loading=key;
     try{
-      const bounds=districtBounds(this.core,i,j),cx=(bounds.minX+bounds.maxX)/2,cz=(bounds.minZ+bounds.maxZ)/2;
-      const ll=makeProjection(this.g.recipe.origin.lat,this.g.recipe.origin.lon).toLatLon(cx,cz);
+      const bounds=districtBounds(this.core,i,j);
       this.status='Loading nearby streets';
-      let raw=source??this.generated.get(key)??await bundledDistrict(this.g.recipe,bounds);
+      let raw=source??this.generated.get(key);
       if(!raw&&performance.now()>=this.networkRetryAt){
-        try{raw=await loadDistrict({...ll,name:this.g.recipe.name,half:Math.max(bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ)/2+24,farHalf:0,cell:4,lean:true},s=>{this.status=s;});}
-        catch(e){this.networkRetryAt=performance.now()+45000;console.info('[streaming] map service unavailable, generating drivable outskirts',e);}
+        try{raw=await loadHostedDistrict(this.g.recipe,bounds,s=>{this.status=s;});}
+        catch(e){this.networkRetryAt=performance.now()+45000;console.info('[streaming] hosted packages unavailable, generating drivable outskirts',e);}
       }
-      // The compiler's no-DEM flat fallback is valid for an initial world, but not beside
-      // a mountain town with an existing elevation datum (it would put roads kilometres below it).
-      if(raw&&Math.abs(this.g.recipe.elevation??0)>300&&(raw.elevation??0)===0&&raw.terrain.heights.every(y=>Math.abs(y)<.001))raw=undefined;
       const generate=()=>{
         const recipe=continuationDistrict(this.g.recipe,bounds,[
           {recipe:{...this.g.recipe,bounds:this.core},heightAt:(x,z)=>this.initial.sample(x,z),groundAt:(x,z)=>this.g.world.groundAt(x,z)},
@@ -98,7 +100,9 @@ export class WorldStreaming implements System {
         if(this.generated.size>8)this.generated.delete(this.generated.keys().next().value!);
         return recipe;
       };
-      let recipe=raw?rebaseRecipe(raw,this.g.recipe,bounds):generate();
+      // Hosted recipes already arrive clipped/rebased from the worker. Only injected fixture data
+      // may use another coordinate frame; keep that test API without repeating production work.
+      let recipe=raw?(source?rebaseRecipe(raw,this.g.recipe,bounds):raw):generate();
       recipe.buildings=recipe.buildings.filter(b=>!this.buildingIds.has(b.id));
       // Initial recipe's margin already owns some props/buildings outside the terrain square.
       recipe.props=recipe.props.filter(p=>!this.g.recipe.props.some(q=>q.type===p.type&&Math.hypot(q.p[0]-p.p[0],q.p[1]-p.p[1])<0.8));
@@ -113,7 +117,7 @@ export class WorldStreaming implements System {
       }
       this.districts.set(key,d);for(const b of recipe.buildings)this.buildingIds.add(b.id);
       this.failures.delete(key);this.status='';
-      if(isContinuation(recipe))this.g.events.emit('toast',{text:'Map service unavailable — exploring generated outskirts.',kind:'info',ms:5000});
+      if(isContinuation(recipe))this.g.events.emit('toast',{text:'Beyond available map data — exploring generated outskirts.',kind:'info',ms:5000});
       this.evict();this.rebuildBarriers();this.updateBackdrop();
       this.streetLights?.setResidentLamps([...this.districts.values()].flatMap(d=>[...d.lamps]));
       this.g.events.emit('districtsChanged',{recipes:[...this.districts.values()].map(d=>d.recipe)});

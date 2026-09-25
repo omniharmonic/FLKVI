@@ -11,6 +11,70 @@ export const CONTINUATION_ATTRIBUTION = 'Procedural outskirts — approximate te
 export function isContinuation(recipe: Recipe) { return recipe.attribution.includes(CONTINUATION_ATTRIBUTION); }
 export interface ContinuationNeighbor { recipe: Recipe; heightAt(x:number,z:number):number; groundAt(x:number,z:number):number }
 
+/** Extrapolated streets may cross between original OSM vertices. Split those
+ * segments into shared, same-grade junctions so road rendering opens the curb
+ * and traffic can turn. A 64m broadphase avoids an all-segment quadratic scan. */
+export function joinContinuationRoads(input:RecipeRoad[]):RecipeRoad[] {
+  type Join={p:Vec2;y:number;id:number;priority:number;owner:string};
+  type Cut={t:number;join:Join};
+  type Segment={road:number;index:number;a:Vec2;b:Vec2;dx:number;dz:number;cuts:Cut[]};
+  const segments:Segment[]=[],byRoad:Segment[][]=input.map(()=>[]),grid=new Map<string,number[]>(),joins=new Map<string,Join>();
+  const cell=64,epsilon=1e-7;
+  for(let road=0;road<input.length;road++){
+    const r=input[road];if(r.bridge||r.tunnel)continue;
+    for(let i=1;i<r.pts.length;i++){
+      const a=r.pts[i-1],b=r.pts[i],dx=b[0]-a[0],dz=b[1]-a[1];if(Math.hypot(dx,dz)<.001)continue;
+      const segment:Segment={road,index:i,a,b,dx,dz,cuts:[]},candidates=new Set<number>();
+      const x0=Math.floor((Math.min(a[0],b[0])-epsilon)/cell),x1=Math.floor((Math.max(a[0],b[0])+epsilon)/cell);
+      const z0=Math.floor((Math.min(a[1],b[1])-epsilon)/cell),z1=Math.floor((Math.max(a[1],b[1])+epsilon)/cell);
+      for(let x=x0;x<=x1;x++)for(let z=z0;z<=z1;z++)for(const id of grid.get(`${x},${z}`)??[])candidates.add(id);
+      for(const id of candidates){
+        const other=segments[id],q=input[other.road];if(other.road===road)continue;
+        // Recipes currently encode grade with bridge/tunnel and sampled heights;
+        // honor explicit layer metadata as well when supplied by an offline importer.
+        if(((r as RecipeRoad&{layer?:number}).layer??0)!==((q as RecipeRoad&{layer?:number}).layer??0))continue;
+        const den=dx*other.dz-dz*other.dx;if(Math.abs(den)<1e-8)continue;
+        const ax=other.a[0]-a[0],az=other.a[1]-a[1];
+        const t=(ax*other.dz-az*other.dx)/den,u=(ax*dz-az*dx)/den;
+        if(t<-epsilon||t>1+epsilon||u<-epsilon||u>1+epsilon)continue;
+        const ct=Math.max(0,Math.min(1,t)),cu=Math.max(0,Math.min(1,u));
+        const endpoint=ct<epsilon?i-1:ct>1-epsilon?i:-1;
+        const otherEndpoint=cu<epsilon?other.index-1:cu>1-epsilon?other.index:-1;
+        // Existing OSM junctions already have a graded road profile. Only create
+        // missing connections; changing an established node can raise its approaches.
+        if(endpoint>=0&&otherEndpoint>=0&&r.nodes[endpoint]===q.nodes[otherEndpoint])continue;
+        const y=r.ys[i-1]+(r.ys[i]-r.ys[i-1])*ct,otherY=q.ys[other.index-1]+(q.ys[other.index]-q.ys[other.index-1])*cu;
+        if(!Number.isFinite(y+otherY)||Math.abs(y-otherY)>1.5)continue;
+        const p:Vec2=[Math.round((a[0]+dx*ct)*1000)/1000,Math.round((a[1]+dz*ct)*1000)/1000];
+        const layer=(r as RecipeRoad&{layer?:number}).layer??0,key=`${layer}:${streamNodeId(p)}`,node=layer===0?streamNodeId(p):-1-hashString(`stream-layer:${key}`);
+        const preferred=r.width>q.width||r.width===q.width&&r.id<q.id?r:q;
+        const chosenY=preferred===r?y:otherY;
+        let join=joins.get(key);
+        if(!join){join={p,y:chosenY,id:node,priority:preferred.width,owner:preferred.id};joins.set(key,join);}
+        else if(preferred.width>join.priority||preferred.width===join.priority&&preferred.id<join.owner){join.y=chosenY;join.priority=preferred.width;join.owner=preferred.id;}
+        segment.cuts.push({t:ct,join});other.cuts.push({t:cu,join});
+      }
+      const id=segments.length;segments.push(segment);byRoad[road].push(segment);
+      for(let x=x0;x<=x1;x++)for(let z=z0;z<=z1;z++){const key=`${x},${z}`,bin=grid.get(key)??[];bin.push(id);grid.set(key,bin);}
+    }
+  }
+  return input.map((road,r)=>{
+    if(!byRoad[r].some(s=>s.cuts.length))return road;
+    const pts:Vec2[]=[],ys:number[]=[],nodes:number[]=[];
+    const push=(p:Vec2,y:number,id:number,replace=false)=>{
+      if(pts.length&&Math.hypot(p[0]-pts.at(-1)![0],p[1]-pts.at(-1)![1])<.002){if(replace){pts[pts.length-1]=p;ys[ys.length-1]=y;nodes[nodes.length-1]=id;}return;}
+      pts.push(p);ys.push(y);nodes.push(id);
+    };
+    const cuts=new Map(byRoad[r].map(s=>[s.index,s.cuts]));
+    for(let i=1;i<road.pts.length;i++){
+      push(road.pts[i-1],road.ys[i-1],road.nodes[i-1]);
+      for(const c of (cuts.get(i)??[]).sort((a,b)=>a.t-b.t))push(c.join.p,c.join.y,c.join.id,true);
+      push(road.pts[i],road.ys[i],road.nodes[i]);
+    }
+    return {...road,pts,ys,nodes};
+  });
+}
+
 export function continuationDistrict(root:Recipe,bounds:Bounds,neighbors:ContinuationNeighbor[]):Recipe {
   const biome=recipeBiome(root), key=`${bounds.minX},${bounds.minZ}`, random=rng(hashString(`${root.origin.lat}:${root.origin.lon}:${key}`));
   const far=terrainSampler(root.farTerrain??root.terrain);
@@ -27,7 +91,7 @@ export function continuationDistrict(root:Recipe,bounds:Bounds,neighbors:Continu
   const cellSize=4,cols=Math.ceil((bounds.maxX-bounds.minX)/cellSize)+1,rows=Math.ceil((bounds.maxZ-bounds.minZ)/cellSize)+1;
   const heights=Array.from({length:cols*rows},(_,i)=>height(bounds.minX+i%cols*cellSize,bounds.minZ+Math.floor(i/cols)*cellSize));
   const terrain={cols,rows,cellSize,originX:bounds.minX,originZ:bounds.minZ,heights};
-  const roads:RecipeRoad[]=[],seen=new Set<string>();
+  let roads:RecipeRoad[]=[];const seen=new Set<string>();
   const margin=48, box={minX:bounds.minX-margin,minZ:bounds.minZ-margin,maxX:bounds.maxX+margin,maxZ:bounds.maxZ+margin};
   const roadSample=(road:RecipeRoad,p:Vec2)=>{
     let best=Infinity,y=height(...p);
@@ -77,6 +141,7 @@ export function continuationDistrict(root:Recipe,bounds:Bounds,neighbors:Continu
       roads.push({...road,pts,ys:ys.map(y=>y+correction),nodes});
     }
   }
+  roads=joinContinuationRoads(roads);
   const graph:Recipe['graph']={nodes:[],edges:[]},nodeMap=new Map<number,number>();
   for(const road of roads){const ids=road.pts.map((p,i)=>{let id=nodeMap.get(road.nodes[i]);if(id===undefined){id=graph.nodes.length;nodeMap.set(road.nodes[i],id);graph.nodes.push({id:road.nodes[i],p,y:road.ys[i]});}return id;});
     for(let i=1;i<ids.length;i++){const edge={from:ids[i-1],to:ids[i],roadId:road.id,length:Math.hypot(road.pts[i][0]-road.pts[i-1][0],road.pts[i][1]-road.pts[i-1][1]),lanes:road.lanes,speed:road.maxSpeed,cls:road.cls};graph.edges.push(edge);if(!road.oneway)graph.edges.push({...edge,from:edge.to,to:edge.from});}}

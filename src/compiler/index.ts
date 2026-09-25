@@ -1,11 +1,12 @@
-// OWNER: compiler agent. Runtime World Compiler: OSM (Overpass) + terrain tiles → Recipe.
-// Baked cities load from public/recipes/<id>.json; anything else compiles live in a Web Worker
-// (falls back to the main thread if workers are unavailable).
+// Startup reads hosted world chunks. Offline/out-of-coverage starts use labeled procedural geography.
+// Live compilation remains an explicit development API, never a startup dependency.
 import type { Recipe } from '../core/types';
 import type { SpawnLocation, Progress } from '../core/location';
 import type { CompileOptions } from './compile.ts';
 import { unpackRecipe } from './unpack.ts';
 import { BAKED_CITIES } from './cities.ts';
+import { loadHostedWorld } from './world-store.ts';
+import { generatedStart } from './generated-start.ts';
 
 export { BAKED_CITIES } from './cities.ts';
 export type { BakedCity } from './cities.ts';
@@ -13,41 +14,38 @@ export type { BakedCity } from './cities.ts';
 const COMPILE_TIMEOUT_MS = 180_000;
 /** Live compiles cover a smaller square than baked cities (800 m vs 1.2 km) so they finish in well under a minute. */
 export const LIVE_HALF_M = 400;
-/** Bump when compiler output changes so cached live recipes are rebuilt. */
-const COMPILER_VERSION = 3;
 const memo = new Map<string, Recipe>();
 
 export async function loadRecipe(loc: SpawnLocation, onProgress: Progress): Promise<Recipe> {
-  const key = loc.baked ? `baked:${loc.baked}` : `${loc.lat.toFixed(5)},${loc.lon.toFixed(5)}`;
+  if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon) || Math.abs(loc.lat) > 90 || Math.abs(loc.lon) > 180) throw new Error('Invalid world coordinates');
+  const key = `${loc.baked ?? 'pin'}:${loc.lat.toFixed(5)},${loc.lon.toFixed(5)}`;
   const hit = memo.get(key);
   if (hit) { onProgress('World ready', 1); return hit; }
-  let recipe: Recipe;
-  if (loc.baked) {
-    try { recipe = await loadBaked(loc.baked, onProgress); }
-    catch (e) {
-      console.warn(`[compiler] baked recipe '${loc.baked}' failed, compiling live`, e);
-      const city = BAKED_CITIES.find((c) => c.id === loc.baked);
-      recipe = await compileLive({ lat: city?.lat ?? loc.lat, lon: city?.lon ?? loc.lon, name: city?.name ?? loc.name }, onProgress);
-    }
-  } else {
-    if (!isInUS(loc.lat, loc.lon)) console.warn('[compiler] location looks outside the US; regional priors may be off');
-    const cached = await cacheGet(loc.lat, loc.lon);
-    if (cached) { onProgress('Loaded from cache', 1); recipe = cached; }
-    else {
-      const t0 = performance.now();
-      recipe = await compileLive({ lat: loc.lat, lon: loc.lon, name: loc.name, half: LIVE_HALF_M, lean: true }, onProgress);
-      console.info(`[compiler] live compile of ${loc.name} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-      void cachePut(recipe);
+  try {
+    const hosted = await loadHostedWorld(loc, onProgress);
+    if (hosted) { memo.set(key, hosted); onProgress('World ready', 1); return hosted; }
+  } catch (error) {
+    console.warn('[compiler] hosted map unavailable', error);
+    // Legacy packs are an outage fallback for known cities, never a substitute for a custom pin.
+    if (loc.baked && BAKED_CITIES.some(city => city.id === loc.baked)) {
+      try {
+        const legacy = await loadBaked(loc.baked, onProgress);
+        memo.set(key, legacy);
+        return legacy;
+      } catch (legacyError) { console.warn('[compiler] legacy map unavailable', legacyError); }
     }
   }
-  memo.set(key, recipe);
-  return recipe;
+  onProgress('Creating generated world · fictional geography', 0.92);
+  const generated = generatedStart(loc);
+  // Do not memoize/persist fallback as mapped data: the next start may have hosted coverage.
+  onProgress('Generated world ready · fictional geography', 1);
+  return generated;
 }
 
 async function loadBaked(id: string, onProgress: Progress): Promise<Recipe> {
   onProgress('Downloading city', 0.05);
   const url = `${import.meta.env.BASE_URL}recipes/${id}.json`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const total = Number(res.headers.get('content-length') ?? 0);
   let text: string;
@@ -116,65 +114,6 @@ async function compileMain(opts: CompileOptions, onProgress: Progress): Promise<
     overpass: (q, onBytes) => fetchOverpass(q, { onBytes, onStatus: (s) => onProgress(s, lastF), timeoutMs: 90_000, hedgeMs: 15_000 }),
     tiles: browserTileLoader(), log: (m) => console.info('[compiler]', m),
   }, (s, f) => { lastF = f; onProgress(s, f); });
-}
-
-// ---------- IndexedDB cache of recent live recipes (best effort: every failure just means "not cached") ----------
-const DB_NAME = 'groundtruth-recipes', STORE = 'live', MAX_CACHED = 6, NEAR_M = 60;
-interface CacheRow { key: string; v: number; lat: number; lon: number; t: number; recipe: Recipe }
-
-function openDb(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    try {
-      if (typeof indexedDB === 'undefined') { resolve(null); return; }
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => { try { req.result.createObjectStore(STORE, { keyPath: 'key' }); } catch { /* exists */ } };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    } catch { resolve(null); }
-  });
-}
-function allRows(db: IDBDatabase): Promise<CacheRow[]> {
-  return new Promise((resolve) => {
-    try {
-      const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
-      req.onsuccess = () => resolve((req.result as CacheRow[]) ?? []);
-      req.onerror = () => resolve([]);
-    } catch { resolve([]); }
-  });
-}
-async function cacheGet(lat: number, lon: number): Promise<Recipe | null> {
-  try {
-    const db = await openDb(); if (!db) return null;
-    const rows = await allRows(db);
-    db.close();
-    const kx = 111320 * Math.cos((lat * Math.PI) / 180);
-    let best: CacheRow | null = null, bd = NEAR_M;
-    for (const r of rows) {
-      if (r.v !== COMPILER_VERSION) continue;
-      const d = Math.hypot((r.lat - lat) * 110540, (r.lon - lon) * kx);
-      if (d <= bd) { bd = d; best = r; }
-    }
-    return best ? best.recipe : null;
-  } catch { return null; }
-}
-async function cachePut(recipe: Recipe): Promise<void> {
-  try {
-    const db = await openDb(); if (!db) return;
-    const rows = await allRows(db);
-    await new Promise<void>((resolve) => {
-      try {
-        const tx = db.transaction(STORE, 'readwrite');
-        const st = tx.objectStore(STORE);
-        const stale = rows.filter((r) => r.v !== COMPILER_VERSION).concat(rows.filter((r) => r.v === COMPILER_VERSION).sort((a, b) => b.t - a.t).slice(MAX_CACHED - 1));
-        for (const r of stale) st.delete(r.key);
-        const { lat, lon } = recipe.origin;
-        st.put({ key: `${lat.toFixed(5)},${lon.toFixed(5)}`, v: COMPILER_VERSION, lat, lon, t: Date.now(), recipe } satisfies CacheRow);
-        tx.oncomplete = () => resolve(); tx.onerror = () => resolve(); tx.onabort = () => resolve();
-      } catch { resolve(); }
-    });
-    db.close();
-  } catch { /* quota / private mode: ignore */ }
 }
 
 export function isInUS(lat: number, lon: number): boolean {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { unpackRecipe } from '../src/compiler/unpack.ts';
-import { continuationDistrict, isContinuation } from '../src/compiler/continuation.ts';
+import { continuationDistrict, isContinuation, joinContinuationRoads } from '../src/compiler/continuation.ts';
 import { terrainSampler } from '../src/compiler/terrain.ts';
 import { rebaseRecipe, clipRoadGraph, streamNodeId } from '../src/world/stream-coordinates.ts';
 import { gridRecipe } from '../src/ai/tests/grid.ts';
@@ -53,5 +53,46 @@ test('Curved rural edges meet at the real road crossing, not an off-road chord',
  const left=clipRoadGraph(graph,{minX:0,minZ:-800,maxX:1000,maxZ:800},false,[road]);
  const right=clipRoadGraph(graph,{minX:1000,minZ:-800,maxX:2000,maxZ:800},false,[road]);
  const crossing=left.nodes.find(n=>n.p[0]===1000)!;assert.equal(crossing.p[1],600);assert.equal(crossing.y,15);assert(right.nodes.some(n=>n.id===crossing.id));assert(left.edges[0].length>1200);
+});
+test('Crossing service alley shares a correctly graded intersection with the main road',()=>{
+ const base=gridRecipe(2,100).roads[0];
+ const alley={...base,id:'alley',cls:'service' as const,width:5,sidewalk:0,pts:[[500,0],[700,0]] as [number,number][],ys:[10.4,10.8],nodes:[1,2]};
+ const main={...base,id:'main',cls:'residential' as const,width:11,sidewalk:2,pts:[[600,-100],[600,100]] as [number,number][],ys:[10,10],nodes:[3,4]};
+ const joined=joinContinuationRoads([alley,main]);
+ assert.equal(joined[0].pts.length,3);assert.equal(joined[1].pts.length,3);
+ assert.deepEqual(joined[0].pts[1],[600,0]);assert.equal(joined[0].nodes[1],joined[1].nodes[1]);
+ assert.equal(joined[0].ys[1],10);assert.equal(joined[1].ys[1],10);
+ const seed={...gridRecipe(2,100),roads:[alley,main],bounds:{minX:0,maxX:400,minZ:-200,maxZ:200}};
+ const generated=continuationDistrict(seed,{minX:400,maxX:800,minZ:-200,maxZ:200},[{recipe:seed,heightAt:()=>10,groundAt:()=>10}]);
+ const junction=generated.graph.nodes.findIndex(n=>Math.hypot(n.p[0]-600,n.p[1])<.001);assert(junction>=0);
+ assert.equal(new Set(generated.graph.edges.filter(e=>e.from===junction).map(e=>e.to)).size,4,'AI graph must offer all four intersection arms');
+});
+test('Continuation intersections preserve bridges, tunnels, layers and grade separation',()=>{
+ const base=gridRecipe(2,100).roads[0];
+ const a={...base,id:'east',pts:[[-20,0],[20,0]] as [number,number][],ys:[0,0],nodes:[1,2]};
+ const b={...base,id:'north',pts:[[0,-20],[0,20]] as [number,number][],ys:[0,0],nodes:[3,4]};
+ for(const separated of [{...b,bridge:true},{...b,tunnel:true},{...b,layer:1},{...b,ys:[8,8]}]){
+  const joined=joinContinuationRoads([a,separated]);assert.equal(joined[0].pts.length,2);assert.equal(joined[1].pts.length,2);
+ }
+});
+test('T-junction endpoint is shared without duplicate or zero-length segments',()=>{
+ const base=gridRecipe(2,100).roads[0];
+ const joined=joinContinuationRoads([{...base,id:'alley',pts:[[-20,0],[0,0]],ys:[1,1],nodes:[1,2]},{...base,id:'street',pts:[[0,-20],[0,20]],ys:[1,1],nodes:[3,4]}]);
+ assert.equal(joined[0].pts.length,2);assert.equal(joined[1].pts.length,3);assert.equal(joined[0].nodes[1],joined[1].nodes[1]);
+ for(const r of joined)for(let i=1;i<r.pts.length;i++)assert(Math.hypot(r.pts[i][0]-r.pts[i-1][0],r.pts[i][1]-r.pts[i-1][1])>.001);
+});
+test('Stacked explicit-layer junctions keep distinct identities and elevations',()=>{
+ const base=gridRecipe(2,100).roads[0];
+ const a={...base,id:'ground-east',pts:[[-20,0],[20,0]] as [number,number][],ys:[0,0],nodes:[1,2]};
+ const b={...base,id:'ground-north',pts:[[0,-20],[0,20]] as [number,number][],ys:[0,0],nodes:[3,4]};
+ const joined=joinContinuationRoads([a,b,{...a,id:'upper-east',layer:1,ys:[6,6]},{...b,id:'upper-north',layer:1,ys:[6,6]}]);
+ assert.equal(joined[0].nodes[1],joined[1].nodes[1]);assert.equal(joined[2].nodes[1],joined[3].nodes[1]);
+ assert.notEqual(joined[0].nodes[1],joined[2].nodes[1]);assert.equal(joined[0].ys[1],0);assert.equal(joined[2].ys[1],6);
+});
+test('Existing shared junctions retain their source approach grades',()=>{
+ const base=gridRecipe(2,100).roads[0];
+ const a={...base,id:'existing-east',width:5,pts:[[-20,0],[0,0],[20,0]] as [number,number][],ys:[0,.2,.5],nodes:[1,99,2]};
+ const b={...base,id:'existing-north',width:12,pts:[[0,-20],[0,0],[0,20]] as [number,number][],ys:[0,.4,.8],nodes:[3,99,4]};
+ assert.deepEqual(joinContinuationRoads([a,b]),[a,b]);
 });
 console.log(`${checks.length} continuation regressions passed`);

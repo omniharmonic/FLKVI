@@ -2,6 +2,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { SpawnLocation } from '../core/location';
+import { locationFromSearch, inUSBox, supportedCountryCode, PICKER_COUNTRY_CODES } from './spawn-query.ts';
 import { h, btn, ICON, uiRoot } from './dom';
 import { showControls } from './controls';
 import { sfx } from '../audio/sfx';
@@ -27,9 +28,9 @@ export let chosen: SpawnLocation | null = null;
 
 type Tier = 'S' | 'A' | 'B';
 const TIER_TEXT: Record<Tier, string> = {
-  S: 'Hand-baked showcase city. Full detail, curated cameras, instant load.',
-  A: 'Live-compiled urban area. Dense OSM data gives good building and street detail.',
-  B: 'Live-compiled rural or sparse area. Fewer mapped buildings; more is inferred.',
+  S: 'Mapped showcase city. Hosted streets, buildings and curated cameras.',
+  A: 'Hosted map data where available. Else explore a clearly labeled generated world.',
+  B: 'Outside mapped coverage, roads and scenery are generated and clearly labeled.',
 };
 
 // ---------- Nominatim (≤ 1 request / second, per usage policy) ----------
@@ -40,7 +41,7 @@ function nominatim(path: string): Promise<any> {
     const wait = lastReq + 1100 - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastReq = Date.now();
-    const r = await fetch(`https://nominatim.openstreetmap.org/${path}`, { headers: { 'Accept-Language': 'en-US' } });
+    const r = await fetch(`https://nominatim.openstreetmap.org/${path}`, { headers: { 'Accept-Language': 'en-US' }, signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error(`Nominatim ${r.status}`);
     return r.json();
   });
@@ -48,10 +49,6 @@ function nominatim(path: string): Promise<any> {
   return p;
 }
 
-function inUSBox(lat: number, lon: number): boolean {
-  const boxes = [[24.3, 49.5, -125.0, -66.8], [51, 71.6, -179.9, -129.9], [18.8, 22.4, -160.4, -154.7], [17.8, 18.6, -67.4, -65.2]];
-  return boxes.some(([a, b, c, d]) => lat >= a && lat <= b && lon >= c && lon <= d);
-}
 
 const STATE_ABBR: Record<string, string> = { Alabama: 'AL', Alaska: 'AK', Arizona: 'AZ', Arkansas: 'AR', California: 'CA', Colorado: 'CO', Connecticut: 'CT', Delaware: 'DE', Florida: 'FL', Georgia: 'GA', Hawaii: 'HI', Idaho: 'ID', Illinois: 'IL', Indiana: 'IN', Iowa: 'IA', Kansas: 'KS', Kentucky: 'KY', Louisiana: 'LA', Maine: 'ME', Maryland: 'MD', Massachusetts: 'MA', Michigan: 'MI', Minnesota: 'MN', Mississippi: 'MS', Missouri: 'MO', Montana: 'MT', Nebraska: 'NE', Nevada: 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND', Ohio: 'OH', Oklahoma: 'OK', Oregon: 'OR', Pennsylvania: 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD', Tennessee: 'TN', Texas: 'TX', Utah: 'UT', Vermont: 'VT', Virginia: 'VA', Washington: 'WA', 'West Virginia': 'WV', Wisconsin: 'WI', Wyoming: 'WY', 'District of Columbia': 'DC', 'Puerto Rico': 'PR' };
 
@@ -131,7 +128,6 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     el.append(panel, h('div', { class: 'gt-maphint gt-glass', html: 'CLICK MAP TO DROP A PIN · SCROLL TO ZOOM' }));
 
     const cityBtns: HTMLElement[] = [];
-    const missing = new Set<string>();
     const cardMeta = new Map<string, HTMLElement>();
     const cardThumb = new Map<string, HTMLElement>();
     const pbOf = (id: string) => { try { const r = localStorage.getItem(`groundtruth.pb.${id}`); return r ? JSON.parse(r) as { streak: number } : null; } catch { return null; } };
@@ -140,7 +136,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       const thumb = h('div', { class: 'th' }, h('div', { class: 'ph' }));
       const meta = h('div', { class: 'mt' });
       const pb = pbOf(c.id);
-      const b = h('button', { class: 'gt-city', 'aria-label': `${c.name}. ${c.blurb}`, onmouseenter: () => sfx('ui-hover'), onclick: () => { sfx('ui-click'); if (sel?.baked === c.id || (sel && sel.lat === c.lat && sel.lon === c.lon && !sel.baked && missing.has(c.id))) finish(); else pickCity(c); } },
+      const b = h('button', { class: 'gt-city', 'aria-label': `${c.name}. ${c.blurb}`, onmouseenter: () => sfx('ui-hover'), onclick: () => { sfx('ui-click'); if (sel?.baked === c.id) finish(); else pickCity(c); } },
         thumb,
         h('div', { class: 'tx' },
           h('div', { class: 'nm' }, main, sub ? h('span', { class: 'sb' }, sub) : null),
@@ -150,11 +146,6 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
         pb && pb.streak > 0 ? h('span', { class: 'pbb', title: 'Your best streak here' }, `BEST ${pb.streak}`) : null);
       (b as any)._id = c.id;
       cardMeta.set(c.id, meta); cardThumb.set(c.id, thumb);
-      // Baked recipe not shipped yet? Fall back to a live compile at the same spot.
-      fetch(`${import.meta.env.BASE_URL}recipes/${c.id}.json`, { method: 'HEAD' }).then((r) => {
-        const ct = r.headers.get('content-type') ?? '';
-        if (!r.ok || ct.includes('text/html')) { missing.add(c.id); const t = b.querySelector('.gt-tier')!; t.className = 'gt-tier A'; t.textContent = 'A'; if (sel?.baked === c.id) pickCity(c); }
-      }).catch(() => {});
       cityBtns.push(b); cityList.append(b);
       L.marker([c.lat, c.lon], { icon: cityIcon }).addTo(map).on('click', () => pickCity(c)).bindTooltip(c.name, { direction: 'top', offset: [0, -8] });
     }
@@ -169,7 +160,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       cityBtns.forEach((b) => b.classList.toggle('sel', !!sel && cities.some((c) => c.id === (b as any)._id && c.lat === sel!.lat && c.lon === sel!.lon)));
       selBox.innerHTML = '';
       if (!sel) {
-        selBox.append(h('div', { class: 'ex' }, 'Choose a featured city or drop a pin to generate a world from open map data.'));
+        selBox.append(h('div', { class: 'ex' }, 'Choose mapped city streets or drop a pin. Outside coverage, explore a labeled generated world.'));
         deploy.disabled = true; return;
       }
       selBox.append(
@@ -178,7 +169,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
         h('div', { class: 'ex' }, TIER_TEXT[sel.tier]),
       );
       if (sel.error) selBox.append(h('div', { class: 'err' }, sel.error));
-      else if (!sel.baked) selBox.append(h('div', { class: 'warn', html: `<span style="width:14px;flex:none;margin-top:1px">${ICON.bolt}</span><span>Live compile from OpenStreetMap + terrain data. Takes about 20–40 seconds.</span>` }));
+      else if (!sel.baked) selBox.append(h('div', { class: 'warn', html: `<span style="width:14px;flex:none;margin-top:1px">${ICON.bolt}</span><span>Mapped streets load where coverage is available. Otherwise, start immediately in fictional generated scenery.</span>` }));
       deploy.disabled = !!sel.error || !!sel.pending;
     }
 
@@ -187,7 +178,8 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     }
 
     function pickCity(c: FeaturedCity) {
-      sel = missing.has(c.id) ? { lat: c.lat, lon: c.lon, name: c.name, tier: 'A' } : { lat: c.lat, lon: c.lon, name: c.name, baked: c.id, tier: 'S' };
+      (pickPoint as any).token = {};
+      sel = { lat: c.lat, lon: c.lon, name: c.name, baked: c.id, tier: 'S' };
       setPin(c.lat, c.lon);
       map.flyTo([c.lat, c.lon], 13, { duration: 1.6 });
       renderSel();
@@ -196,6 +188,8 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
     async function pickPoint(lat: number, lon: number, knownName?: string, addr?: any) {
       sfx('ui-click');
       setPin(lat, lon);
+      const token = {};
+      (pickPoint as any).token = token;
       if (!inUSBox(lat, lon)) {
         sel = { lat, lon, name: 'Outside the United States', tier: 'B', error: 'FLK VI only covers the United States. Pick a US location.' };
         renderSel(); return;
@@ -205,21 +199,19 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
         sel = { lat, lon, name: d.name, tier: d.tier };
         renderSel(); return;
       }
-      const token = {};
-      (pickPoint as any).token = token;
-      sel = { lat, lon, name: 'Dropped pin', tier: 'B', pending: true };
+      sel = { lat, lon, name: `Pin ${lat.toFixed(3)}, ${lon.toFixed(3)}`, tier: 'B' };
       renderSel();
       try {
         const r = await nominatim(`reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`);
-        if ((pickPoint as any).token !== token) return;
-        if (r?.address?.country_code && r.address.country_code !== 'us') {
+        if ((pickPoint as any).token !== token || chosen) return;
+        if (!supportedCountryCode(r?.address?.country_code)) {
           sel = { lat, lon, name: r.address.country || 'Outside the US', tier: 'B', error: 'FLK VI only covers the United States. Pick a US location.' };
         } else {
           const d = describe(r?.address, `Dropped pin`);
           sel = { lat, lon, name: d.name, tier: d.tier };
         }
       } catch {
-        if ((pickPoint as any).token !== token) return;
+        if ((pickPoint as any).token !== token || chosen) return;
         sel = { lat, lon, name: `Pin ${lat.toFixed(3)}, ${lon.toFixed(3)}`, tier: 'A' };
       }
       renderSel();
@@ -237,7 +229,7 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
       debounce = window.setTimeout(async () => {
         const my = ++seq;
         try {
-          const list = await nominatim(`search?format=json&countrycodes=us&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`);
+          const list = await nominatim(`search?format=json&countrycodes=${PICKER_COUNTRY_CODES}&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`);
           if (my !== seq) return;
           results.innerHTML = '';
           if (!list?.length) results.append(h('div', { class: 'note' }, 'No US results.'));
@@ -303,15 +295,9 @@ export function showSpawnPicker(): Promise<SpawnLocation> {
   });
 }
 
-/** ?autostart[&city=<id>] → skip the picker. */
+/** ?autostart[&city=<id>] or ?autostart&lat=<latitude>&lon=<longitude>. */
 export function autostartLocation(): SpawnLocation | null {
-  const q = new URLSearchParams(location.search);
-  if (!q.has('autostart')) return null;
-  const id = q.get('city') || 'boulder';
-  const c = featuredCities().find((x) => x.id === id);
-  const modeQ = q.get('mode');
-  const loc: SpawnLocation = c ? { lat: c.lat, lon: c.lon, name: c.name, baked: c.id } : { lat: 40.0176, lon: -105.2797, name: 'Pearl Street, Boulder, CO', baked: id };
-  loc.mode = modeQ === 'freeroam' ? 'freeroam' : 'takedown';
-  chosen = loc;
+  const loc = locationFromSearch(location.search, featuredCities());
+  if (loc) chosen = loc;
   return loc;
 }
