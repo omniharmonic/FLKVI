@@ -1,3 +1,4 @@
+import { boundedWarmup } from './warmup';
 // Vegetation: ez-tree generated broadleaf/conifer variants + procedural palms, cacti, succulents, grasses,
 // flowers and shrubs (plants.ts). All instanced: full LOD < fullDist, reduced LOD < nearDist, cross-billboard
 // impostors beyond (small plants are culled instead). Wind sway, per-instance hue/value jitter and sun
@@ -398,7 +399,7 @@ class ImpostorAtlas {
     try { ready = renderer.compileAsync(this.scene, cam); } catch { /* compiled lazily on first bake */ }
     renderer.setRenderTarget(prev);
     for (const o of objs) this.scene.remove(o);
-    return ready.catch(() => {});
+    return boundedWarmup(ready,renderer);
   }
   /** Start compiling the two bake programs right away (GPU process works while the CPU generates trees). */
   warm(renderer: THREE.WebGLRenderer) {
@@ -407,7 +408,7 @@ class ImpostorAtlas {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(geo.getAttribute('position').count * 3).fill(1), 3));
     const mk = (vc: boolean) => new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, vertexColors: vc, alphaTest: 0.4, side: THREE.DoubleSide }));
     const objs = [mk(false), mk(true)];
-    return this.compile(renderer, objs).then(() => { for (const o of objs) (o.material as THREE.Material).dispose(); geo.dispose(); tex.dispose(); });
+    return this.compile(renderer, objs).finally(() => { for (const o of objs) (o.material as THREE.Material).dispose(); geo.dispose(); tex.dispose(); });
   }
   /** Compile the bake programs the given variants need without blocking (parallel compile when available). */
   precompile(renderer: THREE.WebGLRenderer, variants: Variant[]) {
@@ -470,6 +471,7 @@ export class TreeSystem {
   private midCount: number[] = [];
   fullDist = 48;
   private frame = 0;
+  private disposed = false;
   nearDist = 150;
   /** Sun direction (world, toward the sun) — optional, dims back-lighting at night. */
   sunDir: THREE.Vector3 | null = null;
@@ -496,6 +498,7 @@ export class TreeSystem {
 
   /** Release district-owned instance buffers and atlas; cached species geometry remains shared. */
   dispose() {
+    this.disposed=true;
     this.group.removeFromParent();
     this.group.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh) m.dispose(); });
     if (this.far) { this.far.geometry.dispose(); (this.far.material as THREE.Material).dispose(); }
@@ -574,6 +577,9 @@ export class TreeSystem {
     this.midCount = new Array(this.plan.length).fill(0);
     this.buildImpostors(renderer);
     const warm = renderer && this.atlas ? this.atlas.warm(renderer) : null;
+    // Geometry generation yields before finishLoad installs its await. Observe early rejection
+    // immediately, while preserving the rejection for the awaited build/recovery path.
+    void warm?.catch(()=>{});
     // near-spawn variants now (behind the loading screen), the rest after the game starts
     const order = this.plan.map((_, i) => i).filter((i) => this.plan[i].trees.length).sort((a, b) => this.plan[a].minD - this.plan[b].minD);
     const eager = this.focus ? order.filter((i) => this.plan[i].minD < this.eagerDist) : order;
@@ -597,6 +603,7 @@ export class TreeSystem {
       this.atlasPending = Promise.all([warm, atlas.precompile(renderer, built.map((i) => this.variants[i]!))]).then(() => {
         console.info(`[veg] impostor programs ready after ${(performance.now() - t).toFixed(0)} ms`);
       });
+      void this.atlasPending.catch(()=>{});
       this.unbaked = built;
     }
     (globalThis as any).__gtVegList = trees; // debug: inspected by dev tools
@@ -678,7 +685,7 @@ export class TreeSystem {
   private streamStep = 0;
   private streamWait: Promise<void> | null = null;
   private stream() {
-    if (!this.pending.length || this.atlasPending || this.unbaked.length || this.streamWait) return;
+    if (this.disposed || !this.pending.length || this.atlasPending || this.unbaked.length || this.streamWait) return;
     if (++this.streamStep % 3) return; // spread the work: at most one step every third frame
     const i = this.pending[0];
     if (!this.variants[i]) {

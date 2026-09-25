@@ -8,6 +8,12 @@ import { signalState } from '../../core/signals.ts';
 import { rng } from '../../core/geo.ts';
 import { gridRecipe } from './grid.ts';
 
+import { mergeDistrictGraphs } from '../stream-network.ts';
+import { spawnLanes } from '../spawn-lanes.ts';
+import { kneelingWorkTime } from '../work-pose.ts';
+import { clipRoadGraph } from '../../world/stream-coordinates.ts';
+import type { Recipe } from '../../core/types.ts';
+
 let failed = 0, passed = 0;
 function check(name: string, cond: boolean, info = '') {
   if (cond) { passed++; console.log(`  ok   ${name}`); }
@@ -61,6 +67,61 @@ const net = new RoadNet(recipe);
   const r = net.route(0, 35);
   check('A* route corner to corner', r.length === 11 && r[0] === 0 && r[r.length - 1] === 35, JSON.stringify(r));
   check('nearestNode', net.nearestNode(245, 118) === 1 * 6 + 2, `${net.nearestNode(245, 118)}`);
+}
+
+console.log('Streamed rural AI');
+{
+  const rural = gridRecipe(2, 3500);
+  rural.bounds = { minX: -600, minZ: -600, maxX: 600, maxZ: 600 };
+  rural.graph = { nodes: [{ id: 91, p: [-1000, 0], y: 0 }, { id: 92, p: [2500, 0], y: 0 }], edges: [
+    { from: 0, to: 1, roadId: 'country', length: 3500, speed: 18, lanes: 2, cls: 'secondary' },
+    { from: 1, to: 0, roadId: 'country', length: 3500, speed: 18, lanes: 2, cls: 'secondary' },
+  ] };
+  rural.roads = [{ ...rural.roads[0], id: 'country', pts: [[-1000, 0], [2500, 0]], ys: [0, 0], nodes: [91, 92], cls: 'secondary' }];
+  const district = (min: number, max: number): Recipe => {
+    const bounds = { minX: min, maxX: max, minZ: -600, maxZ: 600 };
+    return { ...rural, bounds, graph: clipRoadGraph(rural.graph, bounds), roads: [{ ...rural.roads[0], pts: [[min - 32, 0], [max + 32, 0]] }] };
+  };
+  const first = district(600, 1000), second = district(1000, 1400);
+  const expanded = mergeDistrictGraphs(rural, [first, second], (x, z) => x >= -600 && x <= 1400 && Math.abs(z) <= 600);
+  const n = new RoadNet(expanded);
+  const start = n.nearestNode(-580, 0), end = n.nearestNode(1380, 0);
+  const route = n.route(start, end);
+  check('rural lanes connect across the core and two district seams', route.length === 4 && n.nodes[route.at(-1)!]?.x === 1400, JSON.stringify(route));
+  check('unloaded source-road endpoints do not retain active lanes', n.nodes.slice(0, 2).every(x => !x.out.length && !x.in.length));
+  check('all clipped pieces of a shared road are retained', expanded.roads.length === 3);
+  const candidates = [...spawnLanes(n, 1200, 0, 270, rng(7))];
+  check('police find lane-interior spawns away from rural intersections', candidates.some(p => p.x > 1000 && p.x < 1400 && Math.hypot(p.x - 1200, p.z) > 130));
+  const retired = new RoadNet(mergeDistrictGraphs(rural, [first], (x, z) => x >= -600 && x <= 1000 && Math.abs(z) <= 600));
+  check('retired district lanes leave the AI network', retired.edges.every(e => e.maxX <= 1000.001));
+  check('routing tolerates a stale destination after retirement', retired.route(0, 99999).length === 0);
+  const bend = { ...rural, roads: [{ ...rural.roads[0], pts: [[0, 0], [100, 0], [100, 100]] as [number, number][] }],
+    graph: { nodes: [{ id: 1, p: [50, 0] as [number, number], y: 0 }, { id: 2, p: [100, 50] as [number, number], y: 0 }], edges: [{ ...rural.graph.edges[0], from: 0, to: 1 }] } };
+  const curved = new RoadNet(bend);
+  check('clipped lane preserves road corners rather than cutting across buildings', Math.abs(curved.edges[0].len - 100) < 0.001);
+}
+{
+  const oldCore = gridRecipe(2, 120), other = gridRecipe(2, 120);
+  other.bounds = { minX: 600, maxX: 840, minZ: 0, maxZ: 240 };
+  other.graph.nodes = other.graph.nodes.map(n => ({ ...n, p: [n.p[0] + 600, n.p[1]] }));
+  other.roads = other.roads.map(r => ({ ...r, id: `outer-${r.id}`, pts: r.pts.map(p => [p[0] + 600, p[1]]) }));
+  other.graph.edges = other.graph.edges.map(e => ({ ...e, roadId: `outer-${e.roadId}` }));
+  const merged = mergeDistrictGraphs(oldCore, [other], () => true);
+  check('legacy recipe-local node IDs never merge unrelated district junctions', merged.graph.nodes.length === 8 && merged.graph.nodes.some(n => n.p[0] === 720));
+  const outerEdges = merged.graph.edges.filter(e => e.roadId.startsWith('outer-'));
+  check('streamed edges retain their own world-space endpoints despite duplicate local IDs', outerEdges.every(e => merged.graph.nodes[e.from].p[0] >= 600 && merged.graph.nodes[e.to].p[0] >= 600));
+}
+console.log('Sustained grinder animation');
+{
+  let lo = Infinity, hi = -Infinity, largestStep = 0, previous = kneelingWorkTime(1.2);
+  for (let t = 1.2; t < 30; t += 1 / 60) {
+    const time = kneelingWorkTime(t);
+    lo = Math.min(lo, time); hi = Math.max(hi, time);
+    largestStep = Math.max(largestStep, Math.abs(time - previous)); previous = time;
+  }
+  check('grinder enters kneeling from the start', kneelingWorkTime(0) === 0 && kneelingWorkTime(0.5) === 0.5);
+  check('held grinder never repeats kneel entrance or standing exit', lo >= 1.2 && hi <= 3.8, `${lo}..${hi}`);
+  check('grinder work loop has no frame discontinuities', largestStep < 0.03, `${largestStep}`);
 }
 
 console.log('Signals');

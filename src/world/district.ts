@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { Recipe } from '../core/types';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
-import { Heightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, updateTerrainLod } from './terrain';
+import { Heightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, updateTerrainLod, terrainAssets } from './terrain';
 import { RoadNetwork } from './roads';
 import { ChunkBatcher, Grid, pointInPoly, yieldFrame } from './util';
+import { ensureSurfaces } from './materials';
 import { roadMaterials } from './road-materials';
 import { buildFromRecipe, type BuildingsResult } from './buildings';
 import { buildTerrainCollider, buildBuildingColliders, buildMeshColliders, buildPropColliders } from './physics';
@@ -12,12 +13,14 @@ import { buildAreas } from './areas';
 import { TreeSystem } from './trees';
 import { PropSystem } from './props';
 import { releaseAfterUpload } from '../render/memory';
+import { boundedWarmup } from './warmup';
 import { clipGeometry } from './clip';
 import { unregisterShadowProxy } from '../render/shadowProxy';
 import type { Bounds } from './stream-coordinates';
 
 export interface District {
   key: string; bounds: Bounds; recipe: Recipe; root: THREE.Group; hf: Heightfield;
+  lamps: readonly THREE.Vector3[];
   groundAt(x: number, z: number): number;
   coverAt(x: number, z: number): number;
   update(dt: number): void;
@@ -42,7 +45,8 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     root.traverse(o => {
       unregisterShadowProxy(g, o);
       const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
+      if (m.isMesh || (o as THREE.Line).isLine) m.geometry.dispose();
+      if((o as THREE.Line).isLine)for(const material of Array.isArray(m.material)?m.material:[m.material])material.dispose();
       if ((m as THREE.InstancedMesh).isInstancedMesh) (m as THREE.InstancedMesh).dispose();
     });
     for (const m of ownedMaterials) { if(m.name==='marking')(m as THREE.MeshStandardMaterial).map?.dispose();m.dispose(); }
@@ -50,6 +54,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     root.clear();
   };
   try {
+    await ensureSurfaces(terrainAssets(recipe));
     roads.analyze(); roads.flattenTerrain(hf);
     const B = new ChunkBatcher(200), water = new THREE.Group();
     const buildingGrid = new Grid<Recipe['buildings'][number]>(32);
@@ -81,6 +86,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     Object.values(mats).forEach(m=>ownedMaterials.add(m));
     const meshes=B.emit(root,mats,{receiveShadow:true,castShadow:{bridgeRail:true},renderOrder:{marking:1}});
     root.add(water);
+    // Water material is a shared singleton; only district-owned water geometry is disposed.
     water.traverse(o=>{const m=o as THREE.Mesh;if(m.isMesh)meshes.push(m);});
     for(const m of meshes){const old=m.geometry;m.geometry=clipGeometry(old,recipe.bounds);if(m.geometry!==old)old.dispose();}
     const tm=terrainMaterial(recipe,mask);ownedMaterials.add(tm);
@@ -90,7 +96,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     await yieldFrame();
     buildings=await buildFromRecipe(recipe,()=>{},{yieldMs:6},g.quality);root.add(buildings.group);
     mark('buildings');
-    props=new PropSystem(recipe,roads,groundAt,inBuilding);props.build();root.add(props.group);
+    props=new PropSystem(recipe,roads,groundAt,inBuilding,0);props.build();root.add(props.group);
     mark('props');
     trees.focus=[g.player.position.x,g.player.position.z];trees.eagerDist=100;trees.sunDir=g.sky?.sunDirection??null;
     await trees.build(recipe.trees.filter(t=>!inBuilding(...t.p)).map(t=>({...t,y:groundAt(...t.p)})),g.renderer);
@@ -101,7 +107,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     let warm:Promise<unknown>;
     try { g.renderer.setRenderTarget(target);warm=g.renderer.compileAsync(root,g.camera,g.scene); }
     finally { g.renderer.setRenderTarget(previous); }
-    try { await warm; } finally { target.dispose(); }
+    try { await boundedWarmup(warm,g.renderer); } finally { target.dispose(); }
     mark('shaders');
     // All collision attachment is synchronous: a frame sees either the complete district or none of it.
     bodies.push(buildTerrainCollider(g,hf).parent()!);
@@ -112,7 +118,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     console.info('[district]',key,JSON.stringify(stages),recipe.roads.length,'roads');
     releaseAfterUpload(root);
     g.scene.add(root);
-    return {key,bounds:recipe.bounds,recipe,root,hf,groundAt,
+    return {key,bounds:recipe.bounds,recipe,root,hf,groundAt,lamps:props.lamps,
       coverAt(x,z){let y=groundAt(x,z);buildingGrid.query(x,z,0,b=>{if(pointInPoly(x,z,b.footprint))y=Math.max(y,b.baseY+b.height+b.roofHeight);});return y;},
       dispose,update(dt){
       buildings!.setNightFactor(g.sky.nightFactor);buildings!.update?.(dt,g);

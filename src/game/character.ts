@@ -6,6 +6,7 @@ import { assetUrl } from '../assets/library';
 import { dressCharacter, preparePeople, type Look } from '../assets/characters';
 
 import { damp } from './util';
+import { kneelingWorkTime } from '../ai/work-pose';
 
 /** The protagonist: charcoal hoodie (hood up), dark indigo jeans, gray sneakers, black gloves. */
 const PLAYER_LOOK: Partial<Look> = {
@@ -70,6 +71,9 @@ export class Character {
   private air = 0;
   private landT = 0;
   private wasGrounded = true;
+  private workTime = 0;
+  private wasKneeling = false;
+  private workExit = 0;
   private oneShot: { key: ClipKey; t: number; dur: number } | null = null;
   private fallback: THREE.Group | null = null;
   private fallbackLegs: THREE.Object3D[] = [];
@@ -231,8 +235,24 @@ export class Character {
     // Targets
     const tw: Partial<Record<ClipKey, number>> = {};
     const s = st.speed;
+    const kneeling = st.pose === 'kneel';
+    const work = this.actions.get('kneel');
+    if (kneeling && !this.wasKneeling) { this.workTime = 0; this.workExit = 0; }
+    if (!kneeling && this.wasKneeling) this.workExit = this.workTime > 0.8 ? 4 : 0;
+    this.wasKneeling = kneeling;
+    // This authored clip contains both getting down and standing back up. It must not
+    // advance invisibly with the locomotion loops, or restart its entrance every 5.2 s.
+    if (work) {
+      work.timeScale = 0;
+      if (kneeling) { this.workTime += dt; work.time = kneelingWorkTime(this.workTime); }
+      else if (this.workExit > 0) {
+        this.workExit += dt;
+        work.time = Math.min(this.workExit, work.getClip().duration - 0.001);
+        if (this.workExit >= work.getClip().duration || s > 0.3 || !st.grounded || st.pose !== 'none') this.workExit = 0;
+      }
+    }
     if (st.pose === 'drive') tw.drive = 1;
-    else if (st.pose === 'kneel') tw.kneel = 1;
+    else if (kneeling || this.workExit > 0) tw.kneel = 1;
     else if (st.pose === 'interact') tw.interact = 1;
     else if (st.pose === 'reach') tw.idle = 1;
     else if (!st.grounded && this.air > 0.12) tw.jump = 1;

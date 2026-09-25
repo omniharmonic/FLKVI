@@ -17,6 +17,9 @@ export interface VehicleVisual {
   setDriver(on: boolean): void;
   setPaint(color: string): void;
   markDamage(local: THREE.Vector3, severity: number): void;
+  /** Bounded spring motion of loose bodywork after an impact. */
+  updateImpact(dt: number): void;
+  headlightIntegrity(side: number): number;
   /** Release the per-car materials. */
   dispose(): void;
   readonly far: boolean;
@@ -40,7 +43,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   const near = nearGeometry(model);
   const variant = seed % Math.min(3, model.drivers.length);
   const bodyMat = createBodyMaterial(model, model.livery === 'plain' ? color : '#ffffff', seed % PLATE_CELLS, variant);
-  const lampMat = createLampMaterial(model);
+  const lampMat = createLampMaterial(model, bodyMat.carUniforms.uDamage);
   const bodyMesh = new THREE.Mesh(near.body, [bodyMat, mats.glass]);
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
@@ -85,12 +88,43 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
   const glassDamage = {value:0};
   const glassImpact = {value:new THREE.Vector2()};
   const phase = (seed % 7) * 0.13;
+  const recoil = new THREE.Vector3(), recoilVelocity = new THREE.Vector3();
+  const headlightIntegrity = (side: number) => {
+    const p = model.headlightPos[side];
+    let damage = 0;
+    for (const d of bodyMat.carUniforms.uDamage.value) {
+      const distance = Math.hypot(p.x - d.x, p.y - d.y, p.z - d.z);
+      damage = Math.max(damage, d.w * Math.max(0, 1 - distance / 1.15));
+    }
+    return 1 - THREE.MathUtils.smoothstep(damage, 0.3, 0.85);
+  };
   const I = lampMat.lampI, On = lampMat.lampOn;
   return {
     root, chassis, bodyMesh, wheels,
     get far() { return isFar; },
+    headlightIntegrity,
+    updateImpact(dt) {
+      if (dt <= 0 || recoil.lengthSq() + recoilVelocity.lengthSq() < 1e-8) return;
+      // Substep the visual spring at low frame rates; it must never destabilize physics.
+      const steps = Math.max(1, Math.ceil(Math.min(dt, 0.1) / 0.016));
+      const h = Math.min(dt, 0.1) / steps;
+      for (let i = 0; i < steps; i++) {
+        recoilVelocity.addScaledVector(recoil, -110 * h).multiplyScalar(Math.exp(-16 * h));
+        recoil.addScaledVector(recoilVelocity, h).clampLength(0, 0.07);
+      }
+      if (recoil.lengthSq() + recoilVelocity.lengthSq() < 1e-8) recoil.set(0, 0, 0);
+      chassis.position.copy(recoil);
+    },
     markDamage(p, severity) {
       bodyMat.carUniforms.uDamage.value[damageIndex++ % 4].set(p.x,p.y,p.z,Math.min(1,severity*4));
+      const direction = new THREE.Vector3(p.x, 0, p.z).normalize();
+      recoilVelocity.addScaledVector(direction, -severity * 3.2).clampLength(0, 1.1);
+      // Bumpers, grille and lamps must follow the crushed body instead of staying
+      // pristine and floating in front of it. Clone only the struck vehicle.
+      for (const mesh of [misc, lamps, farBody]) {
+        if (!mesh.userData.dentable) { mesh.geometry = mesh.geometry.clone(); mesh.userData.dentable = true; }
+        deformTrim(mesh.geometry, p, direction, severity, mesh === misc);
+      }
       if(severity<.12)return;
       glassDamage.value=Math.min(1,glassDamage.value+severity*1.3);
       glassImpact.value.set(p.x*2+p.z,1.8);
@@ -125,7 +159,7 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
     },
     setDriver(on: boolean) { bodyMat.carUniforms.uDriver.value = on ? variant + 1 : 0; },
     setLights(s) {
-      beam.visible = !!s.beam && s.head && !isFar;
+      beam.visible = !!s.beam && s.head && !isFar && headlightIntegrity(0) + headlightIntegrity(1) > 0.1;
       const blink = ((s.t + phase) % 0.7) < 0.36;
       const sg = s.signal ?? 0;
       const l = (sg === -1 || sg === 2) && blink, r = (sg === 1 || sg === 2) && blink;
@@ -156,8 +190,28 @@ export function createVehicleVisual(model: CarModel, color: string, seed: number
       setBodyPaint(bodyMat, col);
       (farBody.material as THREE.Material[])[0] = paintFor(model, c);
     },
-    dispose() { if(bodyMesh.userData.dentable)bodyMesh.geometry.dispose(); bodyMat.dispose(); lampMat.dispose(); damagedGlass?.dispose(); },
+    dispose() {
+      for (const mesh of [bodyMesh, misc, lamps, farBody]) if (mesh.userData.dentable) mesh.geometry.dispose();
+      bodyMat.dispose(); lampMat.dispose(); damagedGlass?.dispose();
+    },
   };
+}
+
+function deformTrim(geometry: THREE.BufferGeometry, contact: THREE.Vector3, direction: THREE.Vector3, depth: number, keepInterior: boolean) {
+  const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const tex = geometry.getAttribute('aTex');
+  const radius = 0.9 + depth * 2;
+  for (let i = 0; i < pos.count; i++) {
+    // Interior upholstery and seated occupants are not part of the external crumple zone.
+    if (keepInterior && tex && (tex.getX(i) > 4.5 || tex.getX(i) > 2.5 && tex.getX(i) < 3.5)) continue;
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const d = Math.hypot(x - contact.x, (y - contact.y) * 0.8, z - contact.z);
+    if (d >= radius) continue;
+    const amount = (1 - d / radius) ** 2 * depth;
+    pos.setXYZ(i, x - direction.x * amount, y - amount * 0.15, z - direction.z * amount);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
 }
 
 /**

@@ -23,6 +23,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:deep
       - run: npm run test:ai
+      - run: npm run test:stability
+      - run: npm run check:licenses
       - run: npm run build:fast
         env:
           BASE: /groundtruth/

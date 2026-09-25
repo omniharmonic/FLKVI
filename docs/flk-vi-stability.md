@@ -1,5 +1,7 @@
 # FLK VI: district reliability and physical impacts
 
+This is the preceding release report. See [the September 25 asset and stability overhaul](september-asset-overhaul.md) for the latest fixes, measurements, and generated-outskirts behavior.
+
 The tagline is **Take the city back, one camera at a time.** GTA IV is the reference, not an achieved fidelity or performance claim.
 
 ## World loading

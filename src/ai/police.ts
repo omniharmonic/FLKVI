@@ -15,6 +15,7 @@ import { HeatState } from './heat';
 import type { TrafficSystem } from './traffic';
 import type { Car } from './trafficsim';
 import { samplePoly } from './roadnet';
+import { spawnLanes } from './spawn-lanes';
 import type { PedSystem } from './peds';
 import { CharacterFactory, Character } from './characters';
 import { Helicopter, prewarmHelicopter } from './helicopter';
@@ -272,17 +273,20 @@ export class PoliceSystem {
     if (!this.traffic) return null;
     const T = POLICE_TUNING;
     const cx = near ? near[0] : P.x, cz = near ? near[1] : P.z;
-    const cand = this.net.edgesNear(cx, cz, T.spawnMax);
-    for (let k = 0; k < 30 && cand.length; k++) {
-      const e = this.net.edges[cand[Math.floor(this.rnd() * cand.length)]];
-      if (e.rank < 1) continue;
-      const s = this.net.laneStart(e) + 1;
-      const n = this.net.nodes[e.from];
-      const d = Math.hypot(n.x - P.x, n.z - P.z);
+    for (const sp of spawnLanes(this.net, cx, cz, T.spawnMax, this.rnd)) {
+      const d = Math.hypot(sp.x - P.x, sp.z - P.z);
       if (d < T.spawnMin || d > T.spawnMax + 60) continue;
-      const y = groundY(this.g, n.x, n.z);
-      if (visibleToCamera(this.g, n.x, y, n.z, 420, true)) continue;
-      return { e: e.i, s };
+      if (this.g.world.streaming && !this.g.world.streaming.isReady(sp.x, sp.z)) continue;
+      const y = groundY(this.g, sp.x, sp.z);
+      if (visibleToCamera(this.g, sp.x, y, sp.z, 420, true)) continue;
+      // Dispatch may share the same narrow country road with regular traffic.
+      // Never materialize a response vehicle inside a civilian or parked car.
+      if (this.traffic.sim.cars.some(c => dist2(c.x, c.z, sp.x, sp.z) < 12 * 12)) continue;
+      let blocked = false;
+      for (const vehicle of this.g.vehicles.all()) {
+        if (dist2(vehicle.position.x, vehicle.position.z, sp.x, sp.z) < 9 * 9) { blocked = true; break; }
+      }
+      if (!blocked) return { e: sp.e, s: sp.s };
     }
     return null;
   }
@@ -356,7 +360,9 @@ export class PoliceSystem {
     const c = u.car;
     if (c.mode !== 'lane') return;
     const E = this.net.edges[c.e];
-    const from = c.leg === 'lane' ? E.to : c.next >= 0 ? this.net.edges[c.next].to : E.to;
+    if (!E) { c.mode = 'free'; c.route = null; return; }
+    const next = this.net.edges[c.next];
+    const from = c.leg === 'lane' ? E.to : next?.to ?? E.to;
     const goal = this.net.nearestNode(x, z);
     u.goal = [x, z];
     u.goalNode = goal;
@@ -416,7 +422,7 @@ export class PoliceSystem {
 
   private ensureLane(u: Unit): boolean {
     if (!this.traffic) return false;
-    if (u.car.mode === 'lane') return true;
+    if (u.car.mode === 'lane' && this.net.edges[u.car.e]) return true;
     if (u.car.mode === 'parked') return false; // crashed: physics owns it
     if (this.traffic.sim.attachToLane(u.car, 10)) return true;
     return false;
@@ -1224,9 +1230,21 @@ export class PoliceSystem {
 
   // ------------------------------------------------------------------ main update
 
-  patrolCount() { return this.units.filter((u) => u.mode === 'patrol').length; }
+  patrolCount() {
+    const p = playerInfo(this.g);
+    return this.units.filter(u => u.mode === 'patrol' && dist2(u.car.x, u.car.z, p.x, p.z) < 420 * 420).length;
+  }
 
-  private responders() { return this.units.filter((u) => u.mode === 'respond' || u.mode === 'pursue' || u.mode === 'search'); }
+  /** A streamed graph has new numeric indices. Clear route goals as well as car routes;
+   * stale goal indices can otherwise point into an unrelated or unloaded district. */
+  rebindNetwork() {
+    for (const u of this.units) { u.goalNode = -1; u.routeT = 10; u.car.route = null; }
+    this.dispatchT = 0;
+    this.spawnCd = 0;
+  }
+
+  private responders() { const p = playerInfo(this.g);
+    return this.units.filter(u => (u.mode === 'respond' || u.mode === 'pursue' || u.mode === 'search') && dist2(u.car.x, u.car.z, p.x, p.z) < 520 * 520); }
 
   update(dt: number) {
     const g = this.g;
@@ -1305,7 +1323,7 @@ export class PoliceSystem {
         const have = this.responders();
         if (have.length < want) {
           const lk = this.heat.lastKnown ?? [P.x, P.z];
-          const pat = this.nearestUnit(lk, (x) => x.mode === 'patrol' || x.mode === 'leave' || (x.mode === 'investigate' && (!x.invArrived || L >= 2) && !x.deployed));
+          const pat = this.nearestUnit(lk, (x) => dist2(x.car.x, x.car.z, lk[0], lk[1]) < 420 * 420 && (x.mode === 'patrol' || x.mode === 'leave' || (x.mode === 'investigate' && (!x.invArrived || L >= 2) && !x.deployed)));
           if (pat) { pat.mode = 'respond'; this.ensureLane(pat); this.routeTo(pat, lk[0], lk[1]); }
           else if (this.spawnCd <= 0) {
             const u = this.spawnUnit('respond', P);
@@ -1332,7 +1350,7 @@ export class PoliceSystem {
         const y = groundY(g, u.car.x, u.car.z);
         const hidden = !visibleToCamera(g, u.car.x, y, u.car.z, 300, true);
         if ((u.mode === 'leave' && ((d > 200 && hidden) || u.leaveT > 90)) || (d > 520 && hidden) || (u.car.dead && hidden)) {
-          if (u.officers.length && u.mode !== 'leave') continue;
+          if (u.officers.length && u.mode !== 'leave' && d < 800) continue;
           this.removeUnit(u);
         }
       }

@@ -31,7 +31,8 @@ export type TextureId =
   | 'paving' | 'cobble' | 'wood-planks' | 'rust-metal' | 'painted-metal' | 'bark' | 'water'
   // added by assets agent
   | 'asphalt-patched' | 'grass-dry' | 'leaves-ground' | 'brick-white' | 'brick-old' | 'cmu-block' | 'concrete-precast'
-  | 'corrugated-metal' | 'metal-shutter' | 'tiles-terracotta';
+  | 'corrugated-metal' | 'metal-shutter' | 'tiles-terracotta'
+  | 'forest-floor' | 'alpine-rock' | 'desert-sand' | 'coastal-sand' | 'snow';
 
 /** Alpha-masked decal ids (use decalMaterial). */
 export type DecalId = 'decal-leak-1' | 'decal-leak-2' | 'decal-cracks' | 'decal-manhole' | 'decal-manhole-2' | 'decal-graffiti' | 'decal-gum'
@@ -104,11 +105,11 @@ function entry(id: string): TextureEntry | undefined {
   return TEXTURES[id];
 }
 
-function buildSet(id: string, e: TextureEntry): TextureSetInfo {
+function buildSet(id: string, e: TextureEntry, variant?: 'facade'): TextureSetInfo {
   const has = (k: TextureMapKey) => e.maps.includes(k);
   const rep = 1 / e.sizeM;
   const mk = (k: TextureMapKey) => {
-    const t = loadTex(`textures/${id}/${k}.jpg`, k);
+    const t = loadTex(`textures/${id}/${variant ? 'facade-' : ''}${k}.jpg`, k);
     t.repeat.set(rep, rep);
     return t;
   };
@@ -125,13 +126,14 @@ function buildSet(id: string, e: TextureEntry): TextureSetInfo {
 }
 
 /** Texture set by id, or null if unavailable (callers must fall back to flat color). Textures stream in if not preloaded. */
-export function textureSet(id: TextureId | DecalId | string): TextureSetInfo | null {
-  const cached = setCache.get(id);
+export function textureSet(id: TextureId | DecalId | string, variant?: 'facade'): TextureSetInfo | null {
+  const key = variant ? `${id}:${variant}` : id;
+  const cached = setCache.get(key);
   if (cached) return cached;
   const e = entry(id);
   if (!e) return null;
-  const s = buildSet(id, e);
-  setCache.set(id, s);
+  const s = buildSet(id, e, variant);
+  setCache.set(key, s);
   return s;
 }
 
@@ -146,8 +148,8 @@ export function textureAvgColor(id: string): string {
 }
 
 /** Promise resolving when all maps of the set have loaded (or failed to neutral). */
-export async function textureSetReady(id: string): Promise<TextureSetInfo | null> {
-  const s = textureSet(id);
+export async function textureSetReady(id: string, variant?: 'facade'): Promise<TextureSetInfo | null> {
+  const s = textureSet(id, variant);
   if (!s) return null;
   await Promise.all(Object.values(s.maps).filter(Boolean).map((t) => whenLoaded(t!)));
   return s;

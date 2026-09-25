@@ -1,5 +1,6 @@
 // Traffic system: binds TrafficSim cars to gameplay VehicleHandles, spawns/despawns a ring of cars
 // around the player, feeds obstacles (player, peds, other vehicles), handles rams/panic.
+import { mergeDistrictGraphs } from './stream-network';
 import * as THREE from 'three';
 import type { Game } from '../core/game';
 import type { VehicleHandle } from '../core/api';
@@ -73,7 +74,7 @@ export class TrafficSystem {
   lastRam = 0;
 
   constructor(private g: Game) {
-    this.net = new RoadNet(g.recipe);
+    this.net = new RoadNet(mergeDistrictGraphs(g.recipe, [], () => true));
     this.sim = new TrafficSim(this.net, rng(hashSeed(g.recipe.name)));
     this.enabled = !!(g as any).vehicles?.spawn && this.net.edges.length > 0;
     this.sim.hooks.honk = (c) => {
@@ -195,6 +196,7 @@ export class TrafficSystem {
       const sp = samplePoly(this.net.lanePoly(E, lane), s);
       const d = Math.hypot(sp.x - P.x, sp.z - P.z);
       if (d > T.radius) continue;
+      if (this.g.world.streaming && !this.g.world.streaming.isReady(sp.x, sp.z)) continue;
       const y = groundY(this.g, sp.x, sp.z);
       if (!this.initialFill) {
         if (d < 70) continue;

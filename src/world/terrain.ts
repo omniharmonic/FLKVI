@@ -4,6 +4,15 @@ import type { Recipe, Terrain, RecipeArea } from '../core/types';
 import { surface, NOISE_GLSL } from './materials';
 import { recipeBiome, snowline } from '../compiler/biome';
 import { streamedTerrainBounds } from './stream-uniforms';
+import type { TextureId } from '../assets/library';
+
+/** Each landscape streams only its own scanned surface kit. */
+export function terrainAssets(recipe: Recipe): TextureId[] {
+  const biome = recipeBiome(recipe);
+  return biome === 'desert' ? ['desert-sand', 'alpine-rock']
+    : biome === 'alpine' ? ['forest-floor', 'alpine-rock', 'snow']
+    : biome === 'coastal' ? ['coastal-sand', 'alpine-rock'] : ['forest-floor', 'alpine-rock'];
+}
 
 export class Heightfield {
   h: Float32Array;
@@ -30,9 +39,40 @@ export class Heightfield {
     fx = Math.max(0, Math.min(this.cols - 1.0001, fx));
     fz = Math.max(0, Math.min(this.rows - 1.0001, fz));
     const c = Math.floor(fx), r = Math.floor(fz), u = fx - c, v = fz - r;
+    // Retaining cuts move terrain vertices horizontally. Query those same
+    // triangles instead of inventing an invisible slope over the sidewalk.
+    if (this.off && this.cliff && (this.cliff[r * this.cols + c] || this.cliff[r * this.cols + c + 1] || this.cliff[(r + 1) * this.cols + c] || this.cliff[(r + 1) * this.cols + c + 1])) {
+      const displaced = this.sampleDisplaced(this.ox + (c + u) * this.cell, this.oz + (r + v) * this.cell, c, r);
+      if (displaced !== undefined) return displaced;
+    }
     const h10 = this.at(c + 1, r), h01 = this.at(c, r + 1);
     if (u + v <= 1) { const h00 = this.at(c, r); return h00 + (h10 - h00) * u + (h01 - h00) * v; }
     const h11 = this.at(c + 1, r + 1); return h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
+  }
+
+  private sampleDisplaced(x: number, z: number, c: number, r: number) {
+    const off = this.off!;
+    let highest = -Infinity;
+    const triangle = (a: number, b: number, d: number) => {
+      const ax = this.ox + (a % this.cols) * this.cell + off[a * 2], az = this.oz + Math.floor(a / this.cols) * this.cell + off[a * 2 + 1];
+      const bx = this.ox + (b % this.cols) * this.cell + off[b * 2], bz = this.oz + Math.floor(b / this.cols) * this.cell + off[b * 2 + 1];
+      const dx = this.ox + (d % this.cols) * this.cell + off[d * 2], dz = this.oz + Math.floor(d / this.cols) * this.cell + off[d * 2 + 1];
+      const area = (bz - dz) * (ax - dx) + (dx - bx) * (az - dz);
+      if (Math.abs(area) < 1e-9) return; // vertical retaining face has no walkable area
+      const u = ((bz - dz) * (x - dx) + (dx - bx) * (z - dz)) / area;
+      const v = ((dz - az) * (x - dx) + (ax - dx) * (z - dz)) / area;
+      if (u < -1e-6 || v < -1e-6 || u + v > 1.000001) return;
+      highest = Math.max(highest, u * this.h[a] + v * this.h[b] + (1 - u - v) * this.h[d]);
+    };
+    // Retaining-wall snapping moves vertices at most 1.45 cells. Only this
+    // small neighborhood needs testing; ordinary terrain keeps the fast path.
+    for (let rr = Math.max(0, r - 2); rr <= Math.min(this.rows - 2, r + 2); rr++) {
+      for (let cc = Math.max(0, c - 2); cc <= Math.min(this.cols - 2, c + 2); cc++) {
+        const a = rr * this.cols + cc, b = a + 1, d = a + this.cols;
+        triangle(a, d, b); triangle(b, d, d + 1);
+      }
+    }
+    return Number.isFinite(highest) ? highest : undefined;
   }
   /** Bilinear (for resampling source terrains). */
   bilinear(x: number, z: number) {
@@ -185,12 +225,14 @@ export function bakeLandMask(recipe: Recipe, hf: Heightfield) {
 }
 
 export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLandMask>) {
-  const grass = surface('grass'), dirt = surface('dirt'), dry = surface('grass-dry', 'grass'), conc = surface('concrete');
   const biome = recipeBiome(recipe);
+  const soil: TextureId = biome === 'desert' ? 'desert-sand' : biome === 'coastal' ? 'coastal-sand' : 'forest-floor';
+  const grass = surface('grass'), dirt = surface(soil, 'dirt'), dry = surface('grass-dry', 'grass'), conc = surface('concrete');
   const arid = recipe.climate === 'arid' && biome !== 'alpine';
   // vegetation: Sonoran-desert cities landscape yards with decomposed granite / gravel instead of lawn
   const xeri = biome === 'desert';
-  const grav = surface('gravel');
+  const grav = surface('alpine-rock', 'rock');
+  const snow = biome === 'alpine' ? surface('snow') : null;
   const mat = new THREE.MeshStandardMaterial({ map: grass.map ?? null, normalMap: grass.normalMap ?? null, roughness: 0.95, metalness: 0 });
   mat.name = 'terrain';
   mat.onBeforeCompile = (sh) => {
@@ -207,6 +249,12 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
     sh.uniforms.dirtScale = { value: 1 / dirt.sizeM };
     sh.uniforms.gravMap = { value: grav.map };
     sh.uniforms.gravScale = { value: 1 / grav.sizeM };
+    sh.uniforms.soilNormal = { value: dirt.normalMap };
+    sh.uniforms.rockNormal = { value: grav.normalMap };
+    if (snow) {
+      sh.uniforms.snowMap = { value: snow.map };
+      sh.uniforms.snowScale = { value: 1 / snow.sizeM };
+    }
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGtW;\nvarying vec3 vGtN;')
       .replace('#include <project_vertex>', '#include <project_vertex>\nvGtW = (modelMatrix * vec4(transformed,1.0)).xyz;\nvGtN = normalize(mat3(modelMatrix) * objectNormal);');
@@ -214,6 +262,8 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
       .replace('#include <common>', `#include <common>
         varying vec3 vGtW; varying vec3 vGtN; uniform sampler2D dirtMap; uniform sampler2D maskMap; uniform vec2 maskOrigin; uniform vec2 maskSize;
         uniform float grassScale; uniform float dirtScale; uniform sampler2D dryMap; uniform float dryScale; uniform sampler2D hardMap; uniform sampler2D concMap; uniform float concScale; uniform sampler2D gravMap; uniform float gravScale;
+        uniform sampler2D soilNormal; uniform sampler2D rockNormal;
+        ${snow ? 'uniform sampler2D snowMap; uniform float snowScale;' : ''}
         ${NOISE_GLSL}`)
       .replace('#include <map_fragment>', `
         vec2 wuv = vGtW.xz;
@@ -273,11 +323,19 @@ export function terrainMaterial(recipe: Recipe, mask: ReturnType<typeof bakeLand
         ${biome === 'alpine' ? `
           float snow = smoothstep(${(snowline(recipe.origin.lat)-(recipe.elevation??0)-100).toFixed(1)}, ${(snowline(recipe.origin.lat)-(recipe.elevation??0)+160).toFixed(1)}, vGtW.y+gt_fbm(wuv*.025)*130.0);
           snow *= smoothstep(.3,.8,normalize(vGtN).y)*(1.0-hard);
-          base=mix(base,vec3(.83,.88,.91)*(0.94+0.06*gt_noise(wuv*3.0)),snow);
+          vec3 snowC = texture2D(snowMap,wuv*snowScale).rgb;
+          base=mix(base,snowC*vec3(.96,.98,1.0),snow);
         ` : ''}
         diffuseColor.rgb *= base;
       `)
-      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1.0 - 0.85 * hard);'));
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps
+        .replaceAll('texture2D( normalMap, vNormalMapUv )', 'texture2D( normalMap, wuv * grassScale )')
+        .replace('mapN.xy *= normalScale;', `
+          vec3 soilN=texture2D(soilNormal,wuv*dirtScale).xyz*2.0-1.0;
+          vec3 rockN=texture2D(rockNormal,wuv*gravScale).xyz*2.0-1.0;
+          float rockWeight=smoothstep(.2,.42,1.0-normalize(vGtN).y);
+          mapN=normalize(mix(mix(mapN,soilN,clamp(max(bare,forest*.6),0.0,1.0)),rockN,rockWeight));
+          mapN.xy *= normalScale * (1.0 - 0.85 * hard);`));
   };
   mat.customProgramCacheKey = () => 'flk-terrain-' + biome + ':' + recipe.elevation + ':' + recipe.origin.lat;
   return mat;

@@ -7,6 +7,7 @@ import type RAPIER_NS from '@dimforge/rapier3d-compat';
 import type { Game } from '../../core/game';
 import type { CarModel } from './carModels';
 import { groundY } from '../util';
+import { staticColliderBounds } from '../../world/physics';
 
 const CELL = 16;
 
@@ -38,7 +39,17 @@ export class OverlapChecker {
       if (!p || !p.isFixed() || c.isSensor() || this.skip(c)) return;
       const t = c.shapeType();
       if (t === R.ShapeType.HeightField) return; // terrain: cars rest on it, never "inside" it
-      if (t === R.ShapeType.TriMesh || t === R.ShapeType.Polyline) { this.global.push(c.handle); return; }
+      if (t === R.ShapeType.TriMesh || t === R.ShapeType.Polyline) {
+        const bounds = staticColliderBounds.get(c);
+        if (!bounds) { this.global.push(c.handle); return; }
+        for (let ix = Math.floor(bounds.minX / CELL); ix <= Math.floor(bounds.maxX / CELL); ix++) {
+          for (let iz = Math.floor(bounds.minZ / CELL); iz <= Math.floor(bounds.maxZ / CELL); iz++) {
+            const key = this.key(ix, iz), list = this.grid.get(key) ?? [];
+            list.push(c.handle); this.grid.set(key, list);
+          }
+        }
+        return;
+      }
       const tr = c.translation();
       const k = this.key(Math.floor(tr.x / CELL), Math.floor(tr.z / CELL));
       let l = this.grid.get(k);
@@ -56,7 +67,12 @@ export class OverlapChecker {
     const shape = new R.Cuboid(h.x, h.y, h.z);
     this.q.setFromAxisAngle(this.yAxis, -heading);
     const rot = { x: this.q.x, y: this.q.y, z: this.q.z, w: this.q.w };
-    const test = (c: RAPIER_NS.Collider | undefined) => !!c && !c.isSensor() && !this.skip(c) && !extraSkip?.(c) && c.intersectsShape(shape, p, rot);
+    const seen = new Set<number>();
+    const test = (c: RAPIER_NS.Collider | undefined) => {
+      if (!c || seen.has(c.handle)) return false;
+      seen.add(c.handle);
+      return c.isEnabled() && !c.isSensor() && !this.skip(c) && !extraSkip?.(c) && c.intersectsShape(shape, p, rot);
+    };
     for (const hd of this.global) if (test(W.getCollider(hd))) return true;
     const r = Math.hypot(h.x, h.z) + 6;
     for (let ix = Math.floor((p.x - r) / CELL); ix <= Math.floor((p.x + r) / CELL); ix++) {

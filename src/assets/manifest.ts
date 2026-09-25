@@ -27,8 +27,8 @@ export const TEXTURES: Record<string, TextureEntry> = textureJson as Record<stri
 /** Texture sets preloaded by preloadLibrary() (the ones every city uses). */
 export const CORE_TEXTURES = [
   'asphalt', 'asphalt-worn', 'concrete-sidewalk', 'concrete', 'curb', 'grass', 'dirt',
-  'brick-red', 'brick-brown', 'brick-tan', 'stucco', 'lap-siding', 'plaster', 'cmu-block',
-  'roof-asphalt-shingle', 'roof-membrane', 'roof-gravel', 'metal-panel',
+  // Facades load their own offline-sized maps; full-resolution wall/roof maps are not needed
+  // by the 512px texture arrays and cost hundreds of MB of decoded image memory at startup.
 ];
 
 /** Flat fallback colors (used when a texture set is missing or not yet loaded). */

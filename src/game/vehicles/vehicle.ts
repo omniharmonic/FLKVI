@@ -97,6 +97,8 @@ export class Vehicle implements VehicleHandle {
   prevVelocity = new THREE.Vector3();
   /** World-space linear acceleration magnitude of the last step (impact detection). */
   lastImpact = 0;
+  /** Let the contact solver's crash rotation play out before steering assists return. */
+  impactRecovery = 0;
   lastImpactDir = new THREE.Vector3();
   steerAngle = 0;
   private spin = [0, 0, 0, 0];
@@ -170,6 +172,7 @@ export class Vehicle implements VehicleHandle {
     desc.setTranslation(this.position.x, this.position.y + (mode === 'dynamic' ? 0.05 : 0), this.position.z)
       .setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w })
       .setLinearDamping(0.05).setAngularDamping(0.6).setCanSleep(true)
+      .setAdditionalSolverIterations(2)
       .setCcdEnabled(mode === 'dynamic');
     this.body = this.g.physics.createRigidBody(desc);
     const t = this.tuning;
@@ -215,11 +218,13 @@ export class Vehicle implements VehicleHandle {
     if (this.physicsMode === 'dynamic') return;
     const R = this.rapier;
     this.physicsMode = 'dynamic';
+    const previousVelocity = this.body.linvel(), previousSpin = this.body.angvel();
     this.body.setBodyType(R.RigidBodyType.Dynamic, true);
     this.body.enableCcd(true);
     this.createController();
     const f = new THREE.Vector3(Math.sin(this.heading), 0, -Math.cos(this.heading)).multiplyScalar(this.speed);
-    this.body.setLinvel({ x: f.x, y: 0, z: f.z }, true);
+    this.body.setLinvel({ x: f.x, y: clamp(previousVelocity.y, -4, 4), z: f.z }, true);
+    this.body.setAngvel({ x: clamp(previousSpin.x, -2, 2), y: clamp(previousSpin.y, -2, 2), z: clamp(previousSpin.z, -2, 2) }, true);
   }
 
   /** Hand a (stopped) dynamic car back to kinematic AI control at its current pose. */
@@ -237,6 +242,8 @@ export class Vehicle implements VehicleHandle {
 
   fixedUpdate(dt: number) {
     if (this.physicsMode === 'kinematic') return this.fixedKinematic(dt);
+    this.impactRecovery = Math.max(0, this.impactRecovery - dt);
+    const assist = 1 - Math.min(1, this.impactRecovery / 0.45);
     const vc = this.controller!;
     const body = this.body;
     const t = this.tuning;
@@ -353,7 +360,7 @@ export class Vehicle implements VehicleHandle {
         let k = kick + cap;
         // Past the max slip angle, push the nose back even while the handbrake is held (no spin-outs).
         if (Math.abs(beta) > DRIFT.betaMax) k += -Math.sign(beta) * (Math.abs(beta) - DRIFT.betaMax) * 6 * mass;
-        body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
+        body.addTorque({ x: _up.x * k * assist, y: _up.y * k * assist, z: _up.z * k * assist }, true);
         this.prevBeta = beta;
       } else if (driven) {
         // Power drift: once sliding (typically after a handbrake flick), holding throttle keeps the
@@ -362,7 +369,7 @@ export class Vehicle implements VehicleHandle {
         // grip assists below straighten the car.
         const beta = Math.atan2(lat, Math.max(1, Math.abs(fwdSpeed))); // + = sliding right
         const dBeta = (beta - this.prevBeta) / dt;
-        const drifting = throttle > 0.5 && spd > 7 && fwdSpeed > 2
+        const drifting = this.impactRecovery === 0 && throttle > 0.5 && spd > 7 && fwdSpeed > 2
           && (this.slip > 0.16 || (this.driftT > 0 && this.slip > 0.06) || (this.hbReleaseT > 0 && Math.abs(yawRate) > 0.6));
         this.driftT = drifting ? Math.min(3, this.driftT + dt) : Math.max(0, this.driftT - dt * 2);
         const wantYaw = -this.steerAngle * fwdSpeed / 2.8;
@@ -372,7 +379,7 @@ export class Vehicle implements VehicleHandle {
           const bt = ds * (DRIFT.holdBeta + into * DRIFT.holdBetaSteer);
           let k = (-(beta - bt) * DRIFT.kp - dBeta * DRIFT.kd) * mass * clamp(spd / 10, 0.5, 1);
           if (Math.abs(beta) > DRIFT.betaMax) k += -Math.sign(beta) * (Math.abs(beta) - DRIFT.betaMax) * 6 * mass;
-          body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
+          body.addTorque({ x: _up.x * k * assist, y: _up.y * k * assist, z: _up.z * k * assist }, true);
           // Keep momentum through the slide (tyre scrub would otherwise stall it within a second).
           const push = DRIFT.push * throttle * mass * clamp((32 - spd) / 10, 0, 1);
           const vx = vel.x / spd, vz = vel.z / spd;
@@ -387,14 +394,14 @@ export class Vehicle implements VehicleHandle {
             k += -beta * DRIFT.recoverK * mass * clamp(spd / 12, 0, 1);
             if (Math.abs(beta) > DRIFT.betaMax) k += -Math.sign(beta) * (Math.abs(beta) - DRIFT.betaMax) * 6 * mass;
           }
-          body.addTorque({ x: _up.x * k, y: _up.y * k, z: _up.z * k }, true);
+          body.addTorque({ x: _up.x * k * assist, y: _up.y * k * assist, z: _up.z * k * assist }, true);
           // Lateral grip assist at speed: bleed sideways velocity a bit.
-          const latF = -lat * mass * this.gripFactor * 0.65 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1);
+          const latF = -lat * mass * this.gripFactor * 0.65 * clamp(spd / 12, 0, 1) * (this.slip > 0.35 ? 0.4 : 1) * assist;
           body.addForce({ x: _right.x * latF, y: 0, z: _right.z * latF }, true);
           // High-speed stability: a little extra steering-independent yaw damping above ~25 m/s.
           if (spd > 25) {
             const kd = -(yawRate - wantYaw) * 0.4 * mass * clamp((spd - 25) / 15, 0, 1);
-            body.addTorque({ x: _up.x * kd, y: _up.y * kd, z: _up.z * kd }, true);
+            body.addTorque({ x: _up.x * kd * assist, y: _up.y * kd * assist, z: _up.z * kd * assist }, true);
           }
         }
         this.prevBeta = beta;
@@ -562,6 +569,7 @@ export class Vehicle implements VehicleHandle {
       // Pivot roughly around the axle line at ground so the body doesn't slide off its wheels.
       this.visual.chassis.rotation.set(this.visPitch, 0, this.visRoll);
     } else this.syncVisualFromHandle(dt);
+    this.visual.updateImpact(dt);
     this.updateSignal(dt);
     this.visual.setDriver(this.driver !== 'none' && !this.destroyed);
     this.visual.setLights({ head: this.headlights, brake: this.braking, reverse: this.reversing, siren: !!this.siren, t: this.g.elapsed, signal: this.signal, beam: this.beam });

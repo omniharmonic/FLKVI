@@ -127,10 +127,8 @@ export function buildProps(data: OsmData, infos: RoadInfo[], gr: GraphResult, ro
   const signalPoles: SignalPole[] = [];
   for (const node of gr.graph.nodes) {
     if (!node.signal && !node.stop) continue;
-    // find OSM id for this graph node
-    let osmId: number | undefined;
-    for (const [id, idx] of gr.idx) if (idx === node.id) { osmId = id; break; }
-    if (osmId === undefined) continue;
+    // Graph nodes preserve OSM identity; edge endpoints alone use array indices.
+    const osmId = node.id;
     const L = (legs.get(osmId) ?? []).filter((l) => PUBLIC_STREET.has(l.info.road.cls));
     if (L.length === 0) continue;
     const J = node.p;

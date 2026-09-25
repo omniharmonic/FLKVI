@@ -268,7 +268,7 @@ export function buildGraph(infos: RoadInfo[], data: OsmData, ctx: Ctx): GraphRes
     if (i === undefined) {
       i = graph.nodes.length; idx.set(id, i);
       const p = pos.get(id)!;
-      const node: RoadGraph['nodes'][number] = { id: i, p: [p[0], p[1]], y: +(posY.get(id) ?? 0).toFixed(2) };
+      const node: RoadGraph['nodes'][number] = { id, p: [p[0], p[1]], y: +(posY.get(id) ?? 0).toFixed(2) };
       if (signalNodes.has(id)) node.signal = true;
       if (stopNodes.has(id) && !signalNodes.has(id)) node.stop = true;
       graph.nodes.push(node);

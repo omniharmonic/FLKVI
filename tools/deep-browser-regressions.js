@@ -60,14 +60,21 @@
  p.hurt(10);check('Damage plays hit reaction',p.character.oneShot?.key==='hit');step(70);
  // Two civilians in the same punch cone: only the nearest is struck.
  const a=g.ai.peds.acquire(),b=g.ai.peds.acquire();
- for(const [q,dz]of [[a,-0.85],[b,-1.2]]){q.x=p.position.x;q.z=p.position.z+dz;q.y=p.position.y;q.state='idle';q.ch.root.position.set(q.x,q.y,q.z);}
- p.camera.yaw=0;tap('KeyG');step(16);
+ for(const [q,dz]of [[a,-0.85],[b,-1.2]]){
+   q.x=p.position.x;q.z=p.position.z+dz;q.y=p.position.y;q.state='idle';q.ch.root.position.set(q.x,q.y,q.z);
+   // AI is disabled in this fixture. Explicitly evaluate the standing pose;
+   // otherwise pooled bones can retain an arbitrary previous walk/get-up frame.
+   q.ch.mixer.stopAllAction();q.ch.current=null;q.ch.play('idle',0);q.ch.update(0);
+ }
+ let ragStart;
+ const stopCapture=g.events.on('meleeHit',()=>{if(a.ch.ragdoll)ragStart={...a.ch.ragdoll.parts[0].body.translation()};});
+ p.camera.yaw=0;tap('KeyG');step(16);stopCapture();
  check('Punch hits nearest civilian only',a.state==='fallen'&&b.state!=='fallen',{a:a.state,b:b.state});
  check('Impact enters the fall state',a.ch.role==='fall');
  const rag=a.ch.ragdoll;
  check('Nearby punch creates an articulated ragdoll',rag&&rag.parts.length===11);
- const start=rag?.parts[0].body.translation();step(90);
- check('Ragdoll responds to gravity and impact',rag&&Math.hypot(rag.position.x-start.x,rag.position.z-start.z)>.2&&rag.position.y<start.y);
+ const start=ragStart;step(90);
+ check('Ragdoll responds to gravity and impact',rag&&start&&Math.hypot(rag.position.x-start.x,rag.position.z-start.z)>.2&&rag.position.y<start.y,{start,end:rag?.position.toArray(),feet:p.position.y});
  check('Ragdoll remains finite and above solid ground',rag&&rag.parts.every(q=>{const v=q.body.translation();return Number.isFinite(v.x+v.y+v.z)&&v.y>p.position.y-.35&&v.y<p.position.y+3;}));
  const handles=rag?.parts.map(q=>q.body);
  a.ch.setFallen(false);check('Recovery uses the authored get-up animation',a.ch.role==='getup');

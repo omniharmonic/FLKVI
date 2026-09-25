@@ -72,7 +72,7 @@ async function loadBaked(id: string, onProgress: Progress): Promise<Recipe> {
 }
 
 /** Live compile of an arbitrary lat/lon. Uses a module Worker; falls back to main thread. */
-export function compileLive(opts: CompileOptions, onProgress: Progress): Promise<Recipe> {
+export function compileLive(opts: CompileOptions, onProgress: Progress, control: { timeoutMs?: number; allowMainThreadFallback?: boolean } = {}): Promise<Recipe> {
   return new Promise<Recipe>((resolve, reject) => {
     let worker: Worker | null = null;
     try {
@@ -81,12 +81,13 @@ export function compileLive(opts: CompileOptions, onProgress: Progress): Promise
       console.warn('[compiler] worker unavailable, compiling on main thread', e);
     }
     if (!worker) {
+      if(control.allowMainThreadFallback===false){reject(new Error('Background compiler unavailable'));return;}
       compileMain(opts, onProgress).then(resolve, reject);
       return;
     }
     const w = worker;
     let settled = false;
-    const timer = setTimeout(() => { if (!settled) { settled = true; w.terminate(); reject(new Error('World compile timed out — OpenStreetMap servers may be busy. Try again or pick a featured city.')); } }, COMPILE_TIMEOUT_MS);
+    const timer = setTimeout(() => { if (!settled) { settled = true; w.terminate(); reject(new Error('World compile timed out — OpenStreetMap servers may be busy. Try again or pick a featured city.')); } }, control.timeoutMs ?? COMPILE_TIMEOUT_MS);
     let lastF = 0;
     w.onmessage = (ev) => {
       const m = ev.data;
@@ -99,6 +100,7 @@ export function compileLive(opts: CompileOptions, onProgress: Progress): Promise
     w.onerror = (ev) => {
       if (settled) return;
       settled = true; clearTimeout(timer); w.terminate();
+      if(control.allowMainThreadFallback===false){reject(new Error(ev.message||'Background compiler failed'));return;}
       console.warn('[compiler] worker failed, retrying on main thread', ev.message);
       compileMain(opts, onProgress).then(resolve, reject);
     };

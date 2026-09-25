@@ -101,6 +101,8 @@ export class VehicleSystem implements VehiclesAPI, System {
     for (const [id, color] of list) {
       const vis = createVehicleVisual(getCarModel(id), color, 1);
       vis.setLights({ head: true, brake: true, reverse: false, siren: id.startsWith('police'), t: 0, beam: true });
+      // Link the cracked-glass program at load time, not on the first hard crash.
+      if (color === '#f4f4f4') vis.markDamage(new THREE.Vector3(0.6, 0.9, -2), 0.22);
       holder.add(vis.root);
     }
   }
@@ -265,15 +267,15 @@ export class VehicleSystem implements VehiclesAPI, System {
   // Promote traffic BEFORE contact. Kinematic bodies otherwise behave like infinite-mass walls.
   private prepareContacts() {
     for(const v of this.vehicles.values()) {
-      if(v.physicsMode!=='dynamic'||v.body.isSleeping())continue;
+      if(v.physicsMode!=='dynamic')continue;
       const a=v.body.translation(),av=v.body.linvel();
-      if(Math.hypot(av.x,av.z)<2)continue;
       for(const o of this.vehicles.values()) {
         if(o.physicsMode!=='kinematic')continue;
         const b=o.body.translation();
         if(Math.abs(a.y-b.y)>2||Math.hypot(a.x-b.x,a.z-b.z)>22)continue;
         const sin=Math.sin(o.heading),cos=Math.cos(o.heading);
         const vx=av.x-sin*o.speed,vz=av.z+cos*o.speed;
+        if (Math.hypot(vx, vz) < 1) continue;
         const dx=a.x-b.x,dz=a.z-b.z;
         const t=clamp(-(dx*vx+dz*vz)/Math.max(.01,vx*vx+vz*vz),0,.22);
         const x=dx+vx*t,z=dz+vz*t,angle=v.heading-o.heading;
@@ -311,7 +313,7 @@ export class VehicleSystem implements VehiclesAPI, System {
   }
 
   /** Solver contact point between a vehicle hull and anything else (world space), or null. */
-  private contactPoint(v: Vehicle, filter?: (c: RAPIER_NS.Collider) => boolean): THREE.Vector3 | null {
+  private contactPoint(v: Vehicle, filter?: (c: RAPIER_NS.Collider) => boolean, sideOnly = false): THREE.Vector3 | null {
     const w = this.g.physics;
     let out: THREE.Vector3 | null = null, strongest = 0;
     for (const c of v.colliders) {
@@ -319,6 +321,9 @@ export class VehicleSystem implements VehiclesAPI, System {
         if (filter && !filter(o)) return;
         w.contactPair(c, o, (man) => {
           if (man.numSolverContacts() === 0) return;
+          // Suspension/road contact is not a panel strike. This also keeps
+          // scrape sparks from spraying out of a car simply cresting a hill.
+          if (sideOnly && Math.abs(man.normal().y) > 0.65) return;
           let impulse=0;for(let i=0;i<man.numContacts();i++)impulse+=man.contactImpulse(i);
           if(impulse<=strongest)return;
           const p=man.solverContactPoint(0);
@@ -344,7 +349,7 @@ export class VehicleSystem implements VehiclesAPI, System {
     this.scrapeT -= dt;
     const spd = v.velocity.length();
     if (spd < 4) return;
-    const p = this.contactPoint(v, (o) => { const b = o.parent(); return !!b && b.isFixed() && !this.parking.colliderToSlot.has(o.handle); });
+    const p = this.contactPoint(v, (o) => { const b = o.parent(); return !!b && b.isFixed() && !this.parking.colliderToSlot.has(o.handle); }, true);
     if (!p) return;
     const back = v.velocity.clone().normalize().multiplyScalar(-0.6).setY(0.35);
     this.sparks.emit(p, back, 2 + Math.floor(spd / 8), 3 + spd * 0.25);
@@ -365,7 +370,10 @@ export class VehicleSystem implements VehiclesAPI, System {
     const cd = (this.impactCooldown.get(v.id) ?? 0) - dt;
     this.impactCooldown.set(v.id, cd);
     if (horiz < 2.2 || cd > 0) return;
-    const contact=this.contactPoint(v);
+    // Upright cars can crest/land on slopes without their doors taking damage.
+    // Overturned cars still take roof/body damage on hard ground contact.
+    const rot = v.body.rotation(), upright = 1 - 2 * (rot.x * rot.x + rot.z * rot.z) > 0.65;
+    const contact=this.contactPoint(v, undefined, upright);
     if(!contact)return; // acceleration, braking and suspension impulses are not crashes
     this.impactCooldown.set(v.id, 0.25);
     this.onImpact(v, dv, horiz, contact);
@@ -374,13 +382,15 @@ export class VehicleSystem implements VehiclesAPI, System {
   private onImpact(v: Vehicle, dv: THREE.Vector3, mag: number, contact:THREE.Vector3) {
     const g = this.g;
     v.lastImpact = mag;
+    v.impactRecovery = Math.max(v.impactRecovery, Math.min(1.1, 0.35 + mag * 0.035));
+    v.driftT = 0;
     v.lastImpactDir.copy(dv).normalize();
     const dmg = (mag - 2) * 3.2;
     this.damage(v, dmg, dv, contact);
     playSound(g, 'crash', { at: v3(v.position), volume: clamp(mag / 12, 0.2, 1) });
     // Sparks where metal met something hard.
     if (mag > 4) {
-      const p = this.contactPoint(v);
+      const p = contact;
       if (p) {
         const dir = dv.clone().normalize().multiplyScalar(0.5).setY(0.4);
         this.sparks.emit(p, dir, Math.min(40, 8 + Math.floor(mag * 2)), 4 + mag * 0.4);
@@ -490,7 +500,7 @@ export class VehicleSystem implements VehiclesAPI, System {
       this.carBounds.center.copy(v.position).y += v.model.roofY * 0.5;
       this.carBounds.radius = Math.hypot(v.model.L * 0.5, v.model.colHalf.x, v.model.roofY);
       const inView = v.id === playerVid || this.viewFrustum.intersectsSphere(this.carBounds);
-      const batched = !sleepy && v.visual.far && v.kind !== 'police' && !v.destroyed && !!v.object.parent;
+      const batched = !sleepy && v.visual.far && v.kind !== 'police' && !v.destroyed && v.health >= 100 && !!v.object.parent;
       v.object.visible = !sleepy && !batched && (inView || d < 14);
       if (!sleepy && v.object.parent) {
         const ch = v.visual.chassis;
@@ -531,7 +541,7 @@ export class VehicleSystem implements VehiclesAPI, System {
         const hp = pv.model.headlightPos[i];
         s.position.copy(hp).applyMatrix4(pv.object.matrixWorld);
         s.target.position.copy(hp).add(new THREE.Vector3(0, -0.6, -12)).applyMatrix4(pv.object.matrixWorld);
-        s.intensity = 60 * night;
+        s.intensity = 60 * night * pv.visual.headlightIntegrity(i);
       } else s.intensity = 0;
     }
     // Siren strobes cast on nearby surfaces: the 2 nearest police cars with sirens get a real light.

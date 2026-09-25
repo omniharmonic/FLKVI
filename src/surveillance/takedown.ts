@@ -197,8 +197,9 @@ export class Takedowns {
     for (const v of g.vehicles?.all?.() ?? []) {
       if (v.kind === 'police' && !v.destroyed && v.position.distanceTo(p.position) < TUNE.policeInterruptRadius) return this.cancel('Police! Get out of there.');
     }
-    for (const o of ((g as any).police?.officers?.() ?? []) as { position: THREE.Vector3 }[]) {
-      if (o.position.distanceTo(p.position) < TUNE.policeInterruptRadius) return this.cancel('Police! Get out of there.');
+    const officers = (g.ai as import('../ai').AIDebug | undefined)?.police?.officers ?? [];
+    for (const o of officers) {
+      if (o.stunned <= 0 && Math.hypot(o.x-p.position.x, o.y-p.position.y, o.z-p.position.z) < TUNE.policeInterruptRadius) return this.cancel('Police! Get out of there.');
     }
     if (a.target.kind === 'cam' && a.mode === 'disable' && a.target.cam.status !== 'active') return this.cancel();
     if (a.target.kind === 'drone' && !a.target.drone.reachable(p.position, this.h.ground(p.position.x, p.position.z, p.position.y))) return this.cancel('The drone pulled away.');

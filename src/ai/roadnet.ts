@@ -210,8 +210,11 @@ export class RoadNet {
   constructor(recipe: Recipe) {
     this.recipe = recipe;
     const g = recipe.graph;
-    const roads = new Map<string, RecipeRoad>();
-    for (const r of recipe.roads) roads.set(r.id, r);
+    const roads = new Map<string, RecipeRoad[]>();
+    for (const r of recipe.roads) {
+      const pieces = roads.get(r.id);
+      if (pieces) pieces.push(r); else roads.set(r.id, [r]);
+    }
     this.nodes = g.nodes.map((n, id) => ({
       id, x: n.p[0], z: n.p[1], y: n.y, signal: !!n.signal, stop: !!n.stop, degree: 0, maxRank: 0, majorCount: 0, radius: 0, axis: 0, out: [], in: [],
     }));
@@ -223,9 +226,19 @@ export class RoadNet {
     this.nodePeds = this.nodes.map(() => []);
 
     g.edges.forEach((ge, gi) => {
-      const road = roads.get(ge.roadId);
       const a = g.nodes[ge.from], b = g.nodes[ge.to];
       if (!a || !b || ge.from === ge.to) return;
+      const pieces = roads.get(ge.roadId);
+      // Exact seam endpoints can lie inside a source segment. Choose the piece that
+      // contains both graph endpoints, rather than whichever district loaded last.
+      let road = pieces?.[0];
+      let best = Infinity;
+      for (const piece of pieces ?? []) {
+        const p = roadPoly(piece);
+        const distance = projectPoly(p, ...a.p).d + projectPoly(p, ...b.p).d;
+        if (distance < best) { best = distance; road = piece; }
+        if (distance < 0.01) break;
+      }
       const cls = (road?.cls ?? ge.cls) as RoadClass;
       const center = extractCenter(road, a.p, b.p);
       if (center.len < 0.5) return;
@@ -452,7 +465,7 @@ export class RoadNet {
 
   /** A* shortest travel-time path over drivable edges. Returns node ids (from..to) or []. */
   route(from: number, to: number, maxExpand = 20000): number[] {
-    if (from < 0 || to < 0) return [];
+    if (!this.nodes[from] || !this.nodes[to]) return [];
     if (from === to) return [from];
     const N = this.nodes;
     const g = new Map<number, number>([[from, 0]]);
@@ -537,26 +550,22 @@ function bbox(p: Poly) {
   return { minX, minZ, maxX, maxZ };
 }
 
+const roadPolys = new WeakMap<RecipeRoad, Poly>();
+function roadPoly(road: RecipeRoad): Poly {
+  let p = roadPolys.get(road);
+  if (!p) { p = makePoly(road.pts.map(p => p[0]), road.pts.map(p => p[1])); roadPolys.set(road, p); }
+  return p;
+}
+
 /** Road polyline between graph node positions a→b (falls back to a straight segment). */
 function extractCenter(road: RecipeRoad | undefined, a: Vec2, b: Vec2): Poly {
   if (road && road.pts.length >= 2) {
-    let ia = -1, ib = -1, da = Infinity, db = Infinity;
-    for (let k = 0; k < road.pts.length; k++) {
-      const p = road.pts[k];
-      const d1 = (p[0] - a[0]) ** 2 + (p[1] - a[1]) ** 2;
-      const d2 = (p[0] - b[0]) ** 2 + (p[1] - b[1]) ** 2;
-      if (d1 < da) { da = d1; ia = k; }
-      if (d2 < db) { db = d2; ib = k; }
-    }
-    if (ia >= 0 && ib >= 0 && ia !== ib && da < 25 && db < 25) {
-      const xs: number[] = [], zs: number[] = [];
-      const step = ia < ib ? 1 : -1;
-      for (let k = ia; k !== ib + step; k += step) {
-        const p = road.pts[k];
-        if (xs.length && Math.abs(p[0] - xs[xs.length - 1]) + Math.abs(p[1] - zs[zs.length - 1]) < 0.05) continue;
-        xs.push(p[0]); zs.push(p[1]);
-      }
-      if (xs.length >= 2) return makePoly(xs, zs);
+    const poly = roadPoly(road);
+    const pa = projectPoly(poly, ...a), pb = projectPoly(poly, ...b);
+    if (pa.d < 5 && pb.d < 5 && Math.abs(pa.s - pb.s) > 0.05) {
+      const piece = subPoly(poly, Math.min(pa.s, pb.s), Math.max(pa.s, pb.s));
+      if (pa.s > pb.s) return makePoly(Array.from(piece.xs).reverse(), Array.from(piece.zs).reverse());
+      return piece;
     }
   }
   return makePoly([a[0], b[0]], [a[1], b[1]]);

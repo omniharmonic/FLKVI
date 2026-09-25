@@ -7,6 +7,7 @@ import { rng } from '../core/geo';
 import type { RoadNetwork, Junction } from './roads';
 import { stopSignTexture, lightPoolTexture, manholeTexture, chainLinkTexture, procSet } from './textures';
 import { Grid, cumLen, sampleAt, polyNormals } from './util';
+import { streetKitParts } from '../assets/street-kit';
 
 type Part = { geo: THREE.BufferGeometry; mat: string };
 
@@ -210,6 +211,7 @@ export class PropSystem {
   /** Traffic-signal poles with their mast arm (arm dir unit x/z, length m, arm height y+6.6). Read by surveillance to mount clusters. */
   masts: { x: number; y: number; z: number; dx: number; dz: number; len: number }[] = [];
   private lampGrid = new Grid<number>(60);
+  private residentLampGrid = new Grid<THREE.Vector3>(60);
   /** utility-pole indices that carry a street-light arm (residential consolidation) */
   private poleLamps = new Set<number>();
   private heads: { node: number; axis: number; bearing: number; idx: number }[] = [];
@@ -233,7 +235,7 @@ export class PropSystem {
     for (const mat of materials) mat.dispose();
   }
 
-  constructor(private recipe: Recipe, private roads: RoadNetwork, private groundAt: (x: number, z: number) => number, private inBuilding: (x: number, z: number) => boolean) {
+  constructor(private recipe: Recipe, private roads: RoadNetwork, private groundAt: (x: number, z: number) => number, private inBuilding: (x: number, z: number) => boolean, private realLightCount = 16) {
     this.group.name = 'props';
   }
 
@@ -274,9 +276,9 @@ export class PropSystem {
       mastArm: new KitInstances('mastArm', kitMastArm()),
       signalHead: new KitInstances('signalHead', kitSignalHead()),
       stop: new KitInstances('stop', kitStopSign()),
-      hydrant: new KitInstances('hydrant', kitHydrant()),
-      bench: new KitInstances('bench', kitBench()),
-      trash: new KitInstances('trash', kitTrash()),
+      hydrant: new KitInstances('hydrant', streetKitParts('hydrant', M) ?? kitHydrant()),
+      bench: new KitInstances('bench', streetKitParts('bench', M) ?? kitBench()),
+      trash: new KitInstances('trash', streetKitParts('trash', M) ?? kitTrash()),
       busStop: new KitInstances('busStop', kitBusStop()),
       bikeRack: new KitInstances('bikeRack', kitBikeRack()),
       bollard: new KitInstances('bollard', kitBollard()),
@@ -306,7 +308,7 @@ export class PropSystem {
         case 'streetlight': { const d = this.towardRoad(pr.p, 25) ?? rotDir(pr.rot); lights.push({ p: pr.p, dir: d }); break; }
         case 'stop-sign': stopProps.push(pr); break;
         case 'hydrant': kits.hydrant.add(this.mat(x, y, z, R0() * 6.28)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.18, h: 0.8 }); break;
-        case 'bench': { const yaw = faceRoad(pr.p, pr.rot); kits.bench.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 0.9, hy: 0.4, hz: 0.3, rot: yaw }); break; }
+        case 'bench': { const yaw = faceRoad(pr.p, pr.rot); kits.bench.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 1.02, hy: 0.43, hz: 0.37, rot: yaw }); break; }
         case 'trash-can': kits.trash.add(this.mat(x, y, z, R0() * 6.28)); this.colliders.push({ kind: 'cyl', x, y, z, r: 0.32, h: 1 }); break;
         case 'bus-stop': { const yaw = faceRoad(pr.p, pr.rot); kits.busStop.add(this.mat(x, y, z, yaw)); this.colliders.push({ kind: 'box', x, y, z, hx: 2.0, hy: 1.3, hz: 0.1, rot: yaw }); break; }
         case 'bike-rack': { const d = this.towardRoad(pr.p, 18); const yaw = d ? this.yawFace(d[0], d[1]) + Math.PI / 2 : rotYaw(pr.rot); kits.bikeRack.add(this.mat(x, y, z, yaw)); break; }
@@ -660,8 +662,9 @@ export class PropSystem {
 
   private buildNightLights() {
     // pooled real lights
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < this.realLightCount; i++) {
       const l = new THREE.SpotLight(0xffd9a8, 0, 42, 1.15, 0.65, 1.6);
+      l.name = `streetlight-pool-${i}`;
       l.castShadow = false;
       l.position.set(0, -1000, 0);
       l.target.position.set(0, -1010, 0);
@@ -680,6 +683,14 @@ export class PropSystem {
     this.pools = im;
   }
   private pools: THREE.InstancedMesh | null = null;
+
+  /** The initial world's fixed light pool also serves resident districts. Adding lights per
+   * district changes Three's NUM_SPOT_LIGHTS and recompiles every existing actor/material. */
+  setResidentLamps(lamps:readonly THREE.Vector3[]){
+    this.residentLampGrid=new Grid<THREE.Vector3>(60);
+    for(const p of lamps)this.residentLampGrid.add(p.x,p.z,p);
+    this.lightTick=3; // refresh positions on the next update after a load/eviction
+  }
 
   setNightFactor(f: number) {
     this.night = f;
@@ -729,24 +740,25 @@ export class PropSystem {
       rm.instanceColor!.needsUpdate = ym.instanceColor!.needsUpdate = gm.instanceColor!.needsUpdate = true;
     }
     // light pool reassignment
-    if (++this.lightTick % 4 !== 0) return;
+    if (!this.lights.length || ++this.lightTick % 4 !== 0) return;
     const on = this.night > 0.02;
     if (!on) { for (const l of this.lights) l.intensity = 0; return; }
     const cp = camera.position;
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
-    const cand: { i: number; s: number }[] = [];
-    this.lampGrid.query(cp.x, cp.z, 160, (i) => {
-      const p = this.lamps[i];
+    const cand: { p: THREE.Vector3; s: number }[] = [];
+    const candidate=(p:THREE.Vector3)=>{
       const dx = p.x - cp.x, dz = p.z - cp.z, d = Math.hypot(dx, dz);
       if (d > 160) return;
       const facing = (dx * fwd.x + dz * fwd.z) / (d || 1);
-      cand.push({ i, s: d - facing * 25 });
-    });
+      cand.push({ p, s: d - facing * 25 });
+    };
+    this.lampGrid.query(cp.x,cp.z,160,i=>candidate(this.lamps[i]));
+    this.residentLampGrid.query(cp.x,cp.z,160,candidate);
     cand.sort((a, b) => a.s - b.s);
     this.lights.forEach((l, k) => {
       const c = cand[k];
       if (!c) { l.intensity = 0; return; }
-      const p = this.lamps[c.i];
+      const p = c.p;
       l.position.copy(p);
       l.target.position.set(p.x, p.y - 10, p.z);
       l.target.updateMatrixWorld();

@@ -12,6 +12,7 @@ import { TrafficSystem, TRAFFIC_TUNING } from './traffic';
 import { PedSystem, PED_TUNING } from './peds';
 import { PoliceSystem, POLICE_TUNING } from './police';
 import { mergeDistrictGraphs } from './stream-network';
+import { streamNodeId } from '../world/stream-coordinates';
 import { RoadNet } from './roadnet';
 import { losClear } from './util';
 import { updateFrustum } from './util';
@@ -74,11 +75,11 @@ export async function setupAI(g: Game): Promise<void> {
   g.events.on('districtsChanged' , ({recipes}) => {
     const merged=mergeDistrictGraphs(g.recipe,recipes,(x,z)=>g.world.streaming?.isReady(x,z)??true);
     const nextNet = new RoadNet(merged);
-    const nodeIds = new Map(merged.graph.nodes.map((n, i) => [n.id, i]));
-    const nodeMap = net.recipe.graph.nodes.map(n => nodeIds.get(n.id) ?? -1);
+    const nodeIds = new Map(merged.graph.nodes.map((n, i) => [streamNodeId(n.p), i]));
+    const nodeMap = net.recipe.graph.nodes.map(n => nodeIds.get(streamNodeId(n.p)) ?? -1);
     const edgeKey = (network: RoadNet, i: number) => {
       const e = network.edges[i], graph = network.recipe.graph;
-      return `${graph.nodes[e.from].id}:${graph.nodes[e.to].id}:${graph.edges[e.gi].roadId}`;
+      return `${streamNodeId(graph.nodes[e.from].p)}:${streamNodeId(graph.nodes[e.to].p)}:${graph.edges[e.gi].roadId}`;
     };
     const edges = new Map(nextNet.edges.map(e => [edgeKey(nextNet, e.i), e.i]));
     const edgeMap = net.edges.map(e => edges.get(edgeKey(net, e.i)) ?? -1);
@@ -107,6 +108,7 @@ export async function setupAI(g: Game): Promise<void> {
       }
     }
     peds.rebindNetwork();
+    police.rebindNetwork();
   });
   let frame = 0;
   g.addSystem({

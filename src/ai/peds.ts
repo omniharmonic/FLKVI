@@ -562,6 +562,7 @@ export class PedSystem {
   private chooseNext(p: Ped) {
     const net = this.net;
     const ps = net.peds[p.seg];
+    if (!ps) { this.resumeWalking(p); return; }
     const node = p.dir > 0 ? ps.b : ps.a;
     const nd = net.nodes[node];
     const ax = p.x, az = p.z;
@@ -623,6 +624,7 @@ export class PedSystem {
   private safeToCross(p: Ped): boolean {
     if (p.crossNode >= 0) {
       const nd = this.net.nodes[p.crossNode];
+      if (!nd) { p.crossNode = -1; return false; }
       // walk when the traffic on the road we cross is red
       return signalState(nd.id, nd.axis, p.crossBearing, this.g.elapsed) === 'red';
     }
@@ -785,6 +787,9 @@ export class PedSystem {
 
   private updatePed(p: Ped, dt: number, P: PlayerInfo) {
     const g = this.g;
+    // Idle/social/impact states can outlive the district that owned their sidewalk.
+    // Reacquire it on the first walking frame, before any unguarded lane access.
+    if (p.state === 'walk' && !this.net.peds[p.seg]) this.resumeWalking(p);
     p.cooldown = Math.max(0, p.cooldown - dt);
     let moveSpeed = 0;
     let targetH = p.h;
@@ -1021,6 +1026,7 @@ export class PedSystem {
           p.icon.set(null);
           if (p.prevState === 'wander') { p.state = 'wander'; this.pickWander(p); }
           else if (p.state === 'watch') this.resumeWalking(p);
+          else if (!this.net.peds[p.seg]) this.resumeWalking(p);
           else p.state = 'walk';
           if (p.state === 'walk') {
             const ps = this.net.peds[p.seg];
@@ -1292,7 +1298,14 @@ export class PedSystem {
   /** Refresh path indices after resident districts change, preserving reaction/impact states. */
   rebindNetwork() {
     this.enabled=this.net.peds.length>0;
-    for(const p of this.peds)if(/walk|wait|cross|wander|follow/.test(p.state))this.resumeWalking(p);
+    for (const p of this.peds) {
+      // All indices become invalid, including those held by idle people, callers,
+      // bench approaches and ragdolls. Preserve reactions until they finish naturally.
+      p.seg = -1;
+      p.crossNode = -1;
+      p.jay = false;
+      if (/^(walk|wait|cross|wander)$/.test(p.state) || p.state === 'toBench' && p.bench < 0) this.resumeWalking(p);
+    }
   }
 
   /** Cancel calls / reset reactions (run restart). */

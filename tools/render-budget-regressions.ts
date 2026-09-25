@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { AdaptiveResolution, budgetPixelRatio } from '../src/render/budget.ts';
+const sample=(c:AdaptiveResolution,n:number,dt:number)=>{for(let i=0;i<n;i++)c.sample(dt);};
+const smooth=new AdaptiveResolution();sample(smooth,3600,1/60);assert.equal(smooth.scale,1);
+const slow=new AdaptiveResolution();sample(slow,2000,1/30);assert.equal(slow.scale,.65);
+sample(slow,10000,1/60);assert.equal(slow.scale,1);
+const hitches=new AdaptiveResolution();for(let i=0;i<3600;i++)hitches.sample(i%240===0?1:1/60);assert.equal(hitches.scale,1);
+for(const invalid of [NaN,Infinity,0,-1])assert.equal(hitches.sample(invalid),false);
+assert(budgetPixelRatio(3840,2160,2,'high')**2*3840*2160<=2400001);
+assert.equal(budgetPixelRatio(1440,900,.5,'high'),.5);
+console.log('6 adaptive rendering regressions passed');

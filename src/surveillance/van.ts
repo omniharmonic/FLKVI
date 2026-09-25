@@ -151,8 +151,28 @@ export class CrewManager {
     for (const c of this.crews) if (c.cam === cam && !c.leaving) { c.leaving = true; c.t = 0; }
   }
 
+  /** A camera's district is gone: don't keep a forever-pending repair task alive. */
+  retire(cam: Cam) {
+    for (let i = this.crews.length - 1; i >= 0; i--) if (this.crews[i].cam === cam) {
+      this.disposeCrew(this.crews[i]);
+      this.crews.splice(i, 1);
+    }
+  }
+
+  private disposeCrew(c: RepairCrew) {
+    this.root.remove(c.van, c.crew);
+    const shared = new Set<THREE.Material>(Object.values(mats()));
+    c.crew.traverse(o => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.dispose();
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (!shared.has(material)) material.dispose();
+    });
+    // Van clones share the cached template's geometry and materials.
+  }
+
   clear() {
-    for (const c of this.crews) this.root.remove(c.van, c.crew);
+    for (const c of this.crews) this.disposeCrew(c);
     this.crews.length = 0;
   }
 
@@ -199,7 +219,7 @@ export class CrewManager {
       }
     }
     for (let i = this.crews.length - 1; i >= 0; i--) {
-      if (this.crews[i].done) { this.root.remove(this.crews[i].van, this.crews[i].crew); this.crews.splice(i, 1); }
+      if (this.crews[i].done) { this.disposeCrew(this.crews[i]); this.crews.splice(i, 1); }
     }
   }
 

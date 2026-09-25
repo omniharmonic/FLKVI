@@ -17,7 +17,7 @@ import { Network, type Cam } from './network';
 import { VisionViz } from './vision';
 import { Takedowns, type Acting } from './takedown';
 import { CrewManager } from './van';
-import { Drone } from './drone';
+import { Drone, DRONE_CONE_DEG } from './drone';
 import { Beacon } from './beacon';
 
 export { TUNE } from './constants';
@@ -48,6 +48,7 @@ export class Surveillance implements SurveillanceAPI {
   readonly crews: CrewManager;
   readonly beacon = new Beacon();
   readonly droneList: Drone[] = [];
+  private readonly droneLights: THREE.SpotLight[] = [];
   private hotList: HotEntry[] = [];
   private checkT = 0;
   private scoutT = 0;
@@ -68,6 +69,15 @@ export class Surveillance implements SurveillanceAPI {
   constructor(readonly g: Game) {
     this.root.name = 'surveillance';
     g.scene.add(this.root);
+    // Shader variants include the number of lights, even at intensity zero. Allocate
+    // a fixed pool before initial shader warm-up; spawning drones only moves lights.
+    for (let i = 0; i < TUNE.maxDrones; i++) {
+      const light = new THREE.SpotLight(0xdde8ff, 0, 60, DRONE_CONE_DEG * Math.PI / 180, 0.5, 1.4);
+      light.name = `surveillance-drone-light-${i}`;
+      light.castShadow = false;
+      this.droneLights.push(light);
+      this.root.add(light, light.target);
+    }
     this.net = new Network(g, this.root);
     this.net.build();
     const streamed=new Set<string>();
@@ -75,7 +85,7 @@ export class Surveillance implements SurveillanceAPI {
     g.events.on('districtsChanged',({recipes})=>{
       const next=new Map<string,import('../core/types').RecipeCamera>(recipes.flatMap(r=>r.cameras.map(c=>[`${r.origin.lat}:${Math.round(c.p[0])}:${Math.round(c.p[1])}:${c.type}`,c] as const)));
       for(const id of [...streamed])if(!next.has(id)){
-        const cam=this.net.byId.get(id);if(cam){history.set(id,{status:cam.status,hits:cam.hits});this.net.remove(cam);}streamed.delete(id);
+        const cam=this.net.byId.get(id);if(cam){history.set(id,{status:cam.status,hits:cam.hits});this.retireCamera(cam);}streamed.delete(id);
       }
       for(const [id,c]of next)if(!streamed.has(id)){
         // Avoid duplicate cameras where query margins overlap the initial recipe.
@@ -84,6 +94,8 @@ export class Surveillance implements SurveillanceAPI {
         if(prev){cam.hits=prev.hits;if(prev.status!=='active'){cam.status='disabled';cam.repairAt=g.elapsed+120;this.net.makeOverlay(cam,'spray',1);}}
         streamed.add(id);
       }
+      // Escalation cameras belong to their terrain too, not the permanent core.
+      for (const cam of [...this.net.cams]) if (cam.installed && g.world.streaming && !g.world.streaming.isReady(cam.work.x, cam.work.z)) this.retireCamera(cam);
       // Preserve recent disabled state without retaining unbounded meshes/history.
       while(history.size>256)history.delete(history.keys().next().value!);
       this.net.recomputeCoverage();
@@ -491,7 +503,7 @@ export class Surveillance implements SurveillanceAPI {
     this.tamper = []; this.scenes = [];
     this.selectedTarget = null;
     this.crews.clear();
-    for (const d of this.droneList) this.root.remove(d.obj);
+    for (const d of this.droneList) d.dispose();
     this.droneList.length = 0;
     for (const c of [...this.net.cams]) {
       if (c.installed) this.net.remove(c);
@@ -532,36 +544,49 @@ export class Surveillance implements SurveillanceAPI {
     }
   }
 
+  /** Retiring terrain also retires its repair task and any held interaction. */
+  private retireCamera(cam: Cam) {
+    this.crews.retire(cam);
+    const action = this.takedowns.acting;
+    if (action?.target.kind === 'cam' && action.target.cam === cam) this.takedowns.cancel();
+    if (this.selectedTarget === cam.rc.id) this.selectedTarget = null;
+    this.net.remove(cam);
+  }
+
   /** Install a new pole camera at a plausible intersection 120–600 m from the player. */
   installCamera(): Cam | null {
     const g = this.g;
     const pos = this.pp();
     if (!pos) return null;
-    const graph = g.recipe.graph;
+    const recipe = (g.ai as import('../ai').AIDebug | undefined)?.traffic?.net.recipe ?? g.recipe;
+    const graph = recipe.graph;
     if (!graph?.nodes?.length) return null;
     const deg = new Map<number, number>();
     for (const e of graph.edges) { deg.set(e.from, (deg.get(e.from) ?? 0) + 1); deg.set(e.to, (deg.get(e.to) ?? 0) + 1); }
     const r = rng(hashString(`install-${this.installs}-${Math.floor(g.elapsed)}`));
-    const cands = graph.nodes.filter((n) => {
+    const cands = graph.nodes.map((n, index) => ({ n, index })).filter(({ n, index }) => {
       const d = Math.hypot(n.p[0] - pos.x, n.p[1] - pos.z);
       if (d < 120 || d > 600) return false;
-      if ((deg.get(n.id) ?? 0) < 5 && !n.signal) return false;
+      if (g.world.streaming && !g.world.streaming.isReady(...n.p)) return false;
+      if ((deg.get(index) ?? 0) < 5 && !n.signal) return false;
       for (const c of this.net.cams) if (Math.hypot(c.work.x - n.p[0], c.work.z - n.p[1]) < 60) return false;
       return true;
     });
     if (!cands.length) return null;
-    const n = cands[Math.floor(r() * cands.length)];
+    const { n, index } = cands[Math.floor(r() * cands.length)];
     // pick a leg: point at the node, camera on the corner looking out along an edge
-    const e = graph.edges.find((ed) => ed.from === n.id) ?? graph.edges.find((ed) => ed.to === n.id);
+    const e = graph.edges.find((ed) => ed.from === index) ?? graph.edges.find((ed) => ed.to === index);
     if (!e) return null;
-    const o = graph.nodes[e.from === n.id ? e.to : e.from];
+    const o = graph.nodes[e.from === index ? e.to : e.from];
+    if (!o) return null;
     const dx = o.p[0] - n.p[0], dz = o.p[1] - n.p[1];
     const L = Math.hypot(dx, dz) || 1;
     const fx = dx / L, fz = dz / L;
-    const road = g.recipe.roads.find((rd) => rd.id === e.roadId);
+    const road = recipe.roads.find((rd) => rd.id === e.roadId);
     const hw = (road?.width ?? 10) / 2 + (road?.sidewalk ? 0.9 : 1.2);
     const along = Math.min(L * 0.4, hw + 5);
     const p: Vec2 = [n.p[0] + fx * along + fz * hw, n.p[1] + fz * along - fx * hw];
+    if (g.world.streaming && !g.world.streaming.isReady(...p)) return null;
     const heading = Math.atan2(fx, -fz);
     const rc: RecipeCamera = {
       id: `inst-${this.installs++}-${n.id}`, type: 'pole', p, y: this.net.groundAt(p[0], p[1], n.y), heading,
@@ -580,7 +605,9 @@ export class Surveillance implements SurveillanceAPI {
   spawnDrone(): Drone | null {
     const pos = this.pp();
     if (!pos) return null;
-    const d = new Drone(`drone-${this.droneSeq++}`);
+    const light = this.droneLights.find(light => !this.droneList.some(drone => drone.light === light));
+    if (!light) return null;
+    const d = new Drone(`drone-${this.droneSeq++}`, light);
     const a = Math.random() * Math.PI * 2;
     d.pos.set(pos.x + Math.cos(a) * 220, this.net.groundAt(pos.x, pos.z, pos.y) + 45, pos.z + Math.sin(a) * 220);
     this.droneList.push(d);
@@ -597,7 +624,7 @@ export class Surveillance implements SurveillanceAPI {
     for (let i = this.droneList.length - 1; i >= 0; i--) {
       const d = this.droneList[i];
       d.update(dt, t, night, focus, ground);
-      if (d.mode === 'crashed' && t - d.crashedAt > 90) { this.root.remove(d.obj); this.droneList.splice(i, 1); }
+      if (d.mode === 'crashed' && t - d.crashedAt > 90) { d.dispose(); this.droneList.splice(i, 1); }
     }
   }
 

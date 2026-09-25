@@ -1,4 +1,4 @@
-import { budgetPixelRatio } from './budget';
+import { budgetPixelRatio, AdaptiveResolution } from './budget';
 import { installRenderRecovery } from '../ui/render-recovery';
 // OWNER: render agent. Renderer, post-processing, sky, sun, time of day, fog, weather, quality tiers.
 //
@@ -503,6 +503,7 @@ interface RenderState {
   post: PostChain;
   sky: RenderSky;
   bench: Bench;
+  adaptive: AdaptiveResolution;
 }
 const STATE = new WeakMap<Game, RenderState>();
 
@@ -518,7 +519,7 @@ function readStoredQuality(): Quality | null {
 
 function pixelRatio(g:Game) {
   return budgetPixelRatio(g.container.clientWidth||innerWidth,g.container.clientHeight||innerHeight,
-    tierConfig(g.quality).pixelRatio*resolutionScale(),g.quality);
+    tierConfig(g.quality).pixelRatio*resolutionScale()*(STATE.get(g)?.adaptive.scale??1),g.quality);
 }
 
 let devMode = import.meta.env.DEV && new URLSearchParams(location.search).has('renderdev'); // dev-only: keeps dev harness chunks out of production builds
@@ -561,7 +562,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   const post = createPost(renderer, g.scene, g.camera, w, h);
   const sky = new RenderSky(g, post);
   g.sky = sky;
-  const state: RenderState = { post, sky, bench: { done: !!stored, warming: 0, steps: 0, last: 0, calm: 0, samples: [], cooldown: 0 } };
+  const state: RenderState = { post, sky, adaptive: new AdaptiveResolution(), bench: { done: !!stored, warming: 0, steps: 0, last: 0, calm: 0, samples: [], cooldown: 0 } };
   STATE.set(g, state);
   applyQuality(g, g.quality);
 
@@ -578,6 +579,7 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
     const scale = resolutionScale();
     if (scale === lastResolutionScale) return;
     lastResolutionScale = scale;
+    state.adaptive.reset();
     renderer.setPixelRatio(pixelRatio(g));
     onResize();
   });
@@ -604,12 +606,16 @@ export async function setupRendering(g: Game, opts: { dev?: boolean } = {}): Pro
   // the composer issues many internal renders; accumulate info per frame so draw calls are measurable
   renderer.info.autoReset = false;
   const contextLost = installRenderRecovery(g);
+  let lastFrame=0;
   g.renderFrame = (dt) => {
     if(contextLost())return;
+    const now=performance.now();
+    const frameSeconds=(now-lastFrame)/1000;lastFrame=now;
+    if(!g.paused&&!document.hidden&&state.adaptive.sample(frameSeconds))onResize();
     renderer.info.reset();
     post.composer.render(dt);
   };
-  (window as any).__render = { sky, post, setQuality: (q: Quality) => setQuality(g, q) };
+  (window as any).__render = { sky, post, adaptive: state.adaptive, setQuality: (q: Quality) => setQuality(g, q) };
 }
 
 function autoBenchmark(g: Game, _dt: number) {
@@ -658,6 +664,7 @@ function applyQuality(g: Game, q: Quality) {
   if (!st) return;
   const cfg = tierConfig(q);
   const { post, sky } = st;
+  st.adaptive.reset();
   g.renderer.setPixelRatio(pixelRatio(g));
   const w = g.container.clientWidth || innerWidth;
   const h = g.container.clientHeight || innerHeight;

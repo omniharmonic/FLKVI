@@ -287,7 +287,7 @@ export function setBodyPaint(m: CarBodyMaterial, color: string) { applyPaint(m, 
 export type CarLampMaterial = THREE.MeshPhysicalMaterial & { lampI: number[]; lampOn: number[] };
 
 /** One per car: every lamp; per-slot emission + lit state are uniforms. */
-export function createLampMaterial(model: CarModel): CarLampMaterial {
+export function createLampMaterial(model: CarModel, damage = { value: Array.from({ length: 4 }, () => new THREE.Vector4()) }): CarLampMaterial {
   const near = nearGeometry(model);
   const m = new THREE.MeshPhysicalMaterial({
     color: 0xffffff, emissive: 0xffffff, roughness: 0.1, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.03,
@@ -298,6 +298,7 @@ export function createLampMaterial(model: CarModel): CarLampMaterial {
   lampI[LAMP.sign] = near.signLevel;
   m.lampI = lampI; m.lampOn = lampOn;
   const u = {
+    uLampDamage: damage,
     uLampI: { value: lampI }, uLampOn: { value: lampOn },
     uHead: { value: headTex }, uHeadEm: { value: headEm }, uTail: { value: tailTex }, uSign: { value: near.signTex ?? headTex },
   };
@@ -307,24 +308,32 @@ export function createLampMaterial(model: CarModel): CarLampMaterial {
       .replace('#include <common>', `#include <common>
 attribute vec3 aLCol; attribute vec3 aLOn; attribute vec3 aLEm; attribute vec3 aLK;
 uniform float uLampI[8]; uniform float uLampOn[8];
-varying vec3 vLBase; varying vec3 vLEm; varying float vLTex; varying vec2 vLUv;`)
+varying vec3 vLBase; varying vec3 vLEm; varying float vLTex; varying vec2 vLUv; varying vec3 vLampLocal;`)
       .replace('#include <uv_vertex>', `#include <uv_vertex>
 int slot = int(aLK.x + 0.5);
 float lon = uLampOn[slot] * aLK.z;
 vLBase = mix(aLCol, aLOn, lon);
 vLEm = aLEm * uLampI[slot];
-vLTex = aLK.y; vLUv = uv;`);
+vLTex = aLK.y; vLUv = uv; vLampLocal = position;`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-varying vec3 vLBase; varying vec3 vLEm; varying float vLTex; varying vec2 vLUv;
+varying vec3 vLBase; varying vec3 vLEm; varying float vLTex; varying vec2 vLUv; varying vec3 vLampLocal;
+uniform vec4 uLampDamage[4];
 uniform sampler2D uHead; uniform sampler2D uHeadEm; uniform sampler2D uTail; uniform sampler2D uSign;`)
       .replace('#include <map_fragment>', `
 vec4 lH = texture2D(uHead, vLUv), lE = texture2D(uHeadEm, vLUv), lT = texture2D(uTail, vLUv), lS = texture2D(uSign, vLUv);
 vec4 lD = vLTex < 0.5 ? vec4(1.0) : vLTex < 1.5 ? lH : vLTex < 2.5 ? lT : lS;
 vec3 lEmTex = vLTex < 0.5 ? vec3(1.0) : vLTex < 1.5 ? lE.rgb : lD.rgb;
-diffuseColor.rgb *= vLBase * lD.rgb;`)
-      .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = vLEm * lEmTex;');
+float lampDamage = 0.0;
+for (int i=0;i<4;i++) {
+  vec4 d = uLampDamage[i];
+  lampDamage = max(lampDamage, d.w * (1.0-smoothstep(0.1,1.15,length(vLampLocal-d.xyz))));
+}
+float fractures = smoothstep(0.94,1.0,abs(sin(vLUv.x*91.0 + sin(vLUv.y*21.0)*7.0)));
+diffuseColor.rgb *= vLBase * lD.rgb * (1.0-lampDamage*.7);
+diffuseColor.rgb += vec3(fractures*lampDamage*.2);`)
+      .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = vLEm * lEmTex * (1.0-smoothstep(0.3,0.85,lampDamage));');
   };
-  m.customProgramCacheKey = () => 'gt-car-lamps-v1';
+  m.customProgramCacheKey = () => 'flk-car-lamps-damage-v2';
   return m;
 }

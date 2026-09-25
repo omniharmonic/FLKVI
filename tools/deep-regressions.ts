@@ -36,13 +36,15 @@ test('A district does not assemble roads in distant source areas',()=>{
 });
 test('Network merge preserves initial node indices and deduplicates overlapping sources',()=>{
  const r=mergeDistrictGraphs(root,[rebased,rebased],()=>true);
- assert.equal(r.graph.nodes.length,root.graph.nodes.length+source.graph.nodes.length);
- assert.equal(r.graph.edges.length,root.graph.edges.length+source.graph.edges.length);
+ const once=mergeDistrictGraphs(root,[rebased],()=>true);
+ assert.equal(r.graph.nodes.length,once.graph.nodes.length);
+ assert.equal(r.graph.edges.length,once.graph.edges.length);
+ assert(r.graph.edges.length>mergeDistrictGraphs(root,[],()=>true).graph.edges.length);
  assert.equal(r.graph.nodes[0].id,root.graph.nodes[0].id);
  for(const e of r.graph.edges){assert(r.graph.nodes[e.from]);assert(r.graph.nodes[e.to]);}
 });
 test('Network excludes edges leading into unready districts',()=>{
- const r=mergeDistrictGraphs(root,[rebased],()=>false);assert.equal(r.graph.edges.length,root.graph.edges.length);
+ const r=mergeDistrictGraphs(root,[rebased],()=>false);assert.equal(r.graph.edges.length,mergeDistrictGraphs(root,[],()=>true).graph.edges.length);
 });
 // A valid flat Terrarium tile at 100 m absolute elevation, with no mapped roads/buildings.
 const pixels=new Uint8Array(256*256*4);for(let i=0;i<256*256;i++)pixels.set([128,100,0,255],i*4);

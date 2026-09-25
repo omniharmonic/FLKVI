@@ -44,13 +44,14 @@ export class GroundCover {
   name='ground-cover';order=52;
   readonly group=new THREE.Group();
   private indices:Index[];
+  private indexCache = new WeakMap<Recipe, Index>();
   private chunks=new Map<string,THREE.Group>();
   private kits=new Map<Biome,{plant:THREE.BufferGeometry;rock:THREE.BufferGeometry;mat:THREE.Material}>();
   private timer=0;private quality='';
   private time={value:0};private range={value:100};
   private plantMat:THREE.MeshStandardMaterial;
   constructor(private g:Game){
-    this.group.name='regional-ground-cover';g.scene.add(this.group);this.indices=[index(g.recipe)];
+    this.group.name='regional-ground-cover';g.scene.add(this.group);this.indices=[this.getIndex(g.recipe)];
     this.plantMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.92,side:THREE.DoubleSide});
     this.plantMat.onBeforeCompile=sh=>{
       sh.uniforms.uCoverTime=this.time;sh.uniforms.uCoverRange=this.range;
@@ -67,14 +68,24 @@ export class GroundCover {
           if(fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)>coverFade)discard;`);
     };
     this.plantMat.customProgramCacheKey=()=> 'flk-ground-cover-v1';
-    g.events.on('districtsChanged',({recipes})=>{this.indices=[index(g.recipe),...recipes.map(index)];this.clear();});
+    g.events.on('districtsChanged',({recipes})=>{
+      this.indices=[this.getIndex(g.recipe),...recipes.map(r=>this.getIndex(r))];
+      // Preserve unaffected plants. Re-indexing the entire initial city and rebuilding every nearby
+      // instance buffer on each district arrival produced avoidable main-thread and GPU churn.
+      for(const [key,root]of this.chunks) {
+        const [i,j]=key.split(',').map(Number);
+        if(!g.world.streaming?.isReady((i+.5)*CELL,(j+.5)*CELL))this.remove(key,root);
+        else if(!root.children.length)this.remove(key,root);
+      }
+    });
   }
+  private getIndex(recipe:Recipe){let cached=this.indexCache.get(recipe);if(!cached){cached=index(recipe);this.indexCache.set(recipe,cached);}return cached;}
   private kit(biome:Biome){
     let k=this.kits.get(biome);if(k)return k;
-    const rock=new THREE.IcosahedronGeometry(1,1),p=rock.attributes.position;
+    const rock=new THREE.IcosahedronGeometry(1,2),p=rock.attributes.position;
     for(let i=0;i<p.count;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i),n=1+.14*Math.sin(x*12+z*7)*Math.cos(y*9);p.setXYZ(i,x*n,y*n*.72,z*n);}
     rock.computeVertexNormals();
-    k={plant:plantGeometry(biome),rock,mat:surfaceMaterial(biome==='desert'?'sandstone':'stone',{tint:biome==='desert'?'#d7a286':'#aaa99f',roughness:.96})};
+    k={plant:plantGeometry(biome),rock,mat:surfaceMaterial('alpine-rock',{tint:biome==='desert'?'#c9aa8b':'#d5d6ce',roughness:.92,patch:{worldUv:true,macro:.12,macroScale:3}})};
     this.kits.set(biome,k);return k;
   }
   private build(i:number,j:number){

@@ -53,9 +53,11 @@ interface Sub {
   near: boolean;
   /** detail geometry present on the GPU */
   built: boolean;
+  /** Keep the far facade if detailed generation failed; don't retry/log every frame. */
+  detailFailed: boolean;
   lod0: THREE.Group;
   /** in-progress time-sliced detail build */
-  job: { i: number; B: Buckets } | null;
+  job: { i: number; B: Buckets; failed: boolean } | null;
 }
 
 interface Chunk {
@@ -159,7 +161,7 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
       subs.push({
         cx: e.cx + (q & 1 ? SUB / 2 : -SUB / 2), cz: e.cz + (q & 2 ? SUB / 2 : -SUB / 2), half: SUB / 2,
         list: qs[q], r1s: [a.s1[0], z.s1[0]], r1g: [a.g1[0], z.g1[0]],
-        tris0, dNear: lodD, near: false, built: false, lod0, job: null,
+        tris0, dNear: lodD, near: false, built: false, detailFailed: false, lod0, job: null,
       });
     }
     for (const su of subs) su.dNear = nearDistance(su.tris0, lodD, minD);
@@ -172,9 +174,19 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
         if (!su.list.length || subDist(su, sp[0], sp[1], 0) >= su.dNear - 20) continue;
         const a = marks[q], z = marks[q + 1];
         addLod0(su, B.s[0].buildRange(a.s0[0], z.s0[0], a.s0[1], z.s0[1]), B.g[0].buildRange(a.g0[0], z.g0[0], a.g0[1], z.g0[1]), surfM, glassM, stats);
-        su.built = su.near = true;
+        su.built = su.near = su.lod0.children.length > 0;
       }
     }
+    // Array-material meshes only draw geometry groups. A district can be attached and
+    // rendered while paused (or between update and render), so it must have complete walls
+    // immediately, before its first LOD update. Never expose roofs over empty facade groups.
+    ch.mask1 = 0;
+    for(let q=0;q<subs.length;q++){
+      const show0=subs[q].near&&subs[q].built;
+      subs[q].lod0.visible=show0;
+      if(subs[q].list.length&&!show0)ch.mask1|=1<<q;
+    }
+    setLod1Mask(ch,ch.mask1);
     chunks.push(ch);
     group.add(ch.group);
   }
@@ -233,23 +245,34 @@ export async function buildFromRecipe(recipe: Recipe, onProgress: Progress = () 
         if (!su.list.length) continue;
         const d = subDist(su, camPos.x, camPos.z, camPos.y - c.groundY - 10);
         su.near = su.near ? d < su.dNear + 20 : d < su.dNear - 20;
-        if (su.near && !su.built) {
+        if (su.near && !su.built && !su.detailFailed) {
           // time-sliced detail build for quarters that became near
-          if (!su.job) su.job = { i: 0, B: newLod0Buckets() };
+          if (!su.job) su.job = { i: 0, B: newLod0Buckets(), failed: false };
           const job = su.job;
           while (job.i < su.list.length && performance.now() < budgetEnd) {
-            try { setBuildingIndex(recipe.buildings); generateBuilding(job.B, su.list[job.i], region); } catch { /* ignore */ }
+            try { setBuildingIndex(recipe.buildings); generateBuilding(job.B, su.list[job.i], region); }
+            catch(error){
+              console.warn('[buildings] keeping complete far facade after detail failure',su.list[job.i].id,error);
+              job.failed=true;break;
+            }
             job.i++;
           }
-          if (job.i >= su.list.length) {
-            addLod0(su, job.B.s[0].build(), job.B.g[0].build(), surfM, glassM, null);
-            if (hulls && gRef) {
-              setShadowCascades(gRef, su.lod0, 1);
-              if (c.shadowDetail === false) for (const m of su.lod0.children as THREE.Mesh[]) m.castShadow = false;
+          if(job.failed){su.detailFailed=true;su.job=null;}
+          else if (job.i >= su.list.length) {
+            const surface=job.B.s[0].build(),glass=job.B.g[0].build();
+            if(!surface && (su.r1s[1]>su.r1s[0] || !glass)){
+              glass?.dispose();su.detailFailed=true;su.job=null;
+              console.warn('[buildings] keeping complete far facade after empty detail',c.key,q);
+            }else{
+              addLod0(su, surface, glass, surfM, glassM, null);
+              if (hulls && gRef) {
+                setShadowCascades(gRef, su.lod0, 1);
+                if (c.shadowDetail === false) for (const m of su.lod0.children as THREE.Mesh[]) m.castShadow = false;
+              }
+              su.job = null;
+              su.built = true;
+              refreshSigns();
             }
-            su.job = null;
-            su.built = true;
-            refreshSigns();
           }
         } else if (!su.near && su.job) su.job = null;
         else if (!su.near && su.built && d > Math.max(450, su.dNear * 2.2 + 150)) disposeLod0(su);

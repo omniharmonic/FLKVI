@@ -17,8 +17,24 @@ export const groups = (member: number, filter = 0xffff) => ((member << 16) | fil
 /** Query groups that only hit terrain + buildings (cheap LOS). */
 export const LOS_QUERY_GROUPS = groups(0xffff, GROUP_STATIC);
 
+/** Horizontal extents for safe local overlap queries (no global Rapier BVH). */
+export const staticColliderBounds = new WeakMap<RAPIER_NS.Collider, { minX: number; minZ: number; maxX: number; maxZ: number }>();
+function rememberBounds(collider: RAPIER_NS.Collider, vertices: ArrayLike<number>) {
+  let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < vertices.length; i += 3) {
+    minX = Math.min(minX, vertices[i]); maxX = Math.max(maxX, vertices[i]);
+    minZ = Math.min(minZ, vertices[i + 2]); maxZ = Math.max(maxZ, vertices[i + 2]);
+  }
+  staticColliderBounds.set(collider, { minX, minZ, maxX, maxZ });
+}
+
 export function buildTerrainCollider(g: Game, hf: Heightfield) {
   const R = g.rapier, W = g.physics;
+  // Retaining-wall carving moves vertices sideways to make a vertical face. A
+  // regular heightfield cannot represent that: it leaves an invisible ramp over
+  // the sidewalk. Keep cheap heightfields elsewhere and use the exact terrain
+  // triangles only for patches containing those displaced vertices.
+  if (hf.off?.some(v => v !== 0)) return buildDisplacedTerrainCollider(g, hf);
   const nrows = hf.rows - 1, ncols = hf.cols - 1;
   const width = ncols * hf.cell, depth = nrows * hf.cell;
   const body = W.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(hf.ox + width / 2, 0, hf.oz + depth / 2));
@@ -26,9 +42,51 @@ export function buildTerrainCollider(g: Game, hf: Heightfield) {
   // probe a new terrain tile: that advances player/vehicle physics outside the fixed loop.
   const h = new Float32Array((nrows + 1) * (ncols + 1));
   for (let r = 0; r <= nrows; r++) for (let c = 0; c <= ncols; c++) h[r + c * (nrows + 1)] = hf.h[r * hf.cols + c];
-  const col = W.createCollider(R.ColliderDesc.heightfield(nrows, ncols, h, { x: width, y: 1, z: depth })
+  const col = W.createCollider(R.ColliderDesc.heightfield(nrows, ncols, h, { x: width, y: 1, z: depth }, R.HeightFieldFlags.FIX_INTERNAL_EDGES)
     .setCollisionGroups(groups(GROUP_STATIC)).setFriction(1), body);
   return col;
+}
+
+function buildDisplacedTerrainCollider(g: Game, hf: Heightfield) {
+  const R = g.rapier, W = g.physics;
+  const body = W.createRigidBody(R.RigidBodyDesc.fixed());
+  let first: RAPIER_NS.Collider | undefined;
+  const size = 64, off = hf.off!;
+  for (let r0 = 0; r0 < hf.rows - 1; r0 += size) for (let c0 = 0; c0 < hf.cols - 1; c0 += size) {
+    const rows = Math.min(size, hf.rows - 1 - r0), cols = Math.min(size, hf.cols - 1 - c0);
+    let displaced = false;
+    for (let r = 0; r <= rows && !displaced; r++) for (let c = 0; c <= cols; c++) {
+      const k = ((r0 + r) * hf.cols + c0 + c) * 2;
+      if (off[k] || off[k + 1]) { displaced = true; break; }
+    }
+    let desc: RAPIER_NS.ColliderDesc;
+    let collisionVertices: Float32Array | undefined;
+    if (displaced) {
+      const vertices = new Float32Array((rows + 1) * (cols + 1) * 3);
+      collisionVertices = vertices;
+      const indices = new Uint32Array(rows * cols * 6);
+      for (let r = 0; r <= rows; r++) for (let c = 0; c <= cols; c++) {
+        const k = (r0 + r) * hf.cols + c0 + c, i = (r * (cols + 1) + c) * 3;
+        vertices[i] = hf.ox + (c0 + c) * hf.cell + off[k * 2];
+        vertices[i + 1] = hf.h[k];
+        vertices[i + 2] = hf.oz + (r0 + r) * hf.cell + off[k * 2 + 1];
+      }
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const a = r * (cols + 1) + c, b = a + 1, d = a + cols + 1;
+        indices.set([a, d, b, b, d, d + 1], (r * cols + c) * 6);
+      }
+      desc = R.ColliderDesc.trimesh(vertices, indices, R.TriMeshFlags.FIX_INTERNAL_EDGES | R.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES);
+    } else {
+      const heights = new Float32Array((rows + 1) * (cols + 1));
+      for (let r = 0; r <= rows; r++) for (let c = 0; c <= cols; c++) heights[r + c * (rows + 1)] = hf.h[(r0 + r) * hf.cols + c0 + c];
+      desc = R.ColliderDesc.heightfield(rows, cols, heights, { x: cols * hf.cell, y: 1, z: rows * hf.cell }, R.HeightFieldFlags.FIX_INTERNAL_EDGES)
+        .setTranslation(hf.ox + (c0 + cols / 2) * hf.cell, 0, hf.oz + (r0 + rows / 2) * hf.cell);
+    }
+    const col = W.createCollider(desc.setCollisionGroups(groups(GROUP_STATIC)).setFriction(1), body);
+    if (collisionVertices) rememberBounds(col, collisionVertices);
+    first ??= col;
+  }
+  return first!;
 }
 
 export function buildBuildingColliders(g: Game, buildings: RecipeBuilding[], chunk = 180) {
@@ -59,7 +117,7 @@ export function buildBuildingColliders(g: Game, buildings: RecipeBuilding[], chu
     if (!bin.i.length) continue;
     const desc = R.ColliderDesc.trimesh(new Float32Array(bin.v), new Uint32Array(bin.i), R.TriMeshFlags.FIX_INTERNAL_EDGES);
     desc.setCollisionGroups(groups(GROUP_STATIC));
-    W.createCollider(desc, body);
+    rememberBounds(W.createCollider(desc, body), bin.v);
   }
   return body;
 }
@@ -82,7 +140,7 @@ export function buildWallColliders(g: Game, walls: WallBox[], prisms: Prism[]) {
     for (const q of p.ring) v.push(q[0], p.y0, q[1]);
     for (const q of p.ring) v.push(q[0], p.y1, q[1]);
     for (let k = 0; k < n; k++) { const a = k, c = (k + 1) % n; idx.push(a, c, n + c, a, n + c, n + a); }
-    W.createCollider(R.ColliderDesc.trimesh(new Float32Array(v), new Uint32Array(idx)).setCollisionGroups(gs), body);
+    rememberBounds(W.createCollider(R.ColliderDesc.trimesh(new Float32Array(v), new Uint32Array(idx)).setCollisionGroups(gs), body), v);
   }
 }
 
@@ -120,17 +178,37 @@ export function makeLos(g: Game) {
 export function buildMeshColliders(g: Game, meshes: THREE.Mesh[]) {
   const R = g.rapier, W = g.physics;
   const body = W.createRigidBody(R.RigidBodyDesc.fixed());
+  // Material boundaries are not physical edges. Welding sidewalk tops, curb
+  // faces and paving in each spatial chunk gives Rapier adjacent faces for its
+  // internal-edge correction and avoids snagging on separate triangle strips.
+  const chunks = new Map<string, THREE.Mesh[]>();
   for (const m of meshes) {
-    const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const idx = m.geometry.getIndex();
-    if (!pos || !idx || idx.count < 3) continue;
-    m.updateWorldMatrix(true, false);
-    const vertices = new Float32Array(pos.count * 3);
-    const point = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) point.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).toArray(vertices, i * 3);
-    const desc = R.ColliderDesc.trimesh(vertices, new Uint32Array(idx.array as ArrayLike<number>), R.TriMeshFlags.FIX_INTERNAL_EDGES);
+    const key = m.name.includes('|') ? m.name.slice(m.name.indexOf('|')) : m.uuid;
+    const list = chunks.get(key) ?? [];
+    list.push(m); chunks.set(key, list);
+  }
+  const point = new THREE.Vector3();
+  for (const chunk of chunks.values()) {
+    let vertexCount = 0, indexCount = 0;
+    for (const m of chunk) {
+      vertexCount += m.geometry.getAttribute('position')?.count ?? 0;
+      indexCount += m.geometry.getIndex()?.count ?? 0;
+    }
+    if (indexCount < 3) continue;
+    const vertices = new Float32Array(vertexCount * 3), indices = new Uint32Array(indexCount);
+    let v = 0, t = 0;
+    for (const m of chunk) {
+      const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const idx = m.geometry.getIndex();
+      if (!pos || !idx) continue;
+      m.updateWorldMatrix(true, false);
+      for (let i = 0; i < pos.count; i++) point.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).toArray(vertices, (v + i) * 3);
+      for (let i = 0; i < idx.count; i++) indices[t++] = idx.getX(i) + v;
+      v += pos.count;
+    }
+    const desc = R.ColliderDesc.trimesh(vertices, indices, R.TriMeshFlags.FIX_INTERNAL_EDGES | R.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES | R.TriMeshFlags.DELETE_DUPLICATE_TRIANGLES);
     desc.setCollisionGroups(groups(GROUP_STATIC)).setFriction(1.0);
-    W.createCollider(desc, body);
+    rememberBounds(W.createCollider(desc, body), vertices);
   }
   return body;
 }

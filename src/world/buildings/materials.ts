@@ -235,7 +235,7 @@ export async function prepareBuildingTextures(timeoutMs = 10000): Promise<void> 
   if (surfaceMat) return;
   const ids: string[] = LAYER_IDS.filter((id) => !NO_LIB.has(id));
   ids.push('decal-leak-2');
-  const all = Promise.all(ids.map((id) => textureSetReady(id).catch(() => null)));
+  const all = Promise.all(ids.map((id) => textureSetReady(id, id === 'decal-leak-2' ? undefined : 'facade').catch(() => null)));
   await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
 }
 
@@ -248,14 +248,19 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
   LAYER_IDS.forEach((id, li) => {
     let a: HTMLCanvasElement | null = null, n: HTMLCanvasElement | null = null;
     let da: Uint8ClampedArray | null = null, dn: Uint8ClampedArray | null = null;
+    let roughPixels: Uint8ClampedArray | null = null, aoPixels: Uint8ClampedArray | null = null;
     let sizeM = 2, rgh = 0.85, mtl = 0;
     let lib = null;
-    try { lib = NO_LIB.has(id) ? null : textureSet(id as TextureId); } catch { lib = null; }
+    try { lib = NO_LIB.has(id) ? null : textureSet(id as TextureId, 'facade'); } catch { lib = null; }
     if (lib?.maps.map?.image) {
       a = drawToCanvas(lib.maps.map.image, R);
       if (a) {
         usingLibraryTextures = true;
         n = lib.maps.normalMap?.image ? drawToCanvas(lib.maps.normalMap.image, R) : null;
+        const rc = drawToCanvas(lib.maps.roughnessMap?.image, R);
+        const ac = drawToCanvas(lib.maps.aoMap?.image, R);
+        if (rc) roughPixels = pixels(rc, R);
+        if (ac) aoPixels = pixels(ac, R);
         sizeM = SIZE_FIX[id] ?? (lib.sizeM || 2);
         const pp = procParams(id);
         rgh = pp.roughness; mtl = pp.metalness;
@@ -273,6 +278,12 @@ export function surfaceMaterial(): THREE.MeshStandardMaterial {
     // procedural layers hand over their CPU pixel arrays; library/atlas canvases are CPU-backed → no GPU readback
     if (!da) da = pixels(a, R);
     if (!dn) dn = pixels(n!, R);
+    // Pack the scans' roughness and cavity data into unused alpha channels. The existing two
+    // arrays carry all four PBR maps: no extra texture allocations or draw calls.
+    for (let p = 0; p < da.length; p += 4) {
+      dn[p + 3] = roughPixels ? roughPixels[p] : Math.round(rgh * 255);
+      if (id !== 'ghost' && id !== 'plaque' && id !== 'mural') da[p + 3] = aoPixels ? aoPixels[p] : 255;
+    }
     const base = averageOf(da);
     // canvas row 0 = top = v 1 → flip rows into the data texture
     const off = li * R * R * 4;
@@ -389,12 +400,19 @@ ${NOISE_GLSL}`)
       }
     }
   }`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = uLRough[bL];')
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  vec4 bNormalRough = texture(uNrmArr, vec3(vNormalMapUv / uLScale[bL], float(bL)));
+  roughnessFactor = clamp(bNormalRough.a, 0.22, 1.0);`)
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = uLMetal[bL];')
-      .replace('texture2D( normalMap, vNormalMapUv )', 'texture(uNrmArr, vec3(vNormalMapUv / uLScale[bL], float(bL)))')
-      .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * uLNrm[bL];');
+      // onBeforeCompile runs BEFORE shader chunks expand. Replacing text inside an unexpanded
+      // chunk did nothing: every facade was shading with the flat 1px dummy normal map.
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps
+        .replaceAll('texture2D( normalMap, vNormalMapUv )', 'bNormalRough')
+        .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * uLNrm[bL];'))
+      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+  reflectedLight.indirectDiffuse *= mix(0.35, 1.0, bTex.a);`);
   };
-  m.customProgramCacheKey = () => 'bldg-surface-v3';
+  m.customProgramCacheKey = () => 'bldg-surface-pbr-v4';
   surfaceMat = m;
   return m;
 }

@@ -5,9 +5,10 @@ import type { Progress } from '../core/location';
 import type { WorldAPI } from '../core/api';
 import type { Vec2, Vec3, RecipeTree } from '../core/types';
 import { preloadLibrary } from '../assets/library';
+import { prepareStreetKit } from '../assets/street-kit';
 import { buildBuildings, type BuildingsResult } from './buildings';
 import { setFrontInfo } from './buildings/streetDetail';
-import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, buildFarTerrain, updateTerrainLod } from './terrain';
+import { makeFineHeightfield, bakeLandMask, terrainMaterial, buildTerrainMeshes, buildFarTerrain, updateTerrainLod, terrainAssets } from './terrain';
 import { RoadNetwork } from './roads';
 import { buildAreas, waterUniforms } from './areas';
 import { ChunkBatcher, Grid, pointInPoly, yieldFrame } from './util';
@@ -39,7 +40,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
     onProgress(s, Math.max(0, Math.min(1, f)));
   };
   P('Loading materials', 0);
-  try { await preloadLibrary((f) => P('Loading materials', f * 0.15)); } catch (e) { console.warn('[world] preloadLibrary failed', e); }
+  try { await Promise.all([preloadLibrary((f) => P('Loading materials', f * 0.15)), prepareStreetKit()]); } catch (e) { console.warn('[world] preloadLibrary failed', e); }
 
   const root = new THREE.Group();
   root.name = 'world';
@@ -48,7 +49,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
   // ---- ground data
   P('Shaping terrain', 0.16);
   await yieldFrame();
-  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving', 'stone', 'sandstone']);
+  await ensureSurfaces(['decal-cracks', 'decal-oil', 'decal-manhole', 'asphalt', 'asphalt-patched', 'concrete', 'concrete-sidewalk', 'curb', 'grass', 'grass-dry', 'dirt', 'gravel', 'paving', 'stone', 'sandstone', ...terrainAssets(recipe)]);
   const hf = makeFineHeightfield(recipe.terrain, recipe.bounds);
   const h0 = hf.h.slice();
   const roads = new RoadNetwork(recipe);
@@ -308,7 +309,7 @@ export async function buildWorld(g: Game, onProgress: Progress): Promise<void> {
       landmarks?.update(game);
     },
   });
-  g.addSystem(new WorldStreaming(g, hf));
+  g.addSystem(new WorldStreaming(g, hf, props));
   g.addSystem(new GroundCover(g));
   P('done', 1);
   console.info('[world] stage ms: ' + times.join(' | '));

@@ -398,5 +398,45 @@
   "author": "ambientCG (Lennart Demes)",
   "sizeM": null,
   "res": "1k"
+ },
+ "desert-sand": {
+  "source": "polyhaven",
+  "sourceId": "red_sand",
+  "url": "https://polyhaven.com/a/red_sand",
+  "author": "Rohit Seervi",
+  "sizeM": 3,
+  "res": "1k"
+ },
+ "snow": {
+  "source": "polyhaven",
+  "sourceId": "snow_02",
+  "url": "https://polyhaven.com/a/snow_02",
+  "author": "Rob Tuytel",
+  "sizeM": 2,
+  "res": "1k"
+ },
+ "alpine-rock": {
+  "source": "polyhaven",
+  "sourceId": "rocky_terrain_02",
+  "url": "https://polyhaven.com/a/rocky_terrain_02",
+  "author": "Amal Kumar",
+  "sizeM": 90,
+  "res": "1k"
+ },
+ "forest-floor": {
+  "source": "polyhaven",
+  "sourceId": "forest_floor",
+  "url": "https://polyhaven.com/a/forest_floor",
+  "author": "eye-candy.xyz",
+  "sizeM": 2.14,
+  "res": "1k"
+ },
+ "coastal-sand": {
+  "source": "polyhaven",
+  "sourceId": "coast_sand_01",
+  "url": "https://polyhaven.com/a/coast_sand_01",
+  "author": "Rob Tuytel",
+  "sizeM": 15,
+  "res": "1k"
  }
 }

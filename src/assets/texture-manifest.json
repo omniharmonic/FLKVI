@@ -10,6 +10,17 @@
   "res": 1024,
   "avg": "#73593d"
  },
+ "alpine-rock": {
+  "sizeM": 90,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#514e1d"
+ },
  "asphalt": {
   "sizeM": 3,
   "maps": [
@@ -112,7 +123,7 @@
   "avg": "#8f6652"
  },
  "brick-tan": {
-  "sizeM": 1.35,
+  "sizeM": 4,
   "maps": [
    "color",
    "normal",
@@ -145,6 +156,17 @@
   "res": 1024,
   "avg": "#5f5f5f",
   "tintable": true
+ },
+ "coastal-sand": {
+  "sizeM": 15,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#83725d"
  },
  "cobble": {
   "sizeM": 2.4,
@@ -331,6 +353,17 @@
   "avg": "#191d1e",
   "decal": true
  },
+ "desert-sand": {
+  "sizeM": 3,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#815947"
+ },
  "dirt": {
   "sizeM": 2,
   "maps": [
@@ -341,6 +374,17 @@
   ],
   "res": 1024,
   "avg": "#64523f"
+ },
+ "forest-floor": {
+  "sizeM": 2.14,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#a27f59"
  },
  "grass": {
   "sizeM": 1.4,
@@ -456,7 +500,7 @@
   "tintable": true
  },
  "roof-asphalt-shingle": {
-  "sizeM": 5,
+  "sizeM": 8,
   "maps": [
    "color",
    "normal",
@@ -544,6 +588,17 @@
   ],
   "res": 1024,
   "avg": "#a69275"
+ },
+ "snow": {
+  "sizeM": 2,
+  "maps": [
+   "color",
+   "normal",
+   "rough",
+   "ao"
+  ],
+  "res": 1024,
+  "avg": "#a5a5a8"
  },
  "stone": {
   "sizeM": 2,

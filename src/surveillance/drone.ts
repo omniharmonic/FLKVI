@@ -27,12 +27,13 @@ export class Drone {
   nav: THREE.MeshBasicMaterial[] = [];
   cone: THREE.Mesh;
   coneMat: THREE.MeshBasicMaterial;
-  light: THREE.SpotLight;
+  light: THREE.SpotLight | null;
   angVel = new THREE.Vector3();
   crashedAt = 0;
   lowTarget = new THREE.Vector3();
 
-  constructor(public id: string) {
+  constructor(public id: string, light: THREE.SpotLight) {
+    this.light = light;
     const M = mats();
     const body = new THREE.MeshStandardMaterial({ color: '#2b2e33', roughness: 0.45, metalness: 0.2 });
     const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, parent: THREE.Object3D = this.obj) => {
@@ -71,10 +72,6 @@ export class Drone {
     this.cone = new THREE.Mesh(new THREE.ConeGeometry(Math.tan((DRONE_CONE_DEG * Math.PI) / 180), h, 32, 1, true).translate(0, -h / 2, 0), this.coneMat);
     this.cone.frustumCulled = false;
     this.obj.add(this.cone);
-    this.light = new THREE.SpotLight(0xdde8ff, 0, 60, (DRONE_CONE_DEG * Math.PI) / 180, 0.5, 1.4);
-    this.light.position.set(0, -0.15, 0);
-    this.light.target.position.set(0, -10, 0);
-    this.obj.add(this.light, this.light.target);
     this.obj.name = `surv-${id}`;
   }
 
@@ -99,7 +96,7 @@ export class Drone {
       }
       for (const m of this.nav) m.color.setRGB(0, 0, 0);
       this.cone.visible = false;
-      this.light.intensity = 0;
+      this.releaseLight();
       for (const d of this.discs) d.visible = false;
       this.obj.position.copy(this.pos);
       return;
@@ -147,10 +144,38 @@ export class Drone {
     this.cone.rotation.set(-this.obj.rotation.x, 0, -this.obj.rotation.z);
     this.coneMat.color.set(this.seesPlayer ? 0xff2a1a : 0x88c0ff);
     this.coneMat.opacity = (this.seesPlayer ? 0.05 : 0.018) * (1 + night * 0.4);
-    this.light.intensity = night > 0.3 ? 900 * night : 0;
+    if (this.light) {
+      this.light.position.copy(this.obj.position);
+      this.light.position.y -= 0.15;
+      this.light.target.position.set(this.pos.x, gy, this.pos.z);
+      this.light.target.updateMatrixWorld();
+      this.light.intensity = night > 0.3 ? 900 * night : 0;
+    }
+  }
+
+  /** Keep the scene's light count fixed even when a drone falls or is removed. */
+  private releaseLight() {
+    if (this.light) this.light.intensity = 0;
+    this.light = null;
+  }
+
+  dispose() {
+    this.releaseLight();
+    this.obj.removeFromParent();
+    const shared = new Set<THREE.Material>(Object.values(mats()));
+    const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
+    this.obj.traverse(o => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      geometries.add(mesh.geometry);
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) if (!shared.has(material)) materials.add(material);
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
   }
 
   knockDown() {
+    this.releaseLight();
     this.mode = 'falling';
     this.vel.set((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2);
     this.angVel.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 8);
