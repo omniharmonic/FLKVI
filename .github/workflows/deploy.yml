@@ -27,7 +27,7 @@ jobs:
       - run: npm run check:licenses
       - run: npm run build:fast
         env:
-          BASE: /groundtruth/
+          BASE: /${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

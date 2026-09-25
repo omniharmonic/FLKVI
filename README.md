@@ -12,7 +12,7 @@ catch up with you.
 
 ![Pearl Street Mall, Boulder, Colorado, at golden hour](docs/screenshot.jpg)
 
-**Play:** <https://omniharmonic.github.io/groundtruth/>
+**Play:** <https://omniharmonic.github.io/FLKVI/>
 
 > Desktop only: it needs a keyboard, a mouse and WebGL 2, and phones and tablets are turned away at
 > the title screen. A discrete GPU is recommended; it is developed and tested mainly in Chromium

@@ -5,13 +5,13 @@
   "description": "Browser open-world game: take down surveillance cameras in photoreal 3D versions of real US places, compiled at runtime from OpenStreetMap and open terrain data.",
   "license": "MIT",
   "author": "Benjamin Life",
-  "homepage": "https://omniharmonic.github.io/groundtruth/",
+  "homepage": "https://omniharmonic.github.io/FLKVI/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/omniharmonic/groundtruth.git"
+    "url": "git+https://github.com/omniharmonic/FLKVI.git"
   },
   "bugs": {
-    "url": "https://github.com/omniharmonic/groundtruth/issues"
+    "url": "https://github.com/omniharmonic/FLKVI/issues"
   },
   "type": "module",
   "scripts": {
