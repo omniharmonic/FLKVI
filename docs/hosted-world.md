@@ -18,6 +18,8 @@ package store. Normal gameplay does not query Overpass or compile raw OSM.
    travel use this same path. Custom pins can use mapped coverage without an exact
    featured-city ID.
 5. The main thread builds render geometry and collision in serialized stages.
+   Boundary clipping reuses interior vertex/index buffers and interpolates only
+   crossing triangles; construction yields between paving and mesh stages.
    Travel prefetch follows velocity; far districts release geometry and physics.
 
 A static site can do this. Expanding the real dataset requires offline processing
@@ -92,6 +94,15 @@ weather, throttle-driven main-road and service-alley travel across a generated s
 reloading. Representative alpine, desert, urban, coastal, custom-pin and generated
 starts are checked separately, including deliberate hosted-data outages.
 
-Performance comparisons and deployed-browser results are recorded after the
-production smoke and travel soak. The test machine uses Chromium with Apple M4
+The first hosted deployment passed the public-site smoke and seven-transition
+travel soak, with zero errors or shader failures. A real picker pin also started
+with reverse geocoding blocked. Initial hosted loading used 18 map requests; the
+warm reload used one manifest request and reused all 17 data files from cache.
+
+Profiling then identified boundary geometry clipping as the main scene-construction
+hitch. Reusing interior vertices reduced the same district mesh stage from 111 ms
+to 18 ms locally. The follow-up retains clipped coverage, normals, texture
+coordinates and shared indices, with regression checks for each.
+
+Final production performance measurements accompany the release verification. The test machine uses Chromium with Apple M4
 ANGLE/Metal at 1440 × 900; this is not a guarantee for every browser or GPU.

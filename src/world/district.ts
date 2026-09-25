@@ -68,6 +68,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
       return hit;
     };
     mark('setup');
+    await yieldFrame();
     buildAreas(recipe, B, hf, roads, water, inBuilding);
     // Seam vertices agree exactly with already resident terrain; feather the correction over 24 m.
     for (let r=0;r<hf.rows;r++)for(let c=0;c<hf.cols;c++) {
@@ -82,6 +83,7 @@ export async function buildDistrict(g: Game, key: string, recipe: Recipe, seamHe
     // Set bases against the actual rendered terrain, not the source DEM.
     for(const b of recipe.buildings)if(!b.minHeight)b.baseY=Math.max(...b.footprint.map(p=>hf.sample(...p)));
     mark('paving');
+    await yieldFrame();
     const mats=roadMaterials();
     Object.values(mats).forEach(m=>ownedMaterials.add(m));
     const meshes=B.emit(root,mats,{receiveShadow:true,castShadow:{bridgeRail:true},renderOrder:{marking:1}});

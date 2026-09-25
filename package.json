@@ -29,7 +29,7 @@
     "test:integration": "bash tools/check-deep.sh",
     "test:collisions": "bash tools/check-collisions.sh",
     "test:streaming": "bash tools/check-streaming.sh",
-    "test:stability": "node --experimental-strip-types tools/streaming-continuation-regressions.ts && node --experimental-strip-types tools/compiler-identity-regressions.ts && node --experimental-strip-types tools/render-budget-regressions.ts",
+    "test:stability": "node --experimental-strip-types tools/streaming-continuation-regressions.ts && node --experimental-strip-types tools/compiler-identity-regressions.ts && node --experimental-strip-types tools/render-budget-regressions.ts && node --experimental-strip-types tools/geometry-clip-regressions.ts",
     "test:streaming:extended": "bash tools/check-streaming-overhaul.sh",
     "test:soak": "bash tools/check-world-soak.sh",
     "world:bake": "node --experimental-strip-types tools/bake-world.ts",
